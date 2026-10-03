@@ -7,7 +7,7 @@ use std::hash::Hash;
 use std::ops::{Deref, Range};
 
 use kurbo::{Affine, Point, Vec2};
-use ranim_diff::{Differ, Op};
+use ranim_diff::{Differ, Op, expand};
 
 use crate::Interpolate;
 use crate::anim::{Animation, RateFn};
@@ -24,14 +24,30 @@ pub struct Group<K> {
     pub ids: Vec<MobjectId>,
     /// Each part's key and its range of [`ids`](Group::ids); contiguous and in order.
     pub parts: Vec<(K, Range<usize>)>,
+    /// Runs of [`parts`](Group::parts) forming lines, diffed coarse-to-fine (SPEC §5.6);
+    /// contiguous and in order. Empty means one line.
+    pub lines: Vec<Range<usize>>,
 }
 
-impl<K> Group<K> {
-    /// Adds `states` to the scene as one group with the given parts.
-    pub fn add(s: &mut Scene, states: &[VState], parts: Vec<(K, Range<usize>)>) -> Self {
+/// Shapes grouped into keyed parts and lines, not yet in a scene: what a [`Group`] is added
+/// from or transforms into. Fields are as in [`Group`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Layout<K> {
+    /// The shapes, in order.
+    pub states: Vec<VState>,
+    /// Each part's key and its range of [`states`](Layout::states).
+    pub parts: Vec<(K, Range<usize>)>,
+    /// Runs of parts forming lines; empty means one line.
+    pub lines: Vec<Range<usize>>,
+}
+
+impl<K: Clone> Group<K> {
+    /// Adds the layout's shapes to the scene as one group.
+    pub fn add(s: &mut Scene, layout: &Layout<K>) -> Self {
         Self {
-            ids: states.iter().map(|m| s.add(m.clone())).collect(),
-            parts,
+            ids: layout.states.iter().map(|m| s.add(m.clone())).collect(),
+            parts: layout.parts.clone(),
+            lines: layout.lines.clone(),
         }
     }
 }
@@ -151,37 +167,73 @@ pub struct TransformDiff {
 }
 
 impl<K: Eq + Hash + Clone> Group<K> {
-    /// Plans the morph of this group into `to` (states grouped into `to_parts`) and updates
-    /// the group to describe the result. Play the returned animation next.
+    /// Plans the morph of this group into `to` and updates the group to describe the result.
+    /// Play the returned animation next.
     ///
-    /// Parts are matched by key with Myers' diff; moves and replacements pair by distance, and
-    /// non-adjacent deletes and inserts of the same `class` pair into a replacement (e.g.
-    /// `+` → `−`). New mobjects are added now, invisible; deleted ones leave the scene when
-    /// the animation ends.
+    /// Parts are matched by key with Myers' diff, line by line first when there are lines
+    /// (see [`diff`](Group::diff)). New mobjects are added now, invisible; deleted ones leave
+    /// the scene when the animation ends.
     pub fn transform_diff<C: Eq + Hash>(
         &mut self,
         s: &mut Scene,
-        to: &[VState],
-        to_parts: &[(K, Range<usize>)],
+        to: &Layout<K>,
         class: impl Fn(&K) -> Option<C>,
     ) -> TransformDiff {
-        let state = s.state();
+        let ops = self.diff(s.state(), to, class);
+        self.transform_ops(s, to, ops)
+    }
+
+    /// The edit script from this group's parts to `to`'s.
+    ///
+    /// Lines are diffed first, keyed by their parts' keys; parts of equal or moved lines pair
+    /// in order, and replaced runs of lines are diffed part by part. Moves and replacements
+    /// pair by distance, and non-adjacent deletes and inserts of the same `class` pair into a
+    /// replacement (e.g. `+` → `−`).
+    pub fn diff<C: Eq + Hash>(
+        &self,
+        state: &SceneState,
+        to: &Layout<K>,
+        class: impl Fn(&K) -> Option<C>,
+    ) -> Vec<Op> {
         let ca: Vec<Point> = (self.parts.iter())
             .map(|(_, r)| center(self.ids[r.clone()].iter().map(|id| &state[id])))
             .collect();
-        let cb: Vec<Point> = (to_parts.iter())
-            .map(|(_, r)| center(to[r.clone()].iter()))
+        let cb: Vec<Point> = (to.parts.iter())
+            .map(|(_, r)| center(to.states[r.clone()].iter()))
             .collect();
-        let ops = Differ::new(&self.parts, to_parts, |(k, _)| k.clone())
-            .cost(|i, j| ca[i].distance(cb[j]))
-            .class(|(k, _)| class(k))
-            .run();
+        #[allow(clippy::single_range_in_vec_init, reason = "one line of all parts")]
+        let lines = |l: &[Range<usize>], n: usize| match l {
+            [] => vec![0..n],
+            l => l.to_vec(),
+        };
+        let (la, lb) = (
+            lines(&self.lines, self.parts.len()),
+            lines(&to.lines, to.parts.len()),
+        );
+        let keys = |parts: &[(K, Range<usize>)], l: &[Range<usize>]| -> Vec<Vec<K>> {
+            (l.iter())
+                .map(|r| parts[r.clone()].iter().map(|(k, _)| k.clone()).collect())
+                .collect()
+        };
+        let (ka, kb) = (keys(&self.parts, &la), keys(&to.parts, &lb));
+        let outer = Differ::new(&ka, &kb, |k| k.clone()).run();
+        expand(&outer, &la, &lb, |ra, rb| {
+            let (ao, bo) = (ra.start, rb.start);
+            Differ::new(&self.parts[ra], &to.parts[rb], |(k, _)| k.clone())
+                .cost(|i, j| ca[ao + i].distance(cb[bo + j]))
+                .class(|(k, _)| class(k))
+                .run()
+        })
+    }
 
+    /// Like [`transform_diff`](Group::transform_diff), with the edit script given, e.g. a
+    /// [`diff`](Group::diff) with ops rewritten.
+    pub fn transform_ops(&mut self, s: &mut Scene, to: &Layout<K>, ops: Vec<Op>) -> TransformDiff {
         let glyphs = |parts: &[(K, Range<usize>)], r: Range<usize>| -> Vec<usize> {
             parts[r].iter().flat_map(|(_, g)| g.clone()).collect()
         };
         let mut tracks = Vec::new();
-        let mut new_ids = vec![None; to.len()];
+        let mut new_ids = vec![None; to.states.len()];
         for op in &ops {
             let (a, b, kind) = match op {
                 Op::Equal { a, b } => (*a..a + 1, *b..b + 1, Kind::Equal),
@@ -190,7 +242,7 @@ impl<K: Eq + Hash + Clone> Group<K> {
                 Op::Delete { a } => (*a..a + 1, 0..0, Kind::Delete),
                 Op::Insert { b } => (0..0, *b..b + 1, Kind::Insert),
             };
-            let (a, b) = (glyphs(&self.parts, a), glyphs(to_parts, b));
+            let (a, b) = (glyphs(&self.parts, a), glyphs(&to.parts, b));
             // Pair mobjects in order; leftovers fade out or in.
             for k in 0..a.len().max(b.len()) {
                 let (id, kind) = match (a.get(k), b.get(k)) {
@@ -199,7 +251,7 @@ impl<K: Eq + Hash + Clone> Group<K> {
                     (None, Some(&j)) => (
                         s.add(VState {
                             opacity: 0.0,
-                            ..to[j].clone()
+                            ..to.states[j].clone()
                         }),
                         Kind::Insert,
                     ),
@@ -207,7 +259,7 @@ impl<K: Eq + Hash + Clone> Group<K> {
                 };
                 let target = b.get(k).map(|&j| {
                     new_ids[j] = Some(id);
-                    to[j].clone()
+                    to.states[j].clone()
                 });
                 tracks.push(Track {
                     id,
@@ -223,7 +275,8 @@ impl<K: Eq + Hash + Clone> Group<K> {
             .into_iter()
             .map(|id| id.expect("ops cover every target part"))
             .collect();
-        self.parts = to_parts.to_vec();
+        self.parts = to.parts.clone();
+        self.lines = to.lines.clone();
         TransformDiff {
             tracks,
             ops,

@@ -1,9 +1,10 @@
 //! Text and math for ranim: Typst layout into glyph paths, grouped into diffable tokens
 //! (see `docs/SPEC.md` §6).
 //!
-//! [`math_tex`] and [`text`] typeset with the fonts bundled in `typst-assets`, so nothing needs
-//! installing. Each visible glyph (and each rule, like a fraction bar) becomes one [`VState`],
-//! filled white and centered on the origin.
+//! [`math_tex`], [`text`] and [`code`] typeset with the fonts bundled in `typst-assets`, so
+//! nothing needs installing. Each visible glyph (and each rule, like a fraction bar) becomes one
+//! [`VState`], filled white (or by syntax highlighting) and centered on the origin. [`list`]
+//! lays out boxed values for algorithm animations.
 
 use std::fmt;
 use std::ops::Range;
@@ -13,6 +14,7 @@ use ranim_core::color::{Color, WHITE};
 use ranim_core::geom::{SubPath, line_segment};
 use ranim_core::kurbo::{self, Affine, CubicBez, Point, Rect, Vec2};
 use ranim_core::{FRAME_HEIGHT, FRAME_WIDTH, Group, Scene, TransformDiff, VPath, VState};
+use ranim_core::{Interpolate, Layout, Op};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::layout::{Frame, FrameItem, Transform};
 use typst::syntax::{FileId, Source};
@@ -61,6 +63,9 @@ pub struct TextMobject {
     pub glyphs: Vec<VState>,
     /// Every glyph belongs to exactly one token; tokens are in glyph order.
     pub tokens: Vec<Token>,
+    /// Token ranges per line, for diffing line by line first (SPEC §5.6). Empty means one
+    /// line; only [`code`] has several.
+    pub lines: Vec<Range<usize>>,
 }
 
 /// Typesets Typst math, e.g. `"a^2 + b^2 = c^2"`. One token per glyph.
@@ -75,6 +80,46 @@ pub fn text(src: &str) -> TextMobject {
     TextMobject::text(src).unwrap_or_else(|e| panic!("text({src:?}): {e}"))
 }
 
+/// Typesets source code highlighted as `lang` (any language Typst's `raw` knows, e.g.
+/// `"rust"`). One token per identifier, number or punctuation character, grouped into lines.
+///
+/// Panics with Typst's error message if it doesn't compile; see [`TextMobject::code`].
+pub fn code(src: &str, lang: &str) -> TextMobject {
+    TextMobject::code(src, lang).unwrap_or_else(|e| panic!("code({src:?}): {e}"))
+}
+
+/// Side of one [`list`] cell, in scene units.
+pub const CELL: f64 = 1.0;
+
+/// Boxed values in a row, centered on the origin: the `ListMobject` of SPEC §7.1. Each token
+/// is one cell, its box then its text, keyed by the text. Animate with [`transform_list`].
+pub fn list<T: fmt::Display>(values: &[T]) -> TextMobject {
+    let mid = (values.len() as f64 - 1.0) / 2.0;
+    let (mut glyphs, mut tokens) = (Vec::new(), Vec::new());
+    for (i, v) in values.iter().enumerate() {
+        let at = Vec2::new((i as f64 - mid) * CELL, 0.0);
+        let label = text(&v.to_string());
+        let start = glyphs.len();
+        glyphs.push(VState::square(CELL * 0.9).shift(at));
+        glyphs.extend(label.glyphs.into_iter().map(|g| g.shift(at)));
+        tokens.push(Token {
+            key: TokenKey {
+                text: label.source,
+                level: 0,
+            },
+            glyphs: start..glyphs.len(),
+        });
+    }
+    TextMobject {
+        source: (tokens.iter().map(|t| t.key.text.as_str()))
+            .collect::<Vec<_>>()
+            .join(", "),
+        glyphs,
+        tokens,
+        lines: Vec::new(),
+    }
+}
+
 impl TextMobject {
     /// Typesets Typst math; `Err` holds Typst's error messages.
     pub fn math(src: &str) -> Result<Self, String> {
@@ -83,8 +128,17 @@ impl TextMobject {
 
     /// Typesets plain text; `Err` holds Typst's error messages.
     pub fn text(src: &str) -> Result<Self, String> {
-        let escaped = src.replace('\\', "\\\\").replace('"', "\\\"");
-        Self::typeset(src, &format!("#\"{escaped}\""), Tokens::Words)
+        Self::typeset(src, &format!("#{}", typst_str(src)), Tokens::Words)
+    }
+
+    /// Typesets highlighted source code; `Err` holds Typst's error messages.
+    pub fn code(src: &str, lang: &str) -> Result<Self, String> {
+        let body = format!(
+            "#raw(block: true, lang: {}, {})",
+            typst_str(lang),
+            typst_str(src)
+        );
+        Self::typeset(src, &body, Tokens::Code)
     }
 
     fn typeset(source: &str, body: &str, mode: Tokens) -> Result<Self, String> {
@@ -104,20 +158,42 @@ impl TextMobject {
 
         let mut glyphs = Vec::new();
         let mut tokens: Vec<Token> = Vec::new();
+        let mut lines = Vec::new();
+        let (mut line_start, mut line_y) = (0, None);
         let mut word_open = false;
         for r in runs {
             let Some(path) = r.path else {
                 word_open = false;
                 continue;
             };
+            // Code lines: the baseline moves down (Typst is y-down).
+            if mode == Tokens::Code && line_y.is_some_and(|y| r.y > y + 1.0) {
+                lines.push(line_start..tokens.len());
+                line_start = tokens.len();
+                word_open = false;
+            }
+            line_y = Some(r.y);
             let i = glyphs.len();
+            let fill = match mode {
+                // Highlighting themes are for light backgrounds: plain black text turns
+                // white, and colors are lightened.
+                Tokens::Code if r.fill == Color::rgb(0.0, 0.0, 0.0) => WHITE,
+                Tokens::Code => Color::lerp(&r.fill, &WHITE, 0.35),
+                _ => WHITE,
+            };
             glyphs.push(
                 VState::new(path.transform(to_scene))
-                    .fill(WHITE)
+                    .fill(fill)
                     .stroke(Color::TRANSPARENT, 0.0),
             );
-            match (mode, tokens.last_mut()) {
-                (Tokens::Words, Some(t)) if word_open && !r.new_item => {
+            let ident = |s: &str| s.chars().all(|c| c.is_alphanumeric() || c == '_');
+            let joins = |t: &Token| match mode {
+                Tokens::Glyphs => false,
+                Tokens::Words => !r.new_item,
+                Tokens::Code => !r.new_item && ident(&t.key.text) && ident(&r.text),
+            };
+            match tokens.last_mut() {
+                Some(t) if word_open && joins(t) => {
                     t.key.text.push_str(&r.text);
                     t.glyphs.end = i + 1;
                 }
@@ -131,10 +207,14 @@ impl TextMobject {
             }
             word_open = true;
         }
+        if mode == Tokens::Code && line_start < tokens.len() {
+            lines.push(line_start..tokens.len());
+        }
         Ok(Self {
             source: source.to_owned(),
             glyphs,
             tokens,
+            lines,
         })
     }
 
@@ -195,7 +275,16 @@ impl TextMobject {
 
     /// Adds every glyph to the scene as a group of tokens; the ids are in glyph order.
     pub fn add_to(&self, s: &mut Scene) -> Group<TokenKey> {
-        Group::add(s, &self.glyphs, self.parts())
+        Group::add(s, &self.layout())
+    }
+
+    /// Glyphs, tokens and lines as a [`Layout`].
+    pub fn layout(&self) -> Layout<TokenKey> {
+        Layout {
+            states: self.glyphs.clone(),
+            parts: self.parts(),
+            lines: self.lines.clone(),
+        }
     }
 
     /// Tokens as [`Group`] parts.
@@ -207,8 +296,9 @@ impl TextMobject {
 }
 
 /// Morphs text already in the scene into `to`, diffing tokens (SPEC §7): unchanged tokens
-/// slide, moved ones arc, and only real changes fade or morph. Updates `from` to the new text;
-/// play the result next.
+/// slide, moved ones arc, and only real changes fade or morph. Code is diffed line by line
+/// first, then token by token within changed lines. Updates `from` to the new text; play the
+/// result next.
 ///
 /// ```
 /// use ranim_core::{AnimationExt, Scene};
@@ -224,7 +314,44 @@ pub fn transform_diff(
     from: &mut Group<TokenKey>,
     to: &TextMobject,
 ) -> TransformDiff {
-    from.transform_diff(s, &to.glyphs, &to.parts(), operator_class)
+    from.transform_diff(s, &to.layout(), operator_class)
+}
+
+/// [`transform_diff`] for [`list`]s: values that change cell travel along arcs rather than
+/// slide, so swapping two values is two moves passing on opposite sides.
+///
+/// ```
+/// use ranim_core::{Op, Scene};
+/// use ranim_text::{list, transform_list};
+///
+/// let mut s = Scene::new();
+/// let mut l = list(&[5, 3, 8]).add_to(&mut s);
+/// let d = transform_list(&mut s, &mut l, &list(&[3, 5, 8]));
+/// assert_eq!(d.ops().iter().filter(|op| matches!(op, Op::Move { .. })).count(), 2);
+/// s.play(d);
+/// ```
+pub fn transform_list(
+    s: &mut Scene,
+    from: &mut Group<TokenKey>,
+    to: &TextMobject,
+) -> TransformDiff {
+    let to = to.layout();
+    let ops = (from.diff(s.state(), &to, |_| None::<()>).into_iter())
+        .map(|op| match op {
+            Op::Equal { a, b } if a != b => Op::Move { a, b },
+            op => op,
+        })
+        .collect();
+    from.transform_ops(s, &to, ops)
+}
+
+/// `s` as a Typst string literal.
+fn typst_str(s: &str) -> String {
+    let escaped = (s.replace('\\', "\\\\").replace('"', "\\\""))
+        .replace('\r', "")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t");
+    format!("\"{escaped}\"")
 }
 
 /// Lets non-adjacent operators replace each other (`+` → `−`), and relations likewise.
@@ -240,6 +367,8 @@ fn operator_class(k: &TokenKey) -> Option<u8> {
 enum Tokens {
     Glyphs,
     Words,
+    /// Identifier runs and single punctuation characters, in lines.
+    Code,
 }
 
 /// One glyph or rule in layout order. `path` is `None` for invisible glyphs (spaces).
@@ -249,6 +378,10 @@ struct Run {
     path: Option<VPath>,
     /// First glyph of a new text item: words never span items.
     new_item: bool,
+    /// Text color.
+    fill: Color,
+    /// Baseline, in Typst's y-down points.
+    y: f64,
 }
 
 fn walk(frame: &Frame, at: Affine, out: &mut Vec<Run>) {
@@ -262,6 +395,8 @@ fn walk(frame: &Frame, at: Affine, out: &mut Vec<Run>) {
                 level: 0,
                 path: shape(s).map(|p| p.transform(here)),
                 new_item: true,
+                fill: WHITE,
+                y: here.translation().y,
             }),
             FrameItem::Image(..) | FrameItem::Link(..) | FrameItem::Tag(_) => {}
         }
@@ -288,6 +423,13 @@ fn text_item(t: &TextItem, at: Affine, out: &mut Vec<Run>) {
         _ => 2,
     };
     let units = size / t.font.units_per_em();
+    let fill = match &t.fill {
+        typst::visualize::Paint::Solid(c) => {
+            let c = c.to_rgb();
+            Color::rgba(c.red, c.green, c.blue, c.alpha)
+        }
+        _ => WHITE,
+    };
     let mut x = 0.0;
     for (i, g) in t.glyphs.iter().enumerate() {
         let origin = Vec2::new(
@@ -306,6 +448,8 @@ fn text_item(t: &TextItem, at: Affine, out: &mut Vec<Run>) {
             level,
             path: (!path.subpaths.is_empty()).then(|| path.transform(place)),
             new_item: i == 0,
+            fill,
+            y: place.translation().y,
         });
     }
 }
@@ -514,6 +658,38 @@ mod tests {
         assert_eq!(keys(&t), ["Hello,", "\"big\"", "world"]);
         assert_eq!(t.tokens.last().unwrap().glyphs.len(), 5);
         assert_eq!(t.tokens.last().unwrap().glyphs.end, t.glyphs.len());
+    }
+
+    #[test]
+    fn code_tokens_and_lines() {
+        let t = code("fn main() {\n    let x_1 = f(\"hi\");\n}", "rust");
+        let lines: Vec<Vec<String>> = (t.lines.iter())
+            .map(|l| {
+                keys(&TextMobject {
+                    tokens: t.tokens[l.clone()].to_vec(),
+                    ..t.clone()
+                })
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                vec!["fn", "main", "(", ")", "{"],
+                vec!["let", "x_1", "=", "f", "(", "\"", "hi", "\"", ")", ";"],
+                vec!["}"],
+            ]
+        );
+        // Highlighted: keywords differ from plain punctuation, which is white.
+        assert_ne!(t.glyphs[0].fill, WHITE);
+        assert_eq!(t.glyphs[t.tokens[2].glyphs.start].fill, WHITE);
+    }
+
+    #[test]
+    fn list_cells() {
+        let l = list(&[5, 12]);
+        assert_eq!(keys(&l), ["5", "12"]);
+        assert_eq!(l.tokens[1].glyphs, 2..5, "box then two digits");
+        assert!((l.glyphs[0].path.center().x + CELL / 2.0).abs() < 1e-9);
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! SPEC §10 examples 1, 2 and 5: diff-driven transforms of equations, and a shape morph.
+//! SPEC §10 examples 1–5: diff-driven transforms of equations, code and lists, and a shape
+//! morph.
 //!
 //! `cargo run -p ranim-bevy --example diff` previews it (`[`/`]` jump between the parts);
 //! `cargo run -p ranim-bevy --example diff -- render --section commutativity -o comm.mp4`
@@ -6,7 +7,31 @@
 
 use ranim_core::color::{BLUE, YELLOW};
 use ranim_core::*;
-use ranim_text::{math_tex, text, transform_diff};
+use ranim_text::{code, list, math_tex, text, transform_diff, transform_list};
+
+const BEFORE: &str = r#"fn main() {
+    let scores = vec![3, 9, 4, 7];
+    let mut total = 0;
+    for s in &scores {
+        total += s;
+    }
+    let mean = total as f64 / scores.len() as f64;
+    println!("mean = {mean}");
+}"#;
+
+const AFTER: &str = r#"fn mean(scores: &[i32]) -> f64 {
+    let mut total = 0;
+    for s in scores {
+        total += s;
+    }
+    total as f64 / scores.len() as f64
+}
+
+fn main() {
+    let scores = vec![3, 9, 4, 7];
+    let mean = mean(&scores);
+    println!("mean = {mean}");
+}"#;
 
 fn construct(s: &mut Scene) {
     // 1. Pythagoras rearrangement.
@@ -47,6 +72,33 @@ fn construct(s: &mut Scene) {
         shape,
         eight.fill(YELLOW.with_alpha(0.5)).stroke(YELLOW, 0.04),
     ));
+    s.wait(1.0);
+    fade_all(s, [shape].iter());
+
+    // 3. Code refactor: extracting a function.
+    s.marker("code");
+    let mut src = code(BEFORE, "rust").scale(0.7).add_to(s);
+    s.play(write(&src).run_time(2.0));
+    s.wait(0.5);
+    let d = transform_diff(s, &mut src, &code(AFTER, "rust").scale(0.7));
+    s.play(d.run_time(2.5));
+    s.wait(1.0);
+    fade_all(s, src.iter());
+
+    // 4. Bubble sort: each swap is two moves.
+    s.marker("bubble-sort");
+    let mut v = vec![5, 1, 4, 2, 8, 3];
+    let mut cells = list(&v).scale(1.2).add_to(s);
+    s.play(write(&cells));
+    for i in 0..v.len() {
+        for j in 0..v.len() - 1 - i {
+            if v[j] > v[j + 1] {
+                v.swap(j, j + 1);
+                let d = transform_list(s, &mut cells, &list(&v).scale(1.2));
+                s.play(d.run_time(0.8));
+            }
+        }
+    }
     s.wait(1.0);
 }
 

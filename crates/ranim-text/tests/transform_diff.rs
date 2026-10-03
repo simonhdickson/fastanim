@@ -95,3 +95,75 @@ fn commutativity_swaps_on_opposite_sides() {
         assert!(d(i).y * d(i).x > 0.0, "glyph {i}: {:?}", d(i));
     }
 }
+
+/// SPEC §10 example 3: extracting a function.
+const BEFORE: &str = r#"fn main() {
+    let scores = vec![3, 9, 4, 7];
+    let mut total = 0;
+    for s in &scores {
+        total += s;
+    }
+    let mean = total as f64 / scores.len() as f64;
+    println!("mean = {mean}");
+}"#;
+
+/// After extracting `mean`.
+const AFTER: &str = r#"fn mean(scores: &[i32]) -> f64 {
+    let mut total = 0;
+    for s in scores {
+        total += s;
+    }
+    total as f64 / scores.len() as f64
+}
+
+fn main() {
+    let scores = vec![3, 9, 4, 7];
+    let mean = mean(&scores);
+    println!("mean = {mean}");
+}"#;
+
+#[test]
+fn code_refactor() {
+    use ranim_text::code;
+    let mut s = Scene::new();
+    let mut g = code(BEFORE, "rust").add_to(&mut s);
+    let target = code(AFTER, "rust");
+    let d = transform_diff(&mut s, &mut g, &target);
+    let ops = d.ops().to_vec();
+    s.play(d);
+    let ends: Vec<_> = g.ids.iter().map(|id| s.state()[id].clone()).collect();
+    assert_eq!(ends, target.glyphs);
+    assert_eq!(g.lines, target.lines);
+
+    // The loop body keeps its tokens: `total += s ;` survives as equal or moved tokens.
+    let kept = count(&ops, |o| matches!(o, Op::Equal { .. } | Op::Move { .. }));
+    assert!(kept >= 40, "{kept} kept: {ops:?}");
+    // The new signature writes in rather than being morphed from unrelated tokens.
+    let inserted = count(&ops, |o| matches!(o, Op::Insert { .. }));
+    assert!(inserted >= 10, "{inserted} inserted: {ops:?}");
+}
+
+#[test]
+fn bubble_sort_swaps_are_two_moves() {
+    use ranim_text::{list, transform_list};
+    let mut v = vec![5, 1, 4, 2, 8];
+    let mut s = Scene::new();
+    let mut g = list(&v).add_to(&mut s);
+    for i in 0..v.len() {
+        for j in 0..v.len() - 1 - i {
+            if v[j] > v[j + 1] {
+                v.swap(j, j + 1);
+                let d = transform_list(&mut s, &mut g, &list(&v));
+                let mut moves: Vec<_> = (d.ops().iter())
+                    .filter(|o| matches!(o, Op::Move { .. }))
+                    .collect();
+                moves.sort_by_key(|o| format!("{o:?}"));
+                let want = [Op::Move { a: j, b: j + 1 }, Op::Move { a: j + 1, b: j }];
+                assert_eq!(moves, [&want[0], &want[1]], "{:?}", d.ops());
+                s.play(d);
+            }
+        }
+    }
+    assert_eq!(v, [1, 2, 4, 5, 8]);
+    assert_eq!(g.parts, list(&v).parts());
+}

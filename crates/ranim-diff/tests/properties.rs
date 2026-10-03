@@ -3,7 +3,7 @@
 //! Uses a small seeded PRNG so failures are reproducible from the printed seed.
 
 use ranim_diff::{
-    Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak, apply, diff, edit_cost, validate,
+    Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak, apply, diff, edit_cost, expand, validate,
 };
 
 /// xorshift64*: tiny, deterministic, good enough for test inputs.
@@ -124,6 +124,34 @@ fn every_script_applies_to_b() {
                 .unwrap_or_else(|e| panic!("{e} for {a:?} -> {b:?} with {opts:?}: {ops:?}"));
             assert_eq!(got, b, "{a:?} -> {b:?} with {opts:?}");
         }
+    });
+}
+
+#[test]
+fn expanded_line_scripts_apply_to_b() {
+    // Item 0 ends a line.
+    let lines = |s: &[u8]| {
+        let mut out = vec![];
+        let mut start = 0;
+        for (i, x) in s.iter().enumerate() {
+            if *x == 0 || i + 1 == s.len() {
+                out.push(start..i + 1);
+                start = i + 1;
+            }
+        }
+        out
+    };
+    inputs(2, 400, |a, b| {
+        let (la, lb) = (lines(a), lines(b));
+        let ka: Vec<_> = la.iter().map(|l| &a[l.clone()]).collect();
+        let kb: Vec<_> = lb.iter().map(|l| &b[l.clone()]).collect();
+        let outer = Differ::new(&ka, &kb, |l| *l).run();
+        let ops = expand(&outer, &la, &lb, |ra, rb| {
+            Differ::new(&a[ra], &b[rb], |x| *x).run()
+        });
+        let got =
+            apply(a, b, &ops, |x| *x).unwrap_or_else(|e| panic!("{e} for {a:?} -> {b:?}: {ops:?}"));
+        assert_eq!(got, b);
     });
 }
 

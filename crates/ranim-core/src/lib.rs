@@ -24,7 +24,7 @@ pub use geom::{SubPath, VPath, align};
 pub use mobject::{MobjectId, SceneState, Stroke, VState};
 pub use svg::to_svg;
 pub use timeline::{BakedTimeline, Scene};
-pub use transform_diff::{DiffStyle, Group, Phasing, ReplaceStyle, TransformDiff};
+pub use transform_diff::{DiffStyle, Group, Layout, Phasing, ReplaceStyle, TransformDiff};
 
 /// Values that can be blended; `lerp(a, b, 0) == a` and `lerp(a, b, 1) == b`.
 pub trait Interpolate: Clone {

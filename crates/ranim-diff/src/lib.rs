@@ -280,6 +280,82 @@ impl<'c, T> Differ<'c, T> {
     }
 }
 
+/// Expands a script over groups (e.g. lines) into one over their items (e.g. tokens), for
+/// coarse-to-fine diffing (SPEC §5.6). `a` and `b` give each group's contiguous range of items.
+///
+/// Equal and moved groups pair their items in order (leftovers are deleted or inserted);
+/// deleted and inserted groups expand item by item; each replaced run of groups is handed to
+/// `inner` as item ranges, and its script (relative to those ranges) is spliced in.
+///
+/// ```
+/// use ranim_diff::{Differ, Op, expand};
+///
+/// let (a, b) = (["x", "y", "z"], ["x", "w", "z"]);
+/// let lines_a = [0..2, 2..3]; // "x y", "z"
+/// let lines_b = [0..2, 2..3]; // "x w", "z"
+/// let ka: Vec<_> = lines_a.iter().map(|l| &a[l.clone()]).collect();
+/// let kb: Vec<_> = lines_b.iter().map(|l| &b[l.clone()]).collect();
+/// let outer = Differ::new(&ka, &kb, |l| *l).run();
+/// let ops = expand(&outer, &lines_a, &lines_b, |ra, rb| {
+///     Differ::new(&a[ra], &b[rb], |t| *t).run()
+/// });
+/// assert_eq!(ops[0], Op::Equal { a: 0, b: 0 });
+/// assert!(ops.contains(&Op::Equal { a: 2, b: 2 }));
+/// ```
+pub fn expand(
+    ops: &[Op],
+    a: &[Range<usize>],
+    b: &[Range<usize>],
+    mut inner: impl FnMut(Range<usize>, Range<usize>) -> Vec<Op>,
+) -> Vec<Op> {
+    // Items of a run of groups; groups are contiguous, so this is one range.
+    let items = |g: &[Range<usize>], r: Range<usize>| match (g.get(r.start), r.end.checked_sub(1)) {
+        (Some(first), Some(last)) if r.start < r.end => first.start..g[last].end,
+        _ => 0..0,
+    };
+    let mut out = Vec::new();
+    for op in ops {
+        match op {
+            Op::Equal { a: i, b: j } | Op::Move { a: i, b: j } => {
+                let (ra, rb) = (a[*i].clone(), b[*j].clone());
+                let n = ra.len().min(rb.len());
+                for k in 0..n {
+                    let (a, b) = (ra.start + k, rb.start + k);
+                    out.push(match op {
+                        Op::Equal { .. } => Op::Equal { a, b },
+                        _ => Op::Move { a, b },
+                    });
+                }
+                out.extend((ra.start + n..ra.end).map(|a| Op::Delete { a }));
+                out.extend((rb.start + n..rb.end).map(|b| Op::Insert { b }));
+            }
+            Op::Delete { a: i } => out.extend(a[*i].clone().map(|a| Op::Delete { a })),
+            Op::Insert { b: j } => out.extend(b[*j].clone().map(|b| Op::Insert { b })),
+            Op::Replace { a: ga, b: gb } => {
+                let (ra, rb) = (items(a, ga.clone()), items(b, gb.clone()));
+                let (ao, bo) = (ra.start, rb.start);
+                out.extend(inner(ra, rb).into_iter().map(|op| match op {
+                    Op::Equal { a, b } => Op::Equal {
+                        a: a + ao,
+                        b: b + bo,
+                    },
+                    Op::Move { a, b } => Op::Move {
+                        a: a + ao,
+                        b: b + bo,
+                    },
+                    Op::Delete { a } => Op::Delete { a: a + ao },
+                    Op::Insert { b } => Op::Insert { b: b + bo },
+                    Op::Replace { a, b } => Op::Replace {
+                        a: a.start + ao..a.end + ao,
+                        b: b.start + bo..b.end + bo,
+                    },
+                }));
+            }
+        }
+    }
+    out
+}
+
 /// Maps keys to dense ids in order of first appearance. Exact (no hash collisions) and
 /// deterministic across runs and platforms.
 fn intern<T, K: Eq + Hash>(a: &[T], b: &[T], key: impl Fn(&T) -> K) -> (Vec<u32>, Vec<u32>) {

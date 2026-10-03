@@ -11,7 +11,7 @@ pub use ranim_text as text;
 pub mod prelude {
     pub use ranim_core::color::*;
     pub use ranim_core::{
-        Animation, AnimationExt, BakedTimeline, DOWN, DiffStyle, Group, Interpolate, LEFT,
+        Animation, AnimationExt, BakedTimeline, DOWN, DiffStyle, Group, Interpolate, LEFT, Layout,
         MobjectId, ORIGIN, Parallel, Phasing, Point, RIGHT, RateFn, ReplaceStyle, Scene,
         SceneState, TransformDiff, UP, VPath, VState, Vec2, create, fade_in, fade_out, rotate,
         scale, shift, to_svg, transform, write,
