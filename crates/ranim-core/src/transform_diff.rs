@@ -7,7 +7,7 @@ use std::hash::Hash;
 use std::ops::{Deref, Range};
 
 use kurbo::{Affine, Point, Vec2};
-use ranim_diff::{Differ, Op, expand};
+use ranim_diff::{Algorithm, DiffOptions, Differ, Op, expand};
 
 use crate::Interpolate;
 use crate::anim::{Animation, RateFn};
@@ -170,9 +170,9 @@ impl<K: Eq + Hash + Clone> Group<K> {
     /// Plans the morph of this group into `to` and updates the group to describe the result.
     /// Play the returned animation next.
     ///
-    /// Parts are matched by key with Myers' diff, line by line first when there are lines
-    /// (see [`diff`](Group::diff)). New mobjects are added now, invisible; deleted ones leave
-    /// the scene when the animation ends.
+    /// Parts are matched by key, line by line first with patience diff when there are lines,
+    /// then with Myers' diff (see [`diff`](Group::diff)). New mobjects are added now,
+    /// invisible; deleted ones leave the scene when the animation ends.
     pub fn transform_diff<C: Eq + Hash>(
         &mut self,
         s: &mut Scene,
@@ -185,8 +185,8 @@ impl<K: Eq + Hash + Clone> Group<K> {
 
     /// The edit script from this group's parts to `to`'s.
     ///
-    /// Lines are diffed first, keyed by their parts' keys; parts of equal or moved lines pair
-    /// in order, and replaced runs of lines are diffed part by part. Moves and replacements
+    /// Lines are diffed first with patience diff, keyed by their parts' keys; parts of equal
+    /// or moved lines pair in order, and replaced runs of lines are diffed part by part. Moves and replacements
     /// pair by distance, and non-adjacent deletes and inserts of the same `class` pair into a
     /// replacement (e.g. `+` → `−`).
     pub fn diff<C: Eq + Hash>(
@@ -216,7 +216,12 @@ impl<K: Eq + Hash + Clone> Group<K> {
                 .collect()
         };
         let (ka, kb) = (keys(&self.parts, &la), keys(&to.parts, &lb));
-        let outer = Differ::new(&ka, &kb, |k| k.clone()).run();
+        let outer = Differ::new(&ka, &kb, |k| k.clone())
+            .options(DiffOptions {
+                algorithm: Algorithm::Patience,
+                ..DiffOptions::default()
+            })
+            .run();
         expand(&outer, &la, &lb, |ra, rb| {
             let (ao, bo) = (ra.start, rb.start);
             Differ::new(&self.parts[ra], &to.parts[rb], |(k, _)| k.clone())
