@@ -9,10 +9,14 @@ real changes fade or morph.
 
 Status: early development. See the [design specification](docs/SPEC.md).
 
-Done so far: the workspace skeleton (M0) and the `ranim-diff` engine (M1): Myers greedy and
-linear-space, patience, move detection, replace pairing and semantic cleanup. Try it with:
+Done so far: the workspace skeleton (M0), the `ranim-diff` engine (M1): Myers greedy and
+linear-space, patience, move detection, replace pairing and semantic cleanup; and the core model
+(M2): cubic-Bézier paths, shapes, path alignment, Oklab colors, animations, the `Scene` builder,
+the seekable `BakedTimeline` and SVG still export. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
 # ↷b =+ ↷a == =c
+
+cargo run -p ranim --example shapes -- frames   # writes frames/000.svg …
 ```

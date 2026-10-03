@@ -2,5 +2,45 @@
 //! baked, seekable timeline (see `docs/SPEC.md` §4).
 //!
 //! Has no Bevy dependency so it can be tested with plain `cargo test`.
-//!
-//! Status: placeholder, filled in by milestone M2.
+
+pub mod anim;
+pub mod color;
+pub mod geom;
+pub mod mobject;
+pub mod svg;
+pub mod timeline;
+
+pub use kurbo;
+pub use kurbo::{Point, Vec2};
+
+pub use anim::{
+    Animation, AnimationExt, Parallel, RateFn, Transform, Update, create, fade_in, fade_out,
+    rotate, scale, shift, transform,
+};
+pub use color::Color;
+pub use geom::{SubPath, VPath, align};
+pub use mobject::{MobjectId, SceneState, Stroke, VState};
+pub use svg::to_svg;
+pub use timeline::{BakedTimeline, Scene};
+
+/// Values that can be blended; `lerp(a, b, 0) == a` and `lerp(a, b, 1) == b`.
+pub trait Interpolate: Clone {
+    /// Blends `a` towards `b` by `t` in `0..=1`.
+    fn lerp(a: &Self, b: &Self, t: f32) -> Self;
+}
+
+/// Frame height in scene units (manim's).
+pub const FRAME_HEIGHT: f64 = 8.0;
+/// Frame width in scene units: 16:9.
+pub const FRAME_WIDTH: f64 = FRAME_HEIGHT * 16.0 / 9.0;
+
+/// Unit vector up (y is up).
+pub const UP: Vec2 = Vec2::new(0.0, 1.0);
+/// Unit vector down.
+pub const DOWN: Vec2 = Vec2::new(0.0, -1.0);
+/// Unit vector left.
+pub const LEFT: Vec2 = Vec2::new(-1.0, 0.0);
+/// Unit vector right.
+pub const RIGHT: Vec2 = Vec2::new(1.0, 0.0);
+/// The origin.
+pub const ORIGIN: Point = Point::ORIGIN;
