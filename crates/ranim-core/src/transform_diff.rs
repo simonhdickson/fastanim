@@ -285,7 +285,8 @@ impl<K: Eq + Hash + Clone> Group<K> {
     }
 }
 
-fn center<'a>(states: impl Iterator<Item = &'a VState>) -> Point {
+/// Center of the joint bounding box; the origin when empty.
+pub(crate) fn center<'a>(states: impl Iterator<Item = &'a VState>) -> Point {
     states
         .filter_map(|m| m.path.bbox())
         .reduce(|a, b| a.union(b))

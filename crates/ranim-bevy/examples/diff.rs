@@ -50,6 +50,8 @@ fn construct(s: &mut Scene) {
         ..DiffStyle::default()
     };
     s.play(d.style(style).run_time(1.5));
+    let c = circumscribe(s, &eq);
+    s.play(c);
     s.wait(1.0);
     fade_all(s, title.iter().chain(eq.iter()));
 

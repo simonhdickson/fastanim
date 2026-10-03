@@ -173,3 +173,165 @@ fn write_staggers_and_ends_exactly() {
     assert!(first.draw_range.end > 0.0 && first.stroke.width > 0.0 && first.fill.a == 0.0);
     assert_eq!(last.draw_range.end, 0.0);
 }
+
+#[test]
+fn rate_fns_hit_endpoints() {
+    use Ease::*;
+    let eases = [Quad, Cubic, Expo, Back];
+    let fns = (eases.iter())
+        .flat_map(|&e| [RateFn::EaseIn(e), RateFn::EaseOut(e), RateFn::EaseInOut(e)])
+        .chain([
+            RateFn::Linear,
+            RateFn::Smooth,
+            RateFn::Spring {
+                stiffness: 20.0,
+                damping: 6.0,
+            },
+        ]);
+    for f in fns {
+        assert_eq!(f.apply(0.0), 0.0, "{f:?}");
+        assert_eq!(f.apply(1.0), 1.0, "{f:?}");
+    }
+    assert!(RateFn::EaseIn(Back).apply(0.2) < 0.0, "pulls back");
+    let spring = RateFn::Spring {
+        stiffness: 20.0,
+        damping: 6.0,
+    };
+    assert!(
+        (0..100).any(|i| spring.apply(i as f32 / 100.0) > 1.0),
+        "overshoots"
+    );
+}
+
+#[test]
+fn creation_and_removal_endpoints() {
+    let sq = VState::square(2.0).shift(RIGHT);
+    let center = |m: &VState| m.path.center();
+    // (animation, ends where it started)
+    let anims = [
+        (grow_from_center as fn(_) -> _, true),
+        (spin_in, true),
+        (shrink_to_center, false),
+        (uncreate, false),
+    ];
+    for (f, restores) in anims {
+        let mut s = Scene::new();
+        let id = s.add(sq.clone());
+        s.play(f(id));
+        let tl = s.bake();
+        let (start, end) = (tl.eval(0.0)[&id].clone(), tl.eval(1.0)[&id].clone());
+        assert!((center(&start) - center(&sq)).hypot() < 1e-9);
+        assert!((center(&end) - center(&sq)).hypot() < 1e-9);
+        assert_eq!(end == sq, restores);
+    }
+    let mut s = Scene::new();
+    let id = s.add(sq.clone());
+    s.play(shrink_to_center(id));
+    s.play(uncreate(id));
+    let end = &s.state()[&id];
+    assert!(end.path.bbox().unwrap().area() < 1e-12);
+    assert_eq!(end.draw_range, 0.0..0.0);
+}
+
+#[test]
+fn move_to_and_apply_function() {
+    let mut s = Scene::new();
+    let id = s.add(VState::square(1.0));
+    s.play(move_to(id, Point::new(3.0, -1.0)));
+    assert!((s.state()[&id].path.center() - Point::new(3.0, -1.0)).hypot() < 1e-9);
+    s.play(apply_function(id, |p| Point::new(p.x * 2.0, p.y)));
+    let b = s.state()[&id].path.bbox().unwrap();
+    assert!((b.width() - 2.0).abs() < 1e-9 && (b.height() - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn emphasis_returns_to_start() {
+    let mut s = Scene::new();
+    let ids: Vec<_> = (0..3)
+        .map(|i| s.add(VState::square(0.5).fill(WHITE).shift(RIGHT * f64::from(i))))
+        .collect();
+    let start = s.state().clone();
+    s.play(indicate(&ids));
+    s.play(wiggle(&ids));
+    let tl = s.bake();
+    assert_eq!(tl.duration(), 3.0);
+    assert_eq!(tl.eval(1.0), start);
+    assert_eq!(tl.eval(3.0), start);
+    // Midway through `indicate`, the group scales about its joint center: the middle square
+    // stays put and the outer ones spread.
+    let mid = tl.eval(0.5);
+    assert!((mid[&ids[1]].path.center() - start[&ids[1]].path.center()).hypot() < 1e-9);
+    assert!(mid[&ids[2]].path.center().x > start[&ids[2]].path.center().x + 0.1);
+    assert_ne!(mid[&ids[0]].fill, start[&ids[0]].fill);
+    assert_ne!(tl.eval(1.5), start, "wiggling");
+}
+
+#[test]
+fn overlays_leave_the_scene() {
+    let mut s = Scene::new();
+    let eq = s.add(VState::square(1.0));
+    let n = s.state().len();
+    let c = circumscribe(&mut s, &[eq]);
+    s.play(c);
+    let f = flash(&mut s, Point::ORIGIN);
+    s.play(f);
+    assert_eq!(s.state().len(), n);
+    let tl = s.bake();
+    let mid = tl.eval(0.5);
+    assert_eq!(mid.len(), n + 1);
+    let rect = mid.values().last().unwrap();
+    assert_eq!(rect.draw_range, 0.0..1.0, "fully traced halfway");
+    let b = rect.path.bbox().unwrap();
+    assert!((b.width() - 1.4).abs() < 1e-9, "buffered around the target");
+    assert_eq!(tl.eval(1.5).len(), n + 12);
+    assert_eq!(tl.eval(2.0).len(), n);
+}
+
+#[test]
+fn sequence_and_lagged_start() {
+    let mut s = Scene::new();
+    let a = s.add(VState::dot(Point::ORIGIN));
+    let b = s.add(VState::dot(Point::ORIGIN));
+    s.play(Sequence(vec![
+        Box::new(shift(a, RIGHT).rate(RateFn::Linear)),
+        Box::new(shift(a, UP).run_time(2.0).rate(RateFn::Linear)),
+    ]));
+    s.play(lagged_start(
+        0.5,
+        vec![
+            Box::new(fade_out(a).rate(RateFn::Linear)),
+            Box::new(fade_out(b).rate(RateFn::Linear)),
+        ],
+    ));
+    let tl = s.bake();
+    assert_eq!(tl.duration(), 3.0 + 1.5);
+    let at = |t: f32| tl.eval(t)[&a].path.center();
+    assert!((at(0.5) - Point::new(0.5, 0.0)).hypot() < 1e-6);
+    assert!(
+        (at(2.0) - Point::new(1.0, 0.5)).hypot() < 1e-6,
+        "second plans after first"
+    );
+    assert!((at(3.0) - Point::new(1.0, 1.0)).hypot() < 1e-9);
+    let mid = tl.eval(3.75);
+    assert_eq!((mid[&a].opacity, mid[&b].opacity), (0.25, 0.75));
+    assert_eq!(tl.eval(4.5)[&b].opacity, 0.0);
+}
+
+#[test]
+fn unwrite_reverses_write() {
+    let mut s = Scene::new();
+    let glyphs: Vec<_> = (0..5)
+        .map(|i| s.add(VState::square(0.5).fill(WHITE).shift(RIGHT * f64::from(i))))
+        .collect();
+    let start = s.state().clone();
+    s.play(unwrite(&glyphs));
+    let tl = s.bake();
+    assert_eq!(tl.eval(0.0), start);
+    let early = tl.eval(0.1);
+    assert!(
+        early[&glyphs[4]].fill.a < early[&glyphs[0]].fill.a,
+        "last glyph goes first"
+    );
+    let end = tl.eval(tl.duration());
+    assert!(glyphs.iter().all(|g| end[g].draw_range.end == 0.0));
+}

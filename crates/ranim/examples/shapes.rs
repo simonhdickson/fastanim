@@ -27,6 +27,21 @@ fn construct(s: &mut Scene) {
     ]));
     s.play(fade_out(square));
     s.remove(square);
+
+    let tri = s.add(VState::polygon(
+        &[(0.0, 1.0), (-1.0, -0.7), (1.0, -0.7)].map(Point::from),
+    ));
+    s.play(Sequence(vec![
+        Box::new(spin_in(tri)),
+        Box::new(indicate(&[circle, tri])),
+        Box::new(move_to(tri, Point::new(-4.0, 0.0)).rate(RateFn::EaseOut(Ease::Back))),
+    ]));
+    let f = flash(s, Point::new(-4.0, 0.0));
+    s.play(f);
+    s.play(lagged_start(
+        0.5,
+        vec![Box::new(uncreate(circle)), Box::new(shrink_to_center(tri))],
+    ));
     s.wait(0.5);
 }
 

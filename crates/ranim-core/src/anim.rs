@@ -1,11 +1,15 @@
 //! Animations (SPEC §4.4): planned once at bake time, then sampled as a pure function of progress.
 
-use kurbo::{Affine, Vec2};
+use std::f64::consts::{FRAC_PI_2, TAU};
+
+use kurbo::{Affine, CubicBez, Point, Vec2};
 
 use crate::Interpolate;
-use crate::color::Color;
+use crate::color::{Color, YELLOW};
 use crate::geom::align;
 use crate::mobject::{MobjectId, SceneState, Stroke, VState};
+use crate::timeline::Scene;
+use crate::transform_diff::center;
 
 /// Maps linear progress `0..=1` to eased progress.
 #[derive(Debug, Clone, Copy)]
@@ -16,8 +20,56 @@ pub enum RateFn {
     Smooth,
     /// Smooth out to 1 at the midpoint and back to 0.
     ThereAndBack,
+    /// Starts slow.
+    EaseIn(Ease),
+    /// Ends slow.
+    EaseOut(Ease),
+    /// Starts and ends slow.
+    EaseInOut(Ease),
+    /// Damped oscillation that overshoots and settles at 1: `stiffness` is the angular
+    /// frequency and `damping` the decay rate, both per clip (e.g. 20 and 6).
+    Spring {
+        /// Angular frequency in radians per clip.
+        stiffness: f32,
+        /// Exponential decay rate per clip.
+        damping: f32,
+    },
     /// Any function with `f(0) == 0`.
     Custom(fn(f32) -> f32),
+}
+
+/// Curve shape for [`RateFn::EaseIn`] and friends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ease {
+    /// `t²`.
+    Quad,
+    /// `t³`.
+    Cubic,
+    /// `2^(10t − 10)`.
+    Expo,
+    /// Pulls back slightly before going.
+    Back,
+}
+
+impl Ease {
+    /// The ease-in curve, exact at both ends.
+    fn ease_in(self, t: f32) -> f32 {
+        if t <= 0.0 {
+            return 0.0;
+        }
+        if t >= 1.0 {
+            return 1.0;
+        }
+        match self {
+            Ease::Quad => t * t,
+            Ease::Cubic => t * t * t,
+            Ease::Expo => 2f32.powf(10.0 * t - 10.0),
+            Ease::Back => {
+                const C1: f32 = 1.70158;
+                (C1 + 1.0) * t * t * t - C1 * t * t
+            }
+        }
+    }
 }
 
 impl RateFn {
@@ -29,6 +81,16 @@ impl RateFn {
             RateFn::Linear => t,
             RateFn::Smooth => smooth(t),
             RateFn::ThereAndBack => smooth(if t < 0.5 { 2.0 * t } else { 2.0 - 2.0 * t }),
+            RateFn::EaseIn(e) => e.ease_in(t),
+            RateFn::EaseOut(e) => 1.0 - e.ease_in(1.0 - t),
+            RateFn::EaseInOut(e) if t < 0.5 => e.ease_in(2.0 * t) / 2.0,
+            RateFn::EaseInOut(e) => 1.0 - e.ease_in(2.0 - 2.0 * t) / 2.0,
+            RateFn::Spring { .. } if t >= 1.0 => 1.0,
+            RateFn::Spring { stiffness, damping } => {
+                let f = |t: f32| 1.0 - (-damping * t).exp() * (stiffness * t).cos();
+                // Normalized so it lands on exactly 1.
+                f(t) / f(1.0)
+            }
             RateFn::Custom(f) => f(t),
         }
     }
@@ -200,6 +262,207 @@ pub fn scale(id: MobjectId, factor: f64) -> Update {
     })
 }
 
+/// Grows from a point at its center, manim's `GrowFromCenter`.
+pub fn grow_from_center(id: MobjectId) -> Update {
+    Update::new(id, |s, a| s.clone().scale(f64::from(a)))
+}
+
+/// Grows from a point while turning a quarter turn into place, manim's `SpinInFromNothing`.
+pub fn spin_in(id: MobjectId) -> Update {
+    Update::new(id, |s, a| {
+        let c = s.path.center();
+        let a = f64::from(a);
+        s.clone()
+            .transform(Affine::rotate_about(FRAC_PI_2 * (a - 1.0), c) * Affine::scale_about(a, c))
+    })
+}
+
+/// Shrinks to a point at its center. The mobject stays in the scene until removed.
+pub fn shrink_to_center(id: MobjectId) -> Update {
+    Update::new(id, |s, a| s.clone().scale(f64::from(1.0 - a)))
+}
+
+/// Erases the outline backwards along its arc length; the reverse of [`create`]. The mobject
+/// stays in the scene until removed.
+pub fn uncreate(id: MobjectId) -> Update {
+    Update::new(id, |s, a| VState {
+        draw_range: 0.0..1.0 - a,
+        ..s.clone()
+    })
+}
+
+/// Moves so the bounding-box center ends at `p`.
+pub fn move_to(id: MobjectId, p: Point) -> Update {
+    Update::new(id, move |s, a| {
+        s.clone().shift((p - s.path.center()) * f64::from(a))
+    })
+}
+
+/// Morphs every control point `q` towards `f(q)`, manim's `ApplyFunction` / `ApplyPointwise`.
+pub fn apply_function(id: MobjectId, f: impl Fn(Point) -> Point + Send + Sync + 'static) -> Update {
+    Update::new(id, move |s, a| {
+        let t = f64::from(a);
+        let mut m = s.clone();
+        for seg in m.path.subpaths.iter_mut().flat_map(|sp| &mut sp.segments) {
+            let g = |q: Point| q.lerp(f(q), t);
+            *seg = CubicBez::new(g(seg.p0), g(seg.p1), g(seg.p2), g(seg.p3));
+        }
+        m
+    })
+}
+
+type GroupFn = Box<dyn Fn(&VState, Point, f32) -> VState + Send + Sync>;
+
+/// Rewrites several mobjects together from each one's start state, their joint bounding-box
+/// center and progress: the building block for the emphasis animations below.
+pub struct UpdateGroup {
+    ids: Vec<MobjectId>,
+    starts: Vec<VState>,
+    center: Point,
+    f: GroupFn,
+}
+
+impl UpdateGroup {
+    /// `f(start_state, group_center, alpha)` gives each mobject's state at `alpha`.
+    pub fn new(
+        ids: &[MobjectId],
+        f: impl Fn(&VState, Point, f32) -> VState + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            ids: ids.to_vec(),
+            starts: Vec::new(),
+            center: Point::ORIGIN,
+            f: Box::new(f),
+        }
+    }
+}
+
+impl Animation for UpdateGroup {
+    fn plan(&mut self, state: &SceneState) {
+        self.starts = self.ids.iter().map(|&id| get(state, id).clone()).collect();
+        self.center = center(self.starts.iter());
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        for (&id, s) in self.ids.iter().zip(&self.starts) {
+            state.insert(id, (self.f)(s, self.center, alpha));
+        }
+    }
+}
+
+/// Briefly scales up by 1.2 and tints yellow, then settles back, manim's `Indicate`.
+pub fn indicate(ids: &[MobjectId]) -> Timed<UpdateGroup> {
+    UpdateGroup::new(ids, |s, c, a| {
+        if a <= 0.0 {
+            return s.clone();
+        }
+        let tint = |col: Color| Color::lerp(&col, &YELLOW.with_alpha(col.a), a);
+        VState {
+            fill: tint(s.fill),
+            stroke: Stroke {
+                color: tint(s.stroke.color),
+                ..s.stroke
+            },
+            ..s.clone()
+        }
+        .transform(Affine::scale_about(1.0 + 0.2 * f64::from(a), c))
+    })
+    .rate(RateFn::ThereAndBack)
+}
+
+/// Wobbles in place while swelling slightly, manim's `Wiggle`; lasts 2 s.
+pub fn wiggle(ids: &[MobjectId]) -> Timed<UpdateGroup> {
+    UpdateGroup::new(ids, |s, c, a| {
+        if a <= 0.0 || a >= 1.0 {
+            return s.clone();
+        }
+        let a = f64::from(a);
+        let swell = RateFn::ThereAndBack.apply(a as f32) as f64;
+        let angle = 0.1 * swell * (3.0 * TAU * a).sin();
+        s.clone()
+            .transform(Affine::rotate_about(angle, c) * Affine::scale_about(1.0 + 0.1 * swell, c))
+    })
+    .run_time(2.0)
+    .rate(RateFn::Linear)
+}
+
+/// Helper shapes added to the scene now, invisible, animated by `f` from their added state, and
+/// removed when the clip ends: e.g. [`circumscribe`] and [`flash`].
+pub struct Overlay {
+    ids: Vec<MobjectId>,
+    starts: Vec<VState>,
+    f: UpdateFn,
+}
+
+impl Overlay {
+    /// Adds `shapes` to `s`, hidden (`draw_range` empty); `f(shape, alpha)` gives each one's
+    /// state during the clip.
+    pub fn new(
+        s: &mut Scene,
+        shapes: Vec<VState>,
+        f: impl Fn(&VState, f32) -> VState + Send + Sync + 'static,
+    ) -> Self {
+        let ids = (shapes.iter())
+            .map(|m| {
+                s.add(VState {
+                    draw_range: 0.0..0.0,
+                    ..m.clone()
+                })
+            })
+            .collect();
+        Self {
+            ids,
+            starts: shapes,
+            f: Box::new(f),
+        }
+    }
+}
+
+impl Animation for Overlay {
+    fn plan(&mut self, _: &SceneState) {}
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        for (&id, m) in self.ids.iter().zip(&self.starts) {
+            if alpha >= 1.0 {
+                state.remove(&id);
+            } else {
+                state.insert(id, (self.f)(m, alpha));
+            }
+        }
+    }
+}
+
+/// Draws a yellow rectangle around `ids` and erases it again, manim's `Circumscribe`.
+pub fn circumscribe(s: &mut Scene, ids: &[MobjectId]) -> Overlay {
+    const BUFF: f64 = 0.2;
+    let st = s.state();
+    let bbox = (ids.iter())
+        .filter_map(|id| get(st, *id).path.bbox())
+        .reduce(|a, b| a.union(b))
+        .unwrap_or_default()
+        .inflate(BUFF, BUFF);
+    let rect = VState::rectangle(bbox.width(), bbox.height())
+        .move_to(bbox.center())
+        .stroke(YELLOW, 0.06);
+    Overlay::new(s, vec![rect], |m, a| VState {
+        // Traces in over the first half and out over the second.
+        draw_range: (2.0 * a - 1.0).max(0.0)..(2.0 * a).min(1.0),
+        ..m.clone()
+    })
+}
+
+/// Twelve short yellow rays burst outwards from `p`, manim's `Flash`.
+pub fn flash(s: &mut Scene, p: Point) -> Overlay {
+    let rays = (0..12)
+        .map(|i| {
+            let d = Vec2::from_angle(TAU * f64::from(i) / 12.0);
+            VState::line(p + d * 0.3, p + d * 0.8).stroke(YELLOW, 0.04)
+        })
+        .collect();
+    Overlay::new(s, rays, |m, a| VState {
+        draw_range: (2.0 * a - 1.0).max(0.0)..(2.0 * a).min(1.0),
+        ..m.clone()
+    })
+}
+
 /// Draws mobjects in one after another, manim's `Write`: each outline traces in, then its fill
 /// fades up while the outline fades back to its own style. See [`write`].
 pub struct Write {
@@ -270,6 +533,27 @@ impl Animation for Write {
     }
 }
 
+/// Erases mobjects last to first, manim's `Unwrite`: [`write`] played backwards. The mobjects
+/// stay in the scene until removed.
+pub struct Unwrite(Write);
+
+/// Unwrites `ids` (e.g. the glyphs of a text); the reverse of [`write`].
+pub fn unwrite(ids: &[MobjectId]) -> Unwrite {
+    Unwrite(write(ids))
+}
+
+impl Animation for Unwrite {
+    fn plan(&mut self, state: &SceneState) {
+        self.0.plan(state);
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        self.0.sample(1.0 - alpha, state);
+    }
+    fn duration(&self) -> f32 {
+        self.0.duration()
+    }
+}
+
 /// Morphs a mobject into `target` (path, style and all).
 pub struct Transform {
     id: MobjectId,
@@ -333,6 +617,84 @@ impl Animation for Parallel {
     }
     fn duration(&self) -> f32 {
         self.0.iter().map(|a| a.duration()).fold(0.0, f32::max)
+    }
+    fn rate_fn(&self) -> RateFn {
+        RateFn::Linear
+    }
+}
+
+/// Plays animations one after another, manim's `Succession`; each plans against the scene as
+/// the previous one left it.
+pub struct Sequence(pub Vec<Box<dyn Animation>>);
+
+impl Animation for Sequence {
+    fn plan(&mut self, state: &SceneState) {
+        let mut st = state.clone();
+        for a in &mut self.0 {
+            a.plan(&st);
+            a.sample(a.rate_fn().apply(1.0), &mut st);
+        }
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        let mut t = alpha * self.duration();
+        for a in &self.0 {
+            if t < 0.0 {
+                break;
+            }
+            let d = a.duration();
+            // `alpha >= 1` finishes everything exactly; the subtraction can land just short.
+            let p = if alpha >= 1.0 || d <= 0.0 { 1.0 } else { t / d };
+            a.sample(a.rate_fn().apply(p), state);
+            t -= d;
+        }
+    }
+    fn duration(&self) -> f32 {
+        self.0.iter().map(|a| a.duration()).sum()
+    }
+    fn rate_fn(&self) -> RateFn {
+        RateFn::Linear
+    }
+}
+
+/// Runs animations together, each starting `lag_ratio` of the previous one's duration after
+/// it, manim's `LaggedStart`. Like [`Parallel`], all plan against the same start state.
+pub struct LaggedStart {
+    anims: Vec<Box<dyn Animation>>,
+    starts: Vec<f32>,
+}
+
+/// Staggers `anims` by `lag_ratio` (0 is [`Parallel`], 1 is back to back).
+pub fn lagged_start(lag_ratio: f32, anims: Vec<Box<dyn Animation>>) -> LaggedStart {
+    let starts = (anims.iter())
+        .scan(0.0, |t, a| {
+            let s = *t;
+            *t += a.duration() * lag_ratio;
+            Some(s)
+        })
+        .collect();
+    LaggedStart { anims, starts }
+}
+
+impl Animation for LaggedStart {
+    fn plan(&mut self, state: &SceneState) {
+        self.anims.iter_mut().for_each(|a| a.plan(state));
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        let t = alpha * self.duration();
+        for (a, s) in self.anims.iter().zip(&self.starts) {
+            let d = a.duration();
+            let p = if alpha >= 1.0 || d <= 0.0 {
+                1.0
+            } else {
+                (t - s) / d
+            };
+            a.sample(a.rate_fn().apply(p), state);
+        }
+    }
+    fn duration(&self) -> f32 {
+        (self.anims.iter().zip(&self.starts))
+            .map(|(a, s)| s + a.duration())
+            .fold(0.0, f32::max)
     }
     fn rate_fn(&self) -> RateFn {
         RateFn::Linear

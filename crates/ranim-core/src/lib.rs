@@ -16,8 +16,10 @@ pub use kurbo::{Point, Vec2};
 pub use ranim_diff::Op;
 
 pub use anim::{
-    Animation, AnimationExt, Parallel, RateFn, Transform, Update, create, fade_in, fade_out,
-    rotate, scale, shift, transform, write,
+    Animation, AnimationExt, Ease, LaggedStart, Overlay, Parallel, RateFn, Sequence, Transform,
+    Unwrite, Update, UpdateGroup, apply_function, circumscribe, create, fade_in, fade_out, flash,
+    grow_from_center, indicate, lagged_start, move_to, rotate, scale, shift, shrink_to_center,
+    spin_in, transform, uncreate, unwrite, wiggle, write,
 };
 pub use color::Color;
 pub use geom::{SubPath, VPath, align};

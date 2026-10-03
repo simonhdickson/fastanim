@@ -20,7 +20,11 @@ fonts, no LaTeX) laid out into per-glyph shapes and diffable tokens, `math_tex`,
 `write`; and `TransformDiff` (M6): token diffs choreographed into slides, arcing moves,
 morphs and fades, with `DiffStyle` phasing, highlights and a debug tint; and code & lists (M7):
 `code` highlighted by Typst, diffed line by line then token by token, and `list` cells whose
-swaps are two arcing moves. Try them with:
+swaps are two arcing moves. Polish (M8) so far: the rest of the standard animations
+(`grow_from_center`, `spin_in`, `uncreate`, `unwrite`, `shrink_to_center`, `move_to`,
+`apply_function`, `indicate`, `wiggle`, `circumscribe`, `flash`), `Sequence` and
+`lagged_start`, and ease-in/out (quad, cubic, expo, back) and spring rate functions. Try them
+with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
