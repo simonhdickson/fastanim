@@ -156,3 +156,20 @@ fn function_graph_hits_samples() {
         assert!((mid.y - mid.x.sin()).abs() < 1e-3, "smooth between samples");
     }
 }
+
+#[test]
+fn write_staggers_and_ends_exactly() {
+    let mut s = Scene::new();
+    let glyphs: Vec<_> = (0..5)
+        .map(|i| s.add(VState::square(0.5).fill(WHITE).shift(RIGHT * f64::from(i))))
+        .collect();
+    let end = s.state().clone();
+    s.play(write(&glyphs));
+    let tl = s.bake();
+    assert_eq!(tl.eval(tl.duration()), end);
+    // Early on, the first glyph is tracing its outline and the last hasn't started.
+    let early = tl.eval(0.1);
+    let (first, last) = (&early[&glyphs[0]], &early[&glyphs[4]]);
+    assert!(first.draw_range.end > 0.0 && first.stroke.width > 0.0 && first.fill.a == 0.0);
+    assert_eq!(last.draw_range.end, 0.0);
+}

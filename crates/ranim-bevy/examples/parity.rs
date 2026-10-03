@@ -1,6 +1,5 @@
-//! SPEC §10 example 6, "classic manim parity", minus `Write(Text)` until text lands in M5:
-//! `Create(Circle)`, `Transform(square, circle)`, and `sin(x)` on axes with a dot driven by an
-//! updater.
+//! SPEC §10 example 6, "classic manim parity": `Create(Circle)`, `Transform(square, circle)`,
+//! `Write(Text)`, and `sin(x)` on axes with a dot driven by an updater.
 //!
 //! `cargo run -p ranim-bevy --example parity` previews it;
 //! `cargo run -p ranim-bevy --example parity -- render -q 480p15 -o parity.mp4` exports it.
@@ -9,8 +8,11 @@ use std::f64::consts::PI;
 
 use ranim_core::color::{BLUE, GREEN, RED, YELLOW};
 use ranim_core::*;
+use ranim_text::{math_tex, text};
 
 fn construct(s: &mut Scene) {
+    let title = text("Classic manim parity").to_edge(UP).add_to(s);
+    s.play(write(&title));
     let circle = s.add(VState::circle(1.5).stroke(BLUE, 0.06));
     s.play(create(circle).run_time(1.5));
     let square = s.add(VState::square(2.0).stroke(RED, 0.06).shift(LEFT * 4.0));
@@ -29,6 +31,13 @@ fn construct(s: &mut Scene) {
     ]));
     s.remove(circle);
     s.remove(square);
+
+    let formula = math_tex("y = sin(x)")
+        .scale(1.5)
+        .fill(GREEN)
+        .to_edge(DOWN)
+        .add_to(s);
+    s.play(write(&formula));
 
     s.marker("graph");
     let axes = s.add(VState::axes(-6.5..6.5, -2.0..2.0));

@@ -15,11 +15,15 @@ linear-space, patience, move detection, replace pairing and semantic cleanup; an
 the seekable `BakedTimeline` and SVG still export; and the Bevy preview (M3): `RanimPlugin` with
 Vello rendering, a scene clock and a scrubber (Space play/pause, ←/→ step, `[`/`]` markers, drag
 the bar); and video export (M4): headless Vello rendering piped to ffmpeg as MP4, WebM, GIF, PNG
-or SVG, with quality presets, `--section` and stills. Try them with:
+or SVG, with quality presets, `--section` and stills; and text & math (M5): Typst (bundled
+fonts, no LaTeX) laid out into per-glyph shapes and diffable tokens, `math_tex`, `text` and
+`write`. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
 # ↷b =+ ↷a == =c
+cargo run -p ranim-cli -- diff "a^2 + b^2 = c^2" "a^2 = c^2 - b^2" --math
+# =𝑎 =2' == =𝑐 =2' ~(+→−) ↷𝑏 ↷2'
 
 cargo run -p ranim --example shapes -- frames   # writes frames/000.svg …
 cargo run -p ranim-bevy --example parity        # live preview window

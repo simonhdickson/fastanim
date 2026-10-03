@@ -15,7 +15,7 @@ pub use kurbo::{Point, Vec2};
 
 pub use anim::{
     Animation, AnimationExt, Parallel, RateFn, Transform, Update, create, fade_in, fade_out,
-    rotate, scale, shift, transform,
+    rotate, scale, shift, transform, write,
 };
 pub use color::Color;
 pub use geom::{SubPath, VPath, align};

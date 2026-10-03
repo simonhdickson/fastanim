@@ -12,5 +12,8 @@ ranim-core.workspace = true
 bevy = { version = "0.19", default-features = false, features = ["2d"] }
 bevy_vello = "0.14"
 
+[dev-dependencies]
+ranim-text.workspace = true
+
 [lints]
 workspace = true

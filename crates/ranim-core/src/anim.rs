@@ -3,8 +3,9 @@
 use kurbo::{Affine, Vec2};
 
 use crate::Interpolate;
+use crate::color::Color;
 use crate::geom::align;
-use crate::mobject::{MobjectId, SceneState, VState};
+use crate::mobject::{MobjectId, SceneState, Stroke, VState};
 
 /// Maps linear progress `0..=1` to eased progress.
 #[derive(Debug, Clone, Copy)]
@@ -197,6 +198,76 @@ pub fn scale(id: MobjectId, factor: f64) -> Update {
         s.clone()
             .transform(Affine::scale_about(1.0 + (factor - 1.0) * f64::from(a), c))
     })
+}
+
+/// Draws mobjects in one after another, manim's `Write`: each outline traces in, then its fill
+/// fades up while the outline fades back to its own style. See [`write`].
+pub struct Write {
+    ids: Vec<MobjectId>,
+    starts: Vec<VState>,
+}
+
+/// Writes `ids` in order (e.g. the glyphs of a text), staggered like manim's `Write`.
+pub fn write(ids: &[MobjectId]) -> Write {
+    Write {
+        ids: ids.to_vec(),
+        starts: Vec::new(),
+    }
+}
+
+impl Animation for Write {
+    fn plan(&mut self, state: &SceneState) {
+        self.starts = self.ids.iter().map(|&id| get(state, id).clone()).collect();
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        let n = self.ids.len() as f32;
+        // manim's lag ratio: each item starts `lag` of an item's duration after the previous.
+        let lag = (4.0 / n.max(1.0)).min(0.2);
+        let w = 1.0 / (1.0 + (n - 1.0).max(0.0) * lag);
+        for (i, (&id, s)) in self.ids.iter().zip(&self.starts).enumerate() {
+            // `alpha >= 1` must give back the exact start; the division can land just short.
+            let p = if alpha >= 1.0 {
+                1.0
+            } else {
+                ((alpha - i as f32 * lag * w) / w).clamp(0.0, 1.0)
+            };
+            if p >= 1.0 {
+                state.insert(id, s.clone());
+                continue;
+            }
+            let outline = if s.stroke.width > 0.0 && s.stroke.color.a > 0.0 {
+                s.stroke
+            } else {
+                Stroke {
+                    color: s.fill.with_alpha(1.0),
+                    width: 0.02,
+                }
+            };
+            let m = if p < 0.5 {
+                VState {
+                    stroke: outline,
+                    fill: s.fill.with_alpha(0.0),
+                    draw_range: 0.0..p * 2.0,
+                    ..s.clone()
+                }
+            } else {
+                let q = p * 2.0 - 1.0;
+                VState {
+                    stroke: Stroke {
+                        color: Color::lerp(&outline.color, &s.stroke.color, q),
+                        width: outline.width + (s.stroke.width - outline.width) * f64::from(q),
+                    },
+                    fill: s.fill.with_alpha(s.fill.a * q),
+                    ..s.clone()
+                }
+            };
+            state.insert(id, m);
+        }
+    }
+    fn duration(&self) -> f32 {
+        // manim: 1 s for short texts, up to 2 s for long ones.
+        (self.ids.len() as f32 / 15.0).clamp(1.0, 2.0)
+    }
 }
 
 /// Morphs a mobject into `target` (path, style and all).

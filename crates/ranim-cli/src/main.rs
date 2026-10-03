@@ -13,6 +13,7 @@ Print the edit script that turns A into B.
 
 Options:
   --by <unit>          Diff unit: char (default; whitespace ignored), word, or line
+  --math               Typeset A and B as Typst math and diff their glyphs
   --algorithm <name>   myers (default), linear, or patience
   --tie-break <name>   stable (default) or myers
   --no-moves           Don't pair deletions and insertions into moves
@@ -27,10 +28,16 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("diff") => match DiffArgs::parse(&args[1..]) {
-            Ok(Some(a)) => {
-                print!("{}", a.run());
-                ExitCode::SUCCESS
-            }
+            Ok(Some(a)) => match a.run() {
+                Ok(out) => {
+                    print!("{out}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            },
             Ok(None) => {
                 println!("{USAGE}");
                 ExitCode::SUCCESS
@@ -68,6 +75,7 @@ enum Unit {
     Char,
     Word,
     Line,
+    Math,
 }
 
 #[derive(Debug)]
@@ -128,9 +136,7 @@ impl DiffArgs {
                     opts.cleanup = Cleanup::Semantic { min_equal_run };
                 }
                 "--ops" => show_ops = true,
-                "--math" => {
-                    return Err("--math needs Typst support, which is not implemented yet".into());
-                }
+                "--math" => unit = Unit::Math,
                 flag if flag.starts_with("--") => return Err(format!("unknown option `{flag}`")),
                 _ => inputs.push(arg.clone()),
             }
@@ -147,12 +153,12 @@ impl DiffArgs {
         }))
     }
 
-    fn run(&self) -> String {
-        let a = tokenize(&self.a, self.unit);
-        let b = tokenize(&self.b, self.unit);
+    fn run(&self) -> Result<String, String> {
+        let a = tokenize(&self.a, self.unit)?;
+        let b = tokenize(&self.b, self.unit)?;
         let mut differ = Differ::new(&a, &b, |t| t.text.clone())
             .options(self.opts.clone())
-            .cost(|i, j| a[i].col.abs_diff(b[j].col) as f64);
+            .cost(|i, j| (a[i].col - b[j].col).abs());
         if self.unit != Unit::Line {
             differ = differ.class(|t| is_operator(&t.text).then_some(()));
         }
@@ -165,26 +171,38 @@ impl DiffArgs {
                 out.push_str(&format!("{op:?}\n"));
             }
         }
-        out
+        Ok(out)
     }
 }
 
-/// A diff unit and its position: a column for chars and words, a line number for lines.
+/// A diff unit and its position: a column for chars and words, a line number for lines, the
+/// x of the glyph's center for math.
 #[derive(Debug)]
 struct Token {
     text: String,
-    col: usize,
+    col: f64,
 }
 
-fn tokenize(s: &str, unit: Unit) -> Vec<Token> {
-    match unit {
+fn tokenize(s: &str, unit: Unit) -> Result<Vec<Token>, String> {
+    if unit == Unit::Math {
+        let t = ranim_text::TextMobject::math(s)?;
+        return Ok(t
+            .tokens
+            .iter()
+            .map(|tok| Token {
+                text: tok.key.to_string(),
+                col: t.glyphs[tok.glyphs.start].path.center().x,
+            })
+            .collect());
+    }
+    Ok(match unit {
         Unit::Char => s
             .chars()
             .enumerate()
             .filter(|(_, c)| !c.is_whitespace())
             .map(|(col, c)| Token {
                 text: c.to_string(),
-                col,
+                col: col as f64,
             })
             .collect(),
         Unit::Word => {
@@ -195,7 +213,10 @@ fn tokenize(s: &str, unit: Unit) -> Vec<Token> {
                     (false, None) => start = Some(col),
                     (true, Some(st)) => {
                         let text = s.chars().skip(st).take(col - st).collect();
-                        out.push(Token { text, col: st });
+                        out.push(Token {
+                            text,
+                            col: st as f64,
+                        });
                         start = None;
                     }
                     _ => {}
@@ -208,27 +229,28 @@ fn tokenize(s: &str, unit: Unit) -> Vec<Token> {
             .enumerate()
             .map(|(col, l)| Token {
                 text: l.trim().to_string(),
-                col,
+                col: col as f64,
             })
             .collect(),
-    }
+        Unit::Math => unreachable!(),
+    })
 }
 
 fn is_operator(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_punctuation())
+    // Not just ASCII: Typst sets minus as `−`.
+    !s.is_empty() && s != "rule" && s.chars().all(|c| !c.is_alphanumeric())
 }
 
 fn render(a: &[Token], b: &[Token], ops: &[Op], unit: Unit) -> String {
-    let sep = match unit {
-        Unit::Char => " ",
-        Unit::Word => " ",
-        Unit::Line => "\n",
-    };
+    let sep = if unit == Unit::Line { "\n" } else { " " };
     let join = |t: &[Token]| {
-        t.iter()
-            .map(|t| t.text.as_str())
-            .collect::<Vec<_>>()
-            .join(if unit == Unit::Char { "" } else { " " })
+        t.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(
+            if matches!(unit, Unit::Char | Unit::Math) {
+                ""
+            } else {
+                " "
+            },
+        )
     };
     ops.iter()
         .map(|op| match op {
@@ -250,7 +272,7 @@ mod tests {
 
     fn run(args: &[&str]) -> String {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        DiffArgs::parse(&args).unwrap().unwrap().run()
+        DiffArgs::parse(&args).unwrap().unwrap().run().unwrap()
     }
 
     #[test]
@@ -278,6 +300,15 @@ mod tests {
     }
 
     #[test]
+    fn math() {
+        // SPEC Appendix B: `b²` travels, `+` morphs into `−`. Scripts are marked with `'`.
+        assert_eq!(
+            run(&["a^2 + b^2 = c^2", "a^2 = c^2 - b^2", "--math"]),
+            "=𝑎 =2' == =𝑐 =2' ~(+→−) ↷𝑏 ↷2'\n"
+        );
+    }
+
+    #[test]
     fn bad_args() {
         let parse = |args: &[&str]| {
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
@@ -285,7 +316,6 @@ mod tests {
         };
         assert!(parse(&["only-one"]).is_err());
         assert!(parse(&["a", "b", "--by", "glyph"]).is_err());
-        assert!(parse(&["a", "b", "--math"]).is_err());
         assert!(parse(&["--help"]).unwrap().is_none());
     }
 }
