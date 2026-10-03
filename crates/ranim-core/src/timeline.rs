@@ -1,5 +1,7 @@
 //! Scene builder and baked, seekable timeline (SPEC §4.5).
 
+use std::sync::Arc;
+
 use crate::anim::{Animation, RateFn};
 use crate::mobject::{MobjectId, SceneState, VState};
 
@@ -11,6 +13,16 @@ struct Clip {
     anim: Option<(Box<dyn Animation>, RateFn)>,
 }
 
+type UpdaterFn = Arc<dyn Fn(&SceneState, f32) -> VState + Send + Sync>;
+
+/// Sets one mobject from the scene and the time since it was registered (SPEC §4.4).
+#[derive(Clone)]
+struct Updater {
+    start: f32,
+    id: MobjectId,
+    f: UpdaterFn,
+}
+
 /// Records a scene imperatively, manim-style: `add`, `play`, `wait`. Nothing renders here.
 #[derive(Default)]
 pub struct Scene {
@@ -19,6 +31,7 @@ pub struct Scene {
     cursor: f32,
     next_id: u32,
     markers: Vec<(String, f32)>,
+    updaters: Vec<Updater>,
 }
 
 impl Scene {
@@ -82,6 +95,22 @@ impl Scene {
         });
     }
 
+    /// From now on, mobject `id` is `f(scene, secs_since_now)` at every frame, until removed.
+    ///
+    /// `f` sees the scene as animated plus the output of updaters registered before it, so
+    /// register in dependency order. Animations still plan against the un-updated state.
+    pub fn always(
+        &mut self,
+        id: MobjectId,
+        f: impl Fn(&SceneState, f32) -> VState + Send + Sync + 'static,
+    ) {
+        self.updaters.push(Updater {
+            start: self.cursor,
+            id,
+            f: Arc::new(f),
+        });
+    }
+
     /// Names the current time as a seek point.
     pub fn marker(&mut self, name: &str) {
         self.markers.push((name.to_owned(), self.cursor));
@@ -100,6 +129,7 @@ impl Scene {
             clips: self.clips,
             duration: self.cursor,
             markers: self.markers,
+            updaters: self.updaters,
         }
     }
 }
@@ -109,12 +139,18 @@ pub struct BakedTimeline {
     clips: Vec<Clip>,
     duration: f32,
     markers: Vec<(String, f32)>,
+    updaters: Vec<Updater>,
 }
 
 impl BakedTimeline {
     /// Total length in seconds.
     pub fn duration(&self) -> f32 {
         self.duration
+    }
+
+    /// All markers as `(name, time)`, in recording order.
+    pub fn markers(&self) -> &[(String, f32)] {
+        &self.markers
     }
 
     /// Time of the first marker called `name`.
@@ -143,6 +179,12 @@ impl BakedTimeline {
                 1.0
             };
             anim.sample(rate.apply(p), &mut out);
+        }
+        for u in self.updaters.iter().filter(|u| u.start <= t) {
+            if out.contains_key(&u.id) {
+                let m = (u.f)(&out, t - u.start);
+                out.insert(u.id, m);
+            }
         }
         out
     }

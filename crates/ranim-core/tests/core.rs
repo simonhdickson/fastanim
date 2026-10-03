@@ -119,3 +119,40 @@ fn svg_still() {
     // Fully transparent: skipped.
     assert_eq!(to_svg(&tl.eval(2.6), WHITE).matches("<path").count(), 1);
 }
+
+#[test]
+fn updaters_follow_time_and_order() {
+    let mut s = Scene::new();
+    let lead = s.add(VState::dot(Point::ORIGIN));
+    let follow = s.add(VState::dot(Point::ORIGIN));
+    s.wait(1.0);
+    s.always(lead, move |st, t| {
+        st[&lead].clone().move_to(Point::new(f64::from(t), 0.0))
+    });
+    s.always(follow, move |st, _| {
+        st[&follow].clone().move_to(st[&lead].path.center() + UP)
+    });
+    s.marker("go");
+    s.wait(2.0);
+    let tl = s.bake();
+    assert_eq!(tl.markers(), &[("go".to_owned(), 1.0)]);
+    let at = |t: f32, id| tl.eval(t)[&id].path.center();
+    assert!(
+        (at(0.5, lead) - Point::ORIGIN).hypot() < 1e-9,
+        "not active before registration"
+    );
+    assert!((at(2.5, lead) - Point::new(1.5, 0.0)).hypot() < 1e-9);
+    assert!((at(2.5, follow) - Point::new(1.5, 1.0)).hypot() < 1e-9);
+}
+
+#[test]
+fn function_graph_hits_samples() {
+    let g = VState::function_graph(f64::sin, -3.0..3.0, 12);
+    let segs = &g.path.subpaths[0].segments;
+    assert_eq!(segs.len(), 12);
+    for s in segs {
+        assert!((s.p0.y - s.p0.x.sin()).abs() < 1e-12);
+        let mid = kurbo::ParamCurve::eval(s, 0.5);
+        assert!((mid.y - mid.x.sin()).abs() < 1e-3, "smooth between samples");
+    }
+}
