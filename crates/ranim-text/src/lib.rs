@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 use ranim_core::color::{Color, WHITE};
 use ranim_core::geom::{SubPath, line_segment};
 use ranim_core::kurbo::{self, Affine, CubicBez, Point, Rect, Vec2};
-use ranim_core::{FRAME_HEIGHT, FRAME_WIDTH, MobjectId, Scene, VPath, VState};
+use ranim_core::{FRAME_HEIGHT, FRAME_WIDTH, Group, Scene, TransformDiff, VPath, VState};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::layout::{Frame, FrameItem, Transform};
 use typst::syntax::{FileId, Source};
@@ -193,9 +193,46 @@ impl TextMobject {
         self
     }
 
-    /// Adds every glyph to the scene; the ids are in glyph order.
-    pub fn add_to(&self, s: &mut Scene) -> Vec<MobjectId> {
-        self.glyphs.iter().map(|g| s.add(g.clone())).collect()
+    /// Adds every glyph to the scene as a group of tokens; the ids are in glyph order.
+    pub fn add_to(&self, s: &mut Scene) -> Group<TokenKey> {
+        Group::add(s, &self.glyphs, self.parts())
+    }
+
+    /// Tokens as [`Group`] parts.
+    pub fn parts(&self) -> Vec<(TokenKey, Range<usize>)> {
+        (self.tokens.iter())
+            .map(|t| (t.key.clone(), t.glyphs.clone()))
+            .collect()
+    }
+}
+
+/// Morphs text already in the scene into `to`, diffing tokens (SPEC §7): unchanged tokens
+/// slide, moved ones arc, and only real changes fade or morph. Updates `from` to the new text;
+/// play the result next.
+///
+/// ```
+/// use ranim_core::{AnimationExt, Scene};
+/// use ranim_text::{math_tex, transform_diff};
+///
+/// let mut s = Scene::new();
+/// let mut eq = math_tex("a^2 + b^2 = c^2").add_to(&mut s);
+/// let d = transform_diff(&mut s, &mut eq, &math_tex("a^2 = c^2 - b^2"));
+/// s.play(d.run_time(1.5));
+/// ```
+pub fn transform_diff(
+    s: &mut Scene,
+    from: &mut Group<TokenKey>,
+    to: &TextMobject,
+) -> TransformDiff {
+    from.transform_diff(s, &to.glyphs, &to.parts(), operator_class)
+}
+
+/// Lets non-adjacent operators replace each other (`+` → `−`), and relations likewise.
+fn operator_class(k: &TokenKey) -> Option<u8> {
+    match k.text.as_str() {
+        "+" | "-" | "−" | "±" | "∓" | "×" | "÷" | "·" | "∗" => Some(0),
+        "=" | "≠" | "<" | ">" | "≤" | "≥" | "≈" | "≡" => Some(1),
+        _ => None,
     }
 }
 

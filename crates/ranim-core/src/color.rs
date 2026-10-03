@@ -113,3 +113,7 @@ pub const RED: Color = Color::hex(0xfc6255);
 pub const GREEN: Color = Color::hex(0x83c167);
 /// manim's `YELLOW`.
 pub const YELLOW: Color = Color::hex(0xffff00);
+/// manim's `GREY`.
+pub const GREY: Color = Color::hex(0x888888);
+/// manim's `ORANGE`.
+pub const ORANGE: Color = Color::hex(0xff862f);

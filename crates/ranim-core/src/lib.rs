@@ -9,9 +9,11 @@ pub mod geom;
 pub mod mobject;
 pub mod svg;
 pub mod timeline;
+pub mod transform_diff;
 
 pub use kurbo;
 pub use kurbo::{Point, Vec2};
+pub use ranim_diff::Op;
 
 pub use anim::{
     Animation, AnimationExt, Parallel, RateFn, Transform, Update, create, fade_in, fade_out,
@@ -22,6 +24,7 @@ pub use geom::{SubPath, VPath, align};
 pub use mobject::{MobjectId, SceneState, Stroke, VState};
 pub use svg::to_svg;
 pub use timeline::{BakedTimeline, Scene};
+pub use transform_diff::{DiffStyle, Group, Phasing, ReplaceStyle, TransformDiff};
 
 /// Values that can be blended; `lerp(a, b, 0) == a` and `lerp(a, b, 1) == b`.
 pub trait Interpolate: Clone {

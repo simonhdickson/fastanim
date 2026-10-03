@@ -17,7 +17,8 @@ Vello rendering, a scene clock and a scrubber (Space play/pause, ←/→ step, `
 the bar); and video export (M4): headless Vello rendering piped to ffmpeg as MP4, WebM, GIF, PNG
 or SVG, with quality presets, `--section` and stills; and text & math (M5): Typst (bundled
 fonts, no LaTeX) laid out into per-glyph shapes and diffable tokens, `math_tex`, `text` and
-`write`. Try them with:
+`write`; and `TransformDiff` (M6): token diffs choreographed into slides, arcing moves,
+morphs and fades, with `DiffStyle` phasing, highlights and a debug tint. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
@@ -29,4 +30,5 @@ cargo run -p ranim --example shapes -- frames   # writes frames/000.svg …
 cargo run -p ranim-bevy --example parity        # live preview window
 cargo run -p ranim-bevy --example parity -- render -q 720p30 -o parity.mp4   # needs ffmpeg
 cargo run -p ranim-bevy --example parity -- still --at 3s -o frame.png
+cargo run -p ranim-bevy --example diff          # Pythagoras, commutativity, shape morph
 ```
