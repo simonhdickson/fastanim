@@ -1,0 +1,14 @@
+[package]
+name = "ranim-text"
+description = "ranim text, math and code layout into diffable tokens"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ranim-core.workspace = true
+
+[lints]
+workspace = true

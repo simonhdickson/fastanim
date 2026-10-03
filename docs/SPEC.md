@@ -332,6 +332,10 @@ for D in 0..=N+M:
 
 - Time O((N+M)·D), memory O(D²) for the trace. Used when `N + M ≤ 10_000`.
 - Tie-breaking is fixed (deletions before insertions within a hunk) for determinism.
+- When several edit scripts share the minimal cost, the default `TieBreak::Stable` picks the one
+  whose unchanged blocks shift least (then fewest blocks, then least per-item displacement), via
+  an O(N·M) pass for inputs up to ~1M cells. This is what makes `a + b = c → b + a = c` keep
+  `+ = c` still. `TieBreak::Myers` keeps the raw search order.
 - Keys are pre-hashed to `u64` and common prefix/suffix are trimmed before running — the dominant
   case for equation edits is "small change in the middle".
 
