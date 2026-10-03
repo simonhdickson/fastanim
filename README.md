@@ -14,7 +14,8 @@ linear-space, patience, move detection, replace pairing and semantic cleanup; an
 (M2): cubic-Bézier paths, shapes, path alignment, Oklab colors, animations, the `Scene` builder,
 the seekable `BakedTimeline` and SVG still export; and the Bevy preview (M3): `RanimPlugin` with
 Vello rendering, a scene clock and a scrubber (Space play/pause, ←/→ step, `[`/`]` markers, drag
-the bar). Try them with:
+the bar); and video export (M4): headless Vello rendering piped to ffmpeg as MP4, WebM, GIF, PNG
+or SVG, with quality presets, `--section` and stills. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
@@ -22,4 +23,6 @@ cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
 
 cargo run -p ranim --example shapes -- frames   # writes frames/000.svg …
 cargo run -p ranim-bevy --example parity        # live preview window
+cargo run -p ranim-bevy --example parity -- render -q 720p30 -o parity.mp4   # needs ffmpeg
+cargo run -p ranim-bevy --example parity -- still --at 3s -o frame.png
 ```

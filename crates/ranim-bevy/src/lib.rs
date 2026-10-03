@@ -1,5 +1,5 @@
 //! Bevy integration for ranim: `RanimPlugin`, the scene clock, Vello rendering and the preview
-//! scrubber (see `docs/SPEC.md` §8). Headless export lands in M4.
+//! scrubber, and headless video export (see `docs/SPEC.md` §8).
 //!
 //! All the logic lives in `ranim-core`; the systems here only advance a clock, call
 //! [`BakedTimeline::eval`] and encode the result.
@@ -13,17 +13,140 @@
 //! ranim_bevy::preview(s.bake());
 //! ```
 
+pub mod export;
+
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 use bevy_vello::VelloPlugin;
 use bevy_vello::prelude::*;
-use ranim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, VState};
+use ranim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, Scene, SceneState, VState};
 
 use bevy_vello::vello;
 use bevy_vello::vello::kurbo::{self, Affine, BezPath, Cap, Join, Rect};
 use bevy_vello::vello::peniko::{Color, Fill};
+
+const USAGE: &str = "\
+Usage: <scene> [command] [options]
+
+Commands:
+  preview                 Open a window with a scrubber (default)
+  render                  Export video or frames
+  still                   Export one frame
+
+Options:
+  -q, --quality <preset>  480p15, 720p30, 1080p60 (default) or 4k60
+  -o, --output <path>     Output; its extension picks the format: mp4, webm, gif, png or svg.
+                          render defaults to out.mp4, still to frame.png
+  --section <marker>      render: only from <marker> to the next marker
+  --at <secs>             still: time to render, e.g. 3.5 or 3.5s (default 0)
+  --frame <n>             still: frame index to render";
+
+/// Builds the scene with `construct`, then previews or exports it depending on the command-line
+/// arguments (run with `--help` for usage). Exits the process on error.
+pub fn run(construct: impl FnOnce(&mut Scene)) {
+    let mut s = Scene::new();
+    construct(&mut s);
+    let tl = s.bake();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match parse_args(&args, &tl) {
+        Ok(Cli::Preview) => {
+            preview(tl);
+            Ok(())
+        }
+        Ok(Cli::Export(ex)) => export::export(&tl, &ex),
+        Ok(Cli::Help) => {
+            println!("{USAGE}");
+            Ok(())
+        }
+        Err(e) => Err(format!("{e}\n\n{USAGE}")),
+    };
+    if let Err(e) = result {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+#[derive(Debug)]
+enum Cli {
+    Preview,
+    Export(export::Export),
+    Help,
+}
+
+fn parse_args(args: &[String], tl: &BakedTimeline) -> Result<Cli, String> {
+    let (cmd, rest) = match args.split_first() {
+        Some((c, rest)) if !c.starts_with('-') => (c.as_str(), rest),
+        _ => ("preview", args),
+    };
+    let mut quality = export::Quality::default();
+    let mut output = None;
+    let mut section = None;
+    let mut at = None;
+    let mut frame = None;
+    let mut it = rest.iter();
+    while let Some(arg) = it.next() {
+        let mut value = || {
+            it.next()
+                .cloned()
+                .ok_or_else(|| format!("{arg} needs a value"))
+        };
+        match arg.as_str() {
+            "-h" | "--help" => return Ok(Cli::Help),
+            "-q" | "--quality" => quality = value()?.parse()?,
+            "-o" | "--output" => output = Some(PathBuf::from(value()?)),
+            "--section" => section = Some(value()?),
+            "--at" => {
+                let v = value()?;
+                let secs = v.strip_suffix('s').unwrap_or(&v);
+                at = Some(secs.parse::<f32>().map_err(|_| format!("bad time `{v}`"))?);
+            }
+            "--frame" => {
+                let v = value()?;
+                frame = Some(v.parse::<u32>().map_err(|_| format!("bad frame `{v}`"))?);
+            }
+            other => return Err(format!("unknown option `{other}`")),
+        }
+    }
+    let dur = tl.duration();
+    let range = match cmd {
+        "preview" => return Ok(Cli::Preview),
+        "render" => match section {
+            None => (0.0, dur),
+            Some(name) => {
+                let start = tl.marker(&name).ok_or(format!("no marker `{name}`"))?;
+                let end = tl
+                    .markers()
+                    .iter()
+                    .map(|&(_, t)| t)
+                    .filter(|&t| t > start)
+                    .reduce(f32::min)
+                    .unwrap_or(dur);
+                (start, end)
+            }
+        },
+        "still" => {
+            let t = match frame {
+                Some(n) => n as f32 / quality.fps as f32,
+                None => at.unwrap_or(0.0),
+            };
+            (t, t)
+        }
+        other => return Err(format!("unknown command `{other}`")),
+    };
+    let default_out = if cmd == "still" {
+        "frame.png"
+    } else {
+        "out.mp4"
+    };
+    Ok(Cli::Export(export::Export {
+        quality,
+        output: output.unwrap_or_else(|| default_out.into()),
+        range,
+    }))
+}
 
 /// Opens a window that plays `timeline` with a scrubber. Blocks until the window closes.
 pub fn preview(timeline: BakedTimeline) {
@@ -278,5 +401,76 @@ fn draw_bar(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32) {
             None,
             &rect(x - 0.01, x + 0.01, H * 1.5),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timeline() -> BakedTimeline {
+        let mut s = Scene::new();
+        let c = s.add(VState::circle(1.0));
+        s.play(ranim_core::create(c));
+        s.marker("a");
+        s.wait(1.0);
+        s.marker("b");
+        s.wait(1.0);
+        s.bake()
+    }
+
+    fn parse(args: &str) -> Result<Cli, String> {
+        let args: Vec<String> = args.split_whitespace().map(String::from).collect();
+        parse_args(&args, &timeline())
+    }
+
+    fn export(args: &str) -> export::Export {
+        match parse(args) {
+            Ok(Cli::Export(ex)) => ex,
+            other => panic!("{args}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn commands() {
+        assert!(matches!(parse(""), Ok(Cli::Preview)));
+        assert!(matches!(parse("render --help"), Ok(Cli::Help)));
+        let ex = export("render -q 720p30 -o x.webm");
+        assert_eq!((ex.range, ex.output), ((0.0, 3.0), "x.webm".into()));
+        assert_eq!(ex.quality.fps, 30);
+        assert_eq!(export("render --section a").range, (1.0, 2.0));
+        assert_eq!(export("render --section b").range, (2.0, 3.0));
+        assert_eq!(export("still --at 1.5s").range, (1.5, 1.5));
+        assert_eq!(export("still --frame 30 -q 720p30").range, (1.0, 1.0));
+        assert_eq!(export("still").output, PathBuf::from("frame.png"));
+        for bad in [
+            "render -q 8k",
+            "render --section zz",
+            "still --at x",
+            "nope",
+            "-o",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn frames_sit_on_the_global_grid() {
+        let t: Vec<f32> = export::frame_times(1.0, 1.1, 30).collect();
+        assert_eq!(t, [1.0, 31.0 / 30.0, 32.0 / 30.0, 1.1]);
+        assert_eq!(export::frame_times(0.0, 0.0, 60).count(), 1);
+    }
+
+    #[test]
+    fn gpu_render_is_deterministic() {
+        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
+            eprintln!("skipping: no GPU adapter");
+            return;
+        };
+        let tl = timeline();
+        let a = r.render(&tl.eval(0.5)).unwrap();
+        assert_eq!(a.len(), 64 * 36 * 4);
+        assert_eq!(a, r.render(&tl.eval(0.5)).unwrap());
+        assert_ne!(a, r.render(&tl.eval(0.0)).unwrap());
     }
 }

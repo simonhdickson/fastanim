@@ -40,8 +40,16 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some(cmd @ ("new" | "preview" | "render" | "still")) => {
-            eprintln!("error: `ranim {cmd}` is not implemented yet");
+        Some(cmd @ ("preview" | "render" | "still")) => {
+            eprintln!(
+                "error: `ranim {cmd}` needs a scene crate, which `ranim new` will scaffold. \
+                 Until then, call `ranim_bevy::run(construct)` from your scene's `main` and use \
+                 `cargo run -- {cmd} --help`."
+            );
+            ExitCode::FAILURE
+        }
+        Some("new") => {
+            eprintln!("error: `ranim new` is not implemented yet");
             ExitCode::FAILURE
         }
         None | Some("-h" | "--help" | "help") => {

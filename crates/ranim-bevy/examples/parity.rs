@@ -2,7 +2,8 @@
 //! `Create(Circle)`, `Transform(square, circle)`, and `sin(x)` on axes with a dot driven by an
 //! updater.
 //!
-//! `cargo run -p ranim-bevy --example parity`
+//! `cargo run -p ranim-bevy --example parity` previews it;
+//! `cargo run -p ranim-bevy --example parity -- render -q 480p15 -o parity.mp4` exports it.
 
 use std::f64::consts::PI;
 
@@ -48,7 +49,5 @@ fn construct(s: &mut Scene) {
 }
 
 fn main() {
-    let mut s = Scene::new();
-    construct(&mut s);
-    ranim_bevy::preview(s.bake());
+    ranim_bevy::run(construct);
 }
