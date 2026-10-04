@@ -14,8 +14,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ranim-core.workspace = true
 ranim-script.workspace = true
+ranim-text.workspace = true
+js-sys = "0.3"
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "HtmlCanvasElement", "Path2d"] }
+web-sys = { version = "0.3", features = ["OffscreenCanvas", "OffscreenCanvasRenderingContext2d", "Path2d"] }
 
 [lints]
 workspace = true

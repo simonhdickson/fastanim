@@ -5220,8 +5220,10 @@ dependencies = [
 name = "ranim-web"
 version = "0.1.0"
 dependencies = [
+ "js-sys",
  "ranim-core",
  "ranim-script",
+ "ranim-text",
  "wasm-bindgen",
  "web-sys",
 ]

@@ -6,9 +6,9 @@
 //! [`VState`], filled white (or by syntax highlighting) and centered on the origin. [`list`]
 //! lays out boxed values for algorithm animations.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
-use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use ranim_core::color::{Color, WHITE};
@@ -121,6 +121,20 @@ pub fn list<T: fmt::Display>(values: &[T]) -> TextMobject {
     }
 }
 
+static CLOCK: OnceLock<fn() -> f64> = OnceLock::new();
+static TYPESET_MS: Mutex<f64> = Mutex::new(0.0);
+
+/// Starts timing typesetting with `now`, a clock in milliseconds (`std::time` has none on
+/// `wasm32-unknown-unknown`). Only the first call takes effect.
+pub fn time_typesetting(now: fn() -> f64) {
+    let _ = CLOCK.set(now);
+}
+
+/// Total milliseconds spent typesetting (cache misses only) since [`time_typesetting`].
+pub fn typeset_ms() -> f64 {
+    *TYPESET_MS.lock().unwrap()
+}
+
 impl TextMobject {
     /// Typesets Typst math; `Err` holds Typst's error messages.
     pub fn math(src: &str) -> Result<Self, String> {
@@ -153,7 +167,12 @@ impl TextMobject {
         if let Some(t) = cache.lock().unwrap().get(body) {
             return Ok(t.clone());
         }
-        let t = Self::typeset_uncached(source, body, mode)?;
+        let start = CLOCK.get().map(|now| now());
+        let t = Self::typeset_uncached(source, body, mode);
+        if let (Some(start), Some(now)) = (start, CLOCK.get()) {
+            *TYPESET_MS.lock().unwrap() += now() - start;
+        }
+        let t = t?;
         cache.lock().unwrap().insert(body.to_owned(), t.clone());
         Ok(t)
     }
@@ -666,6 +685,19 @@ mod tests {
         let second = t0.elapsed();
         assert_eq!(a, b);
         assert!(second * 10 < first, "{second:?} vs {first:?}");
+    }
+
+    #[test]
+    fn typesetting_is_timed() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static TICKS: AtomicU64 = AtomicU64::new(0);
+        time_typesetting(|| TICKS.fetch_add(1, Ordering::Relaxed) as f64);
+        let before = typeset_ms();
+        math_tex("q_17 + w^9");
+        assert!(typeset_ms() > before);
+        let before = typeset_ms();
+        math_tex("q_17 + w^9");
+        assert_eq!(typeset_ms(), before, "cache hits aren't typesetting");
     }
 
     #[test]

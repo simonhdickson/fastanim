@@ -57,43 +57,50 @@
   </section>
 </main>
 <script type="module">
-  import init, { Player } from "./ranim_web.js";
   const $ = (id) => document.getElementById(id);
-  const ctx = $("canvas").getContext("2d");
-  let player = null, t = 0, playing = false, last = null;
+  // Baking and drawing happen in the worker, on the canvas handed to it.
+  const worker = new Worker("worker.js", { type: "module" });
+  const offscreen = $("canvas").transferControlToOffscreen();
+  worker.postMessage({ canvas: offscreen }, [offscreen]);
+  let duration = 0, t = 0, playing = false, last = null;
 
   function show() {
-    if (!player) return;
-    player.draw(ctx, t);
+    worker.postMessage({ t });
     $("scrub").value = t;
-    $("time").textContent = `${t.toFixed(2)} / ${player.duration().toFixed(2)}`;
+    $("time").textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`;
   }
 
   function load(src) {
-    const t0 = performance.now();
-    let next;
-    try {
-      next = new Player(src);
-    } catch (e) {
-      // Keep showing the last good scene.
-      $("error").textContent = e.message ?? String(e);
-      return;
-    }
-    $("error").textContent = "";
-    $("status").textContent = `baked in ${(performance.now() - t0).toFixed(0)} ms`;
-    player?.free();
-    player = next;
-    t = Math.min(t, player.duration());
-    $("scrub").max = player.duration();
-    const names = player.marker_names(), times = player.marker_times();
-    $("markers").replaceChildren(...names.map((n, i) => {
-      const b = document.createElement("button");
-      b.textContent = n;
-      b.onclick = () => { t = times[i]; show(); };
-      return b;
-    }));
-    show();
+    $("status").textContent = "baking…";
+    worker.postMessage({ src });
   }
+
+  worker.onmessage = ({ data }) => {
+    if (data.error !== undefined) {
+      // The worker keeps showing the last good scene.
+      $("error").textContent = data.error;
+      $("status").textContent = "";
+    } else if (data.baked) {
+      const b = data.baked;
+      $("error").textContent = "";
+      $("status").textContent =
+        `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting)`;
+      duration = b.duration;
+      t = Math.min(t, duration);
+      $("scrub").max = duration;
+      $("markers").replaceChildren(...b.markers.map((m) => {
+        const btn = document.createElement("button");
+        btn.textContent = m.name;
+        btn.onclick = () => { t = m.t; show(); };
+        return btn;
+      }));
+      show();
+    } else if (data.svg !== undefined) {
+      download(new Blob([data.svg], { type: "image/svg+xml" }), `frame-${t.toFixed(2)}.svg`);
+    } else if (data.png) {
+      download(data.png, `frame-${t.toFixed(2)}.png`);
+    }
+  };
 
   // Rhai tokens, in priority order: comments, strings, keywords, numbers, CONSTANTS, calls.
   const TOKENS = /(\/\/.*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|`[^`]*`?|'(?:\\.|[^'\\])')|\b(let|const|fn|if|else|while|loop|for|in|do|until|break|continue|return|throw|try|catch|switch|import|export|as|private|true|false|this|global)\b|\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b|\b([A-Z][A-Z0-9_]+)\b|\b([a-z_]\w*)(?=\s*\()/g;
@@ -126,9 +133,9 @@
   }
 
   function frame(now) {
-    if (playing && player) {
+    if (playing) {
       t += (now - (last ?? now)) / 1000;
-      if (t >= player.duration()) { t = player.duration(); setPlaying(false); }
+      if (t >= duration) { t = duration; setPlaying(false); }
       show();
     }
     last = now;
@@ -137,7 +144,7 @@
 
   function setPlaying(p) {
     playing = p;
-    if (p && player && t >= player.duration()) t = 0;
+    if (p && t >= duration) t = 0;
     $("play").textContent = p ? "Pause" : "Play";
   }
 
@@ -162,16 +169,15 @@
   $("example").onchange = (e) => example(e.target.value);
   $("play").onclick = () => setPlaying(!playing);
   $("scrub").oninput = (e) => { t = +e.target.value; show(); };
-  $("svg").onclick = () => player && download(new Blob([player.svg(t)], { type: "image/svg+xml" }), `frame-${t.toFixed(2)}.svg`);
-  $("png").onclick = () => $("canvas").toBlob((b) => download(b, `frame-${t.toFixed(2)}.png`));
+  $("svg").onclick = () => worker.postMessage({ t, svg: true });
+  $("png").onclick = () => worker.postMessage({ t, png: true });
   document.addEventListener("keydown", (e) => {
-    if (e.target === $("src") || !player) return;
+    if (e.target === $("src")) return;
     const step = { ArrowRight: 1 / 60, ArrowLeft: -1 / 60 }[e.key];
     if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
-    else if (step) { t = Math.min(Math.max(t + step, 0), player.duration()); show(); }
+    else if (step) { t = Math.min(Math.max(t + step, 0), duration); show(); }
   });
 
-  await init();
   example($("example").value);
   requestAnimationFrame(frame);
 </script>

@@ -9,4 +9,4 @@ cargo build --release --target wasm32-unknown-unknown -p ranim-web
 rm -rf dist
 wasm-bindgen --target web --no-typescript --out-dir dist \
     ../../target/wasm32-unknown-unknown/release/ranim_web.wasm
-cp index.html ../ranim-script/scenes/*.rhai dist/
+cp index.html worker.js ../ranim-script/scenes/*.rhai dist/

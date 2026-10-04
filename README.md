@@ -28,7 +28,7 @@ swaps are two arcing moves. Polish (M8) so far: the rest of the standard animati
 (M9) so far: `ranim-script` runs [Rhai](https://rhai.rs) scenes with the same API, and
 `ranim run` previews them (re-baking on save) or exports them; typeset text is memoized, so a
 re-bake only typesets what changed; and `ranim-web` plays scripts in the browser on a Canvas 2D
-playground. Try them with:
+playground, baking and drawing in a Web Worker and reporting time spent typesetting vs. baking. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"

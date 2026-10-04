@@ -1,52 +1,74 @@
 //! The browser player (see `docs/SPEC.md` §14.4): bakes a Rhai scene and draws frames to a
-//! `<canvas>` with Canvas 2D, without Bevy. `index.html` is the playground around it;
-//! `build.sh` builds it into `dist/`.
+//! canvas with Canvas 2D, without Bevy. It runs in a Web Worker (`worker.js`) on an
+//! `OffscreenCanvas`, since the baked timeline holds script closures that can't be sent to the
+//! page. `index.html` is the playground around it; `build.sh` builds it into `dist/`.
 
 use ranim_core::color::BLACK;
 use ranim_core::svg::path_data;
 use ranim_core::{BakedTimeline, Color, FRAME_WIDTH, to_svg};
 use wasm_bindgen::prelude::*;
-use web_sys::{CanvasRenderingContext2d, Path2d};
+use web_sys::{OffscreenCanvasRenderingContext2d, Path2d};
 
 /// A baked scene.
 #[wasm_bindgen]
-pub struct Player(BakedTimeline);
+pub struct Player {
+    timeline: BakedTimeline,
+    bake_ms: f64,
+    typeset_ms: f64,
+}
 
 #[wasm_bindgen]
 impl Player {
     /// Runs and bakes `src`; the error is `line:col: message`.
-    // ponytail: bakes on the calling thread; move into a Web Worker if long scenes freeze the
-    // page (closures in the timeline can't cross to the page, so the worker would draw too).
     #[wasm_bindgen(constructor)]
     pub fn new(src: &str) -> Result<Player, JsError> {
-        ranim_script::bake(src)
-            .map(Player)
-            .map_err(|e| JsError::new(&e.to_string()))
+        ranim_text::time_typesetting(js_sys::Date::now);
+        let (t0, typeset0) = (js_sys::Date::now(), ranim_text::typeset_ms());
+        let timeline = ranim_script::bake(src).map_err(|e| JsError::new(&e.to_string()))?;
+        Ok(Player {
+            timeline,
+            bake_ms: js_sys::Date::now() - t0,
+            typeset_ms: ranim_text::typeset_ms() - typeset0,
+        })
+    }
+
+    /// Milliseconds the bake took, typesetting included.
+    pub fn bake_ms(&self) -> f64 {
+        self.bake_ms
+    }
+
+    /// Milliseconds of the bake spent typesetting text not already in the cache (SPEC §14.5).
+    pub fn typeset_ms(&self) -> f64 {
+        self.typeset_ms
     }
 
     /// Length in seconds.
     pub fn duration(&self) -> f32 {
-        self.0.duration()
+        self.timeline.duration()
     }
 
     /// Marker names, in recording order.
     pub fn marker_names(&self) -> Vec<String> {
-        self.0.markers().iter().map(|(n, _)| n.clone()).collect()
+        self.timeline
+            .markers()
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect()
     }
 
     /// Marker times, matching [`Player::marker_names`].
     pub fn marker_times(&self) -> Vec<f32> {
-        self.0.markers().iter().map(|&(_, t)| t).collect()
+        self.timeline.markers().iter().map(|&(_, t)| t).collect()
     }
 
     /// The frame at `t` as an SVG document.
     pub fn svg(&self, t: f32) -> String {
-        to_svg(&self.0.eval(t), BLACK)
+        to_svg(&self.timeline.eval(t), BLACK)
     }
 
     /// Draws the frame at `t`, filling the canvas width with the 16:9 frame.
-    pub fn draw(&self, ctx: &CanvasRenderingContext2d, t: f32) -> Result<(), JsValue> {
-        let canvas = ctx.canvas().ok_or("context has no canvas")?;
+    pub fn draw(&self, ctx: &OffscreenCanvasRenderingContext2d, t: f32) -> Result<(), JsValue> {
+        let canvas = ctx.canvas();
         let (w, h) = (f64::from(canvas.width()), f64::from(canvas.height()));
         ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)?;
         ctx.set_global_alpha(1.0);
@@ -58,7 +80,7 @@ impl Player {
         ctx.set_line_join("round");
         ctx.set_line_cap("round");
 
-        let state = self.0.eval(t);
+        let state = self.timeline.eval(t);
         let mut order: Vec<_> = state.iter().collect();
         order.sort_by_key(|(id, m)| (m.z_index, **id));
         for (_, m) in order {
