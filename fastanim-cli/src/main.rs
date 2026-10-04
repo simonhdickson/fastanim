@@ -80,6 +80,9 @@ fn main() -> ExitCode {
 struct RunArgs {
     /// The scene script
     script: PathBuf,
+    /// Instead of playing it, write its typeset text to a `.bundle` beside it for the web player
+    #[arg(long, conflicts_with = "command")]
+    bundle: bool,
     #[command(subcommand)]
     command: Option<fastanim_bevy::Command>,
 }
@@ -87,6 +90,11 @@ struct RunArgs {
 impl RunArgs {
     fn run(self) -> Result<(), String> {
         let tl = bake(&self.script)?;
+        if self.bundle {
+            let out = self.script.with_extension("bundle");
+            return fs::write(&out, fastanim_text::export_bundle())
+                .map_err(|e| format!("{}: {e}", out.display()));
+        }
         let preview = matches!(self.command, None | Some(fastanim_bevy::Command::Preview));
         let reload = preview.then(|| watch(self.script.clone()));
         fastanim_bevy::run_command(self.command, tl, reload)

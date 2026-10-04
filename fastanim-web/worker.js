@@ -1,5 +1,6 @@
 // Bakes and draws off the page's thread (SPEC §14.5). The page sends any of
 //   { canvas }  the OffscreenCanvas to draw on, once
+//   { bundle }  pre-typeset text to fill the cache from, before baking; errors reply { error }
 //   { src }     a script to bake; replies { baked: { duration, markers, bakeMs, typesetMs } }
 //               or { error }, and keeps the last good scene on error
 //   { t }       the time to draw
@@ -7,7 +8,7 @@
 //   { png }     reply { png: Blob } with the canvas
 // Messages that arrive while a bake runs are merged, so only the latest source and time are
 // worked on.
-import init, { Player } from "./fastanim_web.js";
+import init, { Player, load_bundle } from "./fastanim_web.js";
 
 const ready = init();
 let player = null, ctx = null, t = 0, next = {}, scheduled = false;
@@ -24,6 +25,9 @@ async function work() {
   scheduled = false;
   if (job.canvas) ctx = job.canvas.getContext("2d");
   if (job.t !== undefined) t = job.t;
+  if (job.bundle !== undefined) {
+    try { load_bundle(job.bundle); } catch (e) { postMessage({ error: e.message ?? String(e) }); }
+  }
   if (job.src !== undefined) {
     try {
       const p = new Player(job.src);

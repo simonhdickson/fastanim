@@ -1,13 +1,21 @@
 //! The browser player (see `docs/SPEC.md` §14.4): bakes a Rhai scene and draws frames to a
 //! canvas with Canvas 2D, without Bevy. It runs in a Web Worker (`worker.js`) on an
 //! `OffscreenCanvas`, since the baked timeline holds script closures that can't be sent to the
-//! page. `index.html` is the playground around it; `build.sh` builds it into `dist/`.
+//! page. `player.js` wraps that as a `<fastanim-player>` element, `index.html` is the playground
+//! around it, and `build.sh` builds it all into `dist/`.
 
 use fastanim_core::color::BLACK;
 use fastanim_core::svg::path_data;
 use fastanim_core::{BakedTimeline, Color, FRAME_WIDTH, to_svg};
 use wasm_bindgen::prelude::*;
 use web_sys::{OffscreenCanvasRenderingContext2d, Path2d};
+
+/// Fills the typesetting cache from a `.bundle` written by `fastanim run --bundle`, so the
+/// text in it is never typeset here (SPEC §14.5); returns how many snippets it held.
+#[wasm_bindgen]
+pub fn load_bundle(bundle: &str) -> Result<usize, JsError> {
+    fastanim_text::import_bundle(bundle).map_err(|e| JsError::new(&e))
+}
 
 /// A baked scene.
 #[wasm_bindgen]

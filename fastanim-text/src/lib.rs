@@ -25,6 +25,9 @@ use typst::visualize::{CurveItem, Geometry, Shape};
 use typst::{Library, LibraryExt, World};
 use typst_layout::PagedDocument;
 
+mod bundle;
+pub use bundle::{export_bundle, import_bundle};
+
 /// Height of one em in scene units (Typst's default 11pt text).
 const EM: f64 = 0.7;
 const PT: f64 = EM / 11.0;
@@ -121,6 +124,20 @@ pub fn list<T: fmt::Display>(values: &[T]) -> TextMobject {
     }
 }
 
+/// A typeset glyph: filled, no outline. Only its path and fill vary, which is all a bundle
+/// stores.
+fn glyph(path: VPath, fill: Color) -> VState {
+    VState::new(path).fill(fill).stroke(Color::TRANSPARENT, 0.0)
+}
+
+/// Typeset results, keyed by Typst body (see [`TextMobject::typeset`]).
+// ponytail: unbounded and never evicted; fine for a session's worth of snippets, add an LRU
+// if a long-lived playground grows it too far.
+fn cache() -> &'static Mutex<HashMap<String, TextMobject>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, TextMobject>>> = OnceLock::new();
+    CACHE.get_or_init(Mutex::default)
+}
+
 static CLOCK: OnceLock<fn() -> f64> = OnceLock::new();
 static TYPESET_MS: Mutex<f64> = Mutex::new(0.0);
 
@@ -160,10 +177,7 @@ impl TextMobject {
     /// language, so results are memoized on it (SPEC §14.5): re-running a script only
     /// typesets the snippets it changed.
     fn typeset(source: &str, body: &str, mode: Tokens) -> Result<Self, String> {
-        // ponytail: unbounded and never evicted; fine for a session's worth of snippets, add
-        // an LRU if a long-lived playground grows it too far.
-        static CACHE: OnceLock<Mutex<HashMap<String, TextMobject>>> = OnceLock::new();
-        let cache = CACHE.get_or_init(Mutex::default);
+        let cache = cache();
         if let Some(t) = cache.lock().unwrap().get(body) {
             return Ok(t.clone());
         }
@@ -217,11 +231,7 @@ impl TextMobject {
                 Tokens::Code => Color::lerp(&r.fill, &WHITE, 0.35),
                 _ => WHITE,
             };
-            glyphs.push(
-                VState::new(path.transform(to_scene))
-                    .fill(fill)
-                    .stroke(Color::TRANSPARENT, 0.0),
-            );
+            glyphs.push(glyph(path.transform(to_scene), fill));
             let ident = |s: &str| s.chars().all(|c| c.is_alphanumeric() || c == '_');
             let joins = |t: &Token| match mode {
                 Tokens::Glyphs => false,

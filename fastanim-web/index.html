@@ -21,12 +21,8 @@
     .editor textarea::selection { background: #3a4a6a; color: transparent; }
     .com { color: #6a737d; font-style: italic; } .str { color: #9ece6a; } .kw { color: #c678dd; }
     .num { color: #e5a05b; } .const { color: #61afef; } .fn { color: #e5c07b; }
-    canvas { width: 100%; aspect-ratio: 16 / 9; display: block; background: #000; }
     .bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-    .bar input[type=range] { flex: 1; min-width: 120px; }
     button, select { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 10px; }
-    #error { color: #f77; white-space: pre-wrap; font-family: ui-monospace, monospace; min-height: 1.4em; }
-    #time { font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -40,16 +36,9 @@
       <pre id="hl" aria-hidden="true"></pre>
       <textarea id="src" spellcheck="false" aria-label="Scene script"></textarea>
     </div>
-    <div id="error"></div>
   </section>
   <section>
-    <canvas id="canvas" width="1920" height="1080"></canvas>
-    <div class="bar">
-      <button id="play">Play</button>
-      <input id="scrub" type="range" min="0" step="0.001" value="0">
-      <span id="time">0.00 / 0.00</span>
-    </div>
-    <div class="bar" id="markers"></div>
+    <fastanim-player id="player"></fastanim-player>
     <div class="bar">
       <button id="svg">Download SVG</button>
       <button id="png">Download PNG</button>
@@ -57,50 +46,21 @@
   </section>
 </main>
 <script type="module">
+  import "./player.js";
   const $ = (id) => document.getElementById(id);
-  // Baking and drawing happen in the worker, on the canvas handed to it.
-  const worker = new Worker("worker.js", { type: "module" });
-  const offscreen = $("canvas").transferControlToOffscreen();
-  worker.postMessage({ canvas: offscreen }, [offscreen]);
-  let duration = 0, t = 0, playing = false, last = null;
-
-  function show() {
-    worker.postMessage({ t });
-    $("scrub").value = t;
-    $("time").textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`;
-  }
+  const player = $("player");
 
   function load(src) {
     $("status").textContent = "baking…";
-    worker.postMessage({ src });
+    player.load(src);
   }
 
-  worker.onmessage = ({ data }) => {
-    if (data.error !== undefined) {
-      // The worker keeps showing the last good scene.
-      $("error").textContent = data.error;
-      $("status").textContent = "";
-    } else if (data.baked) {
-      const b = data.baked;
-      $("error").textContent = "";
-      $("status").textContent =
-        `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting)`;
-      duration = b.duration;
-      t = Math.min(t, duration);
-      $("scrub").max = duration;
-      $("markers").replaceChildren(...b.markers.map((m) => {
-        const btn = document.createElement("button");
-        btn.textContent = m.name;
-        btn.onclick = () => { t = m.t; show(); };
-        return btn;
-      }));
-      show();
-    } else if (data.svg !== undefined) {
-      download(new Blob([data.svg], { type: "image/svg+xml" }), `frame-${t.toFixed(2)}.svg`);
-    } else if (data.png) {
-      download(data.png, `frame-${t.toFixed(2)}.png`);
-    }
-  };
+  // The player shows errors itself, and keeps playing the last good scene.
+  player.addEventListener("bakeerror", () => { $("status").textContent = ""; });
+  player.addEventListener("baked", ({ detail: b }) => {
+    $("status").textContent =
+      `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting)`;
+  });
 
   // Rhai tokens, in priority order: comments, strings, keywords, numbers, CONSTANTS, calls.
   const TOKENS = /(\/\/.*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|`[^`]*`?|'(?:\\.|[^'\\])')|\b(let|const|fn|if|else|while|loop|for|in|do|until|break|continue|return|throw|try|catch|switch|import|export|as|private|true|false|this|global)\b|\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b|\b([A-Z][A-Z0-9_]+)\b|\b([a-z_]\w*)(?=\s*\()/g;
@@ -126,34 +86,9 @@
   }
 
   async function example(name) {
-    $("src").value = await (await fetch(name)).text();
+    $("status").textContent = "baking…";
+    $("src").value = await player.open(name);
     highlight();
-    t = 0;
-    load($("src").value);
-  }
-
-  function frame(now) {
-    if (playing) {
-      t += (now - (last ?? now)) / 1000;
-      if (t >= duration) { t = duration; setPlaying(false); }
-      show();
-    }
-    last = now;
-    requestAnimationFrame(frame);
-  }
-
-  function setPlaying(p) {
-    playing = p;
-    if (p && t >= duration) t = 0;
-    $("play").textContent = p ? "Pause" : "Play";
-  }
-
-  function download(blob, name) {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(a.href);
   }
 
   let debounce;
@@ -167,19 +102,10 @@
     if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
   });
   $("example").onchange = (e) => example(e.target.value);
-  $("play").onclick = () => setPlaying(!playing);
-  $("scrub").oninput = (e) => { t = +e.target.value; show(); };
-  $("svg").onclick = () => worker.postMessage({ t, svg: true });
-  $("png").onclick = () => worker.postMessage({ t, png: true });
-  document.addEventListener("keydown", (e) => {
-    if (e.target === $("src")) return;
-    const step = { ArrowRight: 1 / 60, ArrowLeft: -1 / 60 }[e.key];
-    if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
-    else if (step) { t = Math.min(Math.max(t + step, 0), duration); show(); }
-  });
+  $("svg").onclick = () => player.download("svg");
+  $("png").onclick = () => player.download("png");
 
   example($("example").value);
-  requestAnimationFrame(frame);
 </script>
 </body>
 </html>
