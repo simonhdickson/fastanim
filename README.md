@@ -87,4 +87,4 @@ Video export needs `ffmpeg` on your `PATH`. The playground needs the
 
 ## License
 
-MIT OR Apache-2.0
+MIT
