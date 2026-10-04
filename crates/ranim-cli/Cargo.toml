@@ -12,6 +12,7 @@ name = "ranim"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
 ranim-diff.workspace = true
 ranim-text.workspace = true
 

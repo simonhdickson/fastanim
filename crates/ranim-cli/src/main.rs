@@ -4,31 +4,38 @@
 
 use std::process::ExitCode;
 
+use clap::{Parser, Subcommand, ValueEnum};
 use ranim_diff::{Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak};
 
-const USAGE: &str = "\
-Usage: ranim diff <A> <B> [options]
+/// ranim: programmatic mathematical animation
+#[derive(Debug, Parser)]
+#[command(name = "ranim", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
 
-Print the edit script that turns A into B.
-
-Options:
-  --by <unit>          Diff unit: char (default; whitespace ignored), word, or line
-  --math               Typeset A and B as Typst math and diff their glyphs
-  --algorithm <name>   myers (default), linear, or patience
-  --tie-break <name>   stable (default) or myers
-  --no-moves           Don't pair deletions and insertions into moves
-  --no-replace         Don't pair deletions and insertions into replacements
-  --cleanup <n>        Fold equal runs shorter than n into surrounding edits
-  --ops                Also print the raw ops with indices
-  -h, --help           Show this help
-
-Notation: =x equal, -[x] delete, +[x] insert, ↷x move, ~(x→y) replace.";
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Print the edit script that turns A into B
+    #[command(
+        after_help = "Notation: =x equal, -[x] delete, +[x] insert, ↷x move, ~(x→y) replace."
+    )]
+    Diff(DiffArgs),
+    /// Scaffold a scene crate (not implemented yet)
+    New,
+    /// Open a scene in a window with a scrubber
+    Preview,
+    /// Export a scene as video or frames
+    Render,
+    /// Export one frame of a scene
+    Still,
+}
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("diff") => match DiffArgs::parse(&args[1..]) {
-            Ok(Some(a)) => match a.run() {
+    let cmd = match Cli::parse().command {
+        Command::Diff(a) => {
+            return match a.run() {
                 Ok(out) => {
                     print!("{out}");
                     ExitCode::SUCCESS
@@ -37,134 +44,113 @@ fn main() -> ExitCode {
                     eprintln!("error: {e}");
                     ExitCode::FAILURE
                 }
-            },
-            Ok(None) => {
-                println!("{USAGE}");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("error: {e}\n\n{USAGE}");
-                ExitCode::FAILURE
-            }
-        },
-        Some(cmd @ ("preview" | "render" | "still")) => {
-            eprintln!(
-                "error: `ranim {cmd}` needs a scene crate, which `ranim new` will scaffold. \
-                 Until then, call `ranim_bevy::run(construct)` from your scene's `main` and use \
-                 `cargo run -- {cmd} --help`."
-            );
-            ExitCode::FAILURE
+            };
         }
-        Some("new") => {
+        Command::New => {
             eprintln!("error: `ranim new` is not implemented yet");
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
-        None | Some("-h" | "--help" | "help") => {
-            println!("ranim: programmatic mathematical animation\n\n{USAGE}");
-            ExitCode::SUCCESS
-        }
-        Some(other) => {
-            eprintln!("error: unknown command `{other}`\n\n{USAGE}");
-            ExitCode::FAILURE
-        }
-    }
+        Command::Preview => "preview",
+        Command::Render => "render",
+        Command::Still => "still",
+    };
+    eprintln!(
+        "error: `ranim {cmd}` needs a scene crate, which `ranim new` will scaffold. \
+         Until then, call `ranim_bevy::run(construct)` from your scene's `main` and use \
+         `cargo run -- {cmd} --help`."
+    );
+    ExitCode::FAILURE
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Unit {
     Char,
     Word,
     Line,
+    #[value(skip)]
     Math,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum AlgorithmArg {
+    Myers,
+    Linear,
+    Patience,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TieBreakArg {
+    Stable,
+    Myers,
+}
+
+#[derive(Debug, clap::Args)]
 struct DiffArgs {
+    /// The text to diff from
     a: String,
+    /// The text to diff to
     b: String,
+    /// Diff unit; char ignores whitespace
+    #[arg(long = "by", value_name = "UNIT", default_value = "char")]
     unit: Unit,
-    opts: DiffOptions,
+    /// Typeset A and B as Typst math and diff their glyphs
+    #[arg(long)]
+    math: bool,
+    /// Core diff algorithm
+    #[arg(long, value_name = "NAME", default_value = "myers")]
+    algorithm: AlgorithmArg,
+    /// Choice between equally short scripts
+    #[arg(long, value_name = "NAME", default_value = "stable")]
+    tie_break: TieBreakArg,
+    /// Don't pair deletions and insertions into moves
+    #[arg(long)]
+    no_moves: bool,
+    /// Don't pair deletions and insertions into replacements
+    #[arg(long)]
+    no_replace: bool,
+    /// Fold equal runs shorter than N into surrounding edits
+    #[arg(long, value_name = "N")]
+    cleanup: Option<usize>,
+    /// Also print the raw ops with indices
+    #[arg(long = "ops")]
     show_ops: bool,
 }
 
 impl DiffArgs {
-    /// Parses the arguments after `diff`. `Ok(None)` means help was requested.
-    fn parse(args: &[String]) -> Result<Option<Self>, String> {
-        let mut inputs = Vec::new();
-        let mut unit = Unit::Char;
-        let mut opts = DiffOptions::default();
-        let mut show_ops = false;
-        let mut it = args.iter();
-        while let Some(arg) = it.next() {
-            let mut value = |flag: &str| {
-                it.next()
-                    .cloned()
-                    .ok_or_else(|| format!("{flag} needs a value"))
-            };
-            match arg.as_str() {
-                "-h" | "--help" => return Ok(None),
-                "--by" => {
-                    unit = match value("--by")?.as_str() {
-                        "char" => Unit::Char,
-                        "word" => Unit::Word,
-                        "line" => Unit::Line,
-                        other => return Err(format!("unknown unit `{other}`")),
-                    }
-                }
-                "--algorithm" => {
-                    opts.algorithm = match value("--algorithm")?.as_str() {
-                        "myers" => Algorithm::Myers,
-                        "linear" => Algorithm::MyersLinearSpace,
-                        "patience" => Algorithm::Patience,
-                        other => return Err(format!("unknown algorithm `{other}`")),
-                    }
-                }
-                "--tie-break" => {
-                    opts.tie_break = match value("--tie-break")?.as_str() {
-                        "stable" => TieBreak::Stable,
-                        "myers" => TieBreak::Myers,
-                        other => return Err(format!("unknown tie-break `{other}`")),
-                    }
-                }
-                "--no-moves" => opts.detect_moves = false,
-                "--no-replace" => opts.pair_replacements = false,
-                "--cleanup" => {
-                    let v = value("--cleanup")?;
-                    let min_equal_run = v
-                        .parse()
-                        .map_err(|_| format!("--cleanup expects a number, got `{v}`"))?;
-                    opts.cleanup = Cleanup::Semantic { min_equal_run };
-                }
-                "--ops" => show_ops = true,
-                "--math" => unit = Unit::Math,
-                flag if flag.starts_with("--") => return Err(format!("unknown option `{flag}`")),
-                _ => inputs.push(arg.clone()),
-            }
+    fn options(&self) -> DiffOptions {
+        DiffOptions {
+            algorithm: match self.algorithm {
+                AlgorithmArg::Myers => Algorithm::Myers,
+                AlgorithmArg::Linear => Algorithm::MyersLinearSpace,
+                AlgorithmArg::Patience => Algorithm::Patience,
+            },
+            tie_break: match self.tie_break {
+                TieBreakArg::Stable => TieBreak::Stable,
+                TieBreakArg::Myers => TieBreak::Myers,
+            },
+            detect_moves: !self.no_moves,
+            pair_replacements: !self.no_replace,
+            cleanup: self
+                .cleanup
+                .map_or(Cleanup::None, |min_equal_run| Cleanup::Semantic {
+                    min_equal_run,
+                }),
         }
-        let [a, b]: [String; 2] = inputs
-            .try_into()
-            .map_err(|v: Vec<String>| format!("expected 2 inputs, got {}", v.len()))?;
-        Ok(Some(Self {
-            a,
-            b,
-            unit,
-            opts,
-            show_ops,
-        }))
     }
 
     fn run(&self) -> Result<String, String> {
-        let a = tokenize(&self.a, self.unit)?;
-        let b = tokenize(&self.b, self.unit)?;
+        let unit = if self.math { Unit::Math } else { self.unit };
+        let a = tokenize(&self.a, unit)?;
+        let b = tokenize(&self.b, unit)?;
         let mut differ = Differ::new(&a, &b, |t| t.text.clone())
-            .options(self.opts.clone())
+            .options(self.options())
             .cost(|i, j| (a[i].col - b[j].col).abs());
-        if self.unit != Unit::Line {
+        if unit != Unit::Line {
             differ = differ.class(|t| is_operator(&t.text).then_some(()));
         }
         let ops = differ.run();
 
-        let mut out = render(&a, &b, &ops, self.unit);
+        let mut out = render(&a, &b, &ops, unit);
         out.push('\n');
         if self.show_ops {
             for op in &ops {
@@ -270,9 +256,16 @@ fn render(a: &[Token], b: &[Token], ops: &[Op], unit: Unit) -> String {
 mod tests {
     use super::*;
 
+    fn parse(args: &[&str]) -> Result<DiffArgs, clap::Error> {
+        let cli = Cli::try_parse_from(["ranim", "diff"].iter().chain(args))?;
+        let Command::Diff(a) = cli.command else {
+            unreachable!()
+        };
+        Ok(a)
+    }
+
     fn run(args: &[&str]) -> String {
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        DiffArgs::parse(&args).unwrap().unwrap().run().unwrap()
+        parse(args).unwrap().run().unwrap()
     }
 
     #[test]
@@ -310,12 +303,15 @@ mod tests {
 
     #[test]
     fn bad_args() {
-        let parse = |args: &[&str]| {
-            let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-            DiffArgs::parse(&args)
-        };
         assert!(parse(&["only-one"]).is_err());
         assert!(parse(&["a", "b", "--by", "glyph"]).is_err());
-        assert!(parse(&["--help"]).unwrap().is_none());
+        assert!(parse(&["a", "b", "--by", "math"]).is_err());
+        assert!(parse(&["a", "b", "--cleanup", "x"]).is_err());
+    }
+
+    #[test]
+    fn cli_is_well_formed() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
     }
 }

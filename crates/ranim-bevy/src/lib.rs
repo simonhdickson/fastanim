@@ -22,46 +22,72 @@ use bevy::camera::ScalingMode;
 use bevy::prelude::*;
 use bevy_vello::VelloPlugin;
 use bevy_vello::prelude::*;
+use clap::{Parser, Subcommand};
 use ranim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, Scene, SceneState, VState};
 
 use bevy_vello::vello;
 use bevy_vello::vello::kurbo::{self, Affine, BezPath, Cap, Join, Rect};
 use bevy_vello::vello::peniko::{Color, Fill};
 
-const USAGE: &str = "\
-Usage: <scene> [command] [options]
+/// Preview or export a ranim scene.
+#[derive(Debug, Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
 
-Commands:
-  preview                 Open a window with a scrubber (default)
-  render                  Export video or frames
-  still                   Export one frame
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Open a window with a scrubber (default)
+    Preview,
+    /// Export video or frames
+    Render {
+        #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
+        /// 480p15, 720p30, 1080p60 or 4k60
+        quality: export::Quality,
+        /// Output; its extension picks the format: mp4, webm, gif, png or svg
+        #[arg(short, long, value_name = "PATH", default_value = "out.mp4")]
+        output: PathBuf,
+        /// Only render from <MARKER> to the next marker
+        #[arg(long, value_name = "MARKER")]
+        section: Option<String>,
+    },
+    /// Export one frame
+    Still {
+        /// 480p15, 720p30, 1080p60 or 4k60
+        #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
+        quality: export::Quality,
+        /// Output; its extension picks the format: png or svg
+        #[arg(short, long, value_name = "PATH", default_value = "frame.png")]
+        output: PathBuf,
+        /// Time to render, e.g. 3.5 or 3.5s
+        #[arg(long, value_name = "SECS", value_parser = parse_secs, default_value = "0")]
+        at: f32,
+        /// Frame index to render
+        #[arg(long, value_name = "N", conflicts_with = "at")]
+        frame: Option<u32>,
+    },
+}
 
-Options:
-  -q, --quality <preset>  480p15, 720p30, 1080p60 (default) or 4k60
-  -o, --output <path>     Output; its extension picks the format: mp4, webm, gif, png or svg.
-                          render defaults to out.mp4, still to frame.png
-  --section <marker>      render: only from <marker> to the next marker
-  --at <secs>             still: time to render, e.g. 3.5 or 3.5s (default 0)
-  --frame <n>             still: frame index to render";
+fn parse_secs(v: &str) -> Result<f32, String> {
+    let secs = v.strip_suffix('s').unwrap_or(v);
+    secs.parse().map_err(|_| format!("bad time `{v}`"))
+}
 
 /// Builds the scene with `construct`, then previews or exports it depending on the command-line
 /// arguments (run with `--help` for usage). Exits the process on error.
 pub fn run(construct: impl FnOnce(&mut Scene)) {
+    let cli = Cli::parse();
     let mut s = Scene::new();
     construct(&mut s);
     let tl = s.bake();
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let result = match parse_args(&args, &tl) {
-        Ok(Cli::Preview) => {
+    let result = match resolve(cli.command, &tl) {
+        Ok(None) => {
             preview(tl);
             Ok(())
         }
-        Ok(Cli::Export(ex)) => export::export(&tl, &ex),
-        Ok(Cli::Help) => {
-            println!("{USAGE}");
-            Ok(())
-        }
-        Err(e) => Err(format!("{e}\n\n{USAGE}")),
+        Ok(Some(ex)) => export::export(&tl, &ex),
+        Err(e) => Err(e),
     };
     if let Err(e) = result {
         eprintln!("error: {e}");
@@ -69,81 +95,45 @@ pub fn run(construct: impl FnOnce(&mut Scene)) {
     }
 }
 
-#[derive(Debug)]
-enum Cli {
-    Preview,
-    Export(export::Export),
-    Help,
-}
-
-fn parse_args(args: &[String], tl: &BakedTimeline) -> Result<Cli, String> {
-    let (cmd, rest) = match args.split_first() {
-        Some((c, rest)) if !c.starts_with('-') => (c.as_str(), rest),
-        _ => ("preview", args),
-    };
-    let mut quality = export::Quality::default();
-    let mut output = None;
-    let mut section = None;
-    let mut at = None;
-    let mut frame = None;
-    let mut it = rest.iter();
-    while let Some(arg) = it.next() {
-        let mut value = || {
-            it.next()
-                .cloned()
-                .ok_or_else(|| format!("{arg} needs a value"))
-        };
-        match arg.as_str() {
-            "-h" | "--help" => return Ok(Cli::Help),
-            "-q" | "--quality" => quality = value()?.parse()?,
-            "-o" | "--output" => output = Some(PathBuf::from(value()?)),
-            "--section" => section = Some(value()?),
-            "--at" => {
-                let v = value()?;
-                let secs = v.strip_suffix('s').unwrap_or(&v);
-                at = Some(secs.parse::<f32>().map_err(|_| format!("bad time `{v}`"))?);
-            }
-            "--frame" => {
-                let v = value()?;
-                frame = Some(v.parse::<u32>().map_err(|_| format!("bad frame `{v}`"))?);
-            }
-            other => return Err(format!("unknown option `{other}`")),
-        }
-    }
-    let dur = tl.duration();
-    let range = match cmd {
-        "preview" => return Ok(Cli::Preview),
-        "render" => match section {
-            None => (0.0, dur),
-            Some(name) => {
-                let start = tl.marker(&name).ok_or(format!("no marker `{name}`"))?;
-                let end = tl
-                    .markers()
-                    .iter()
-                    .map(|&(_, t)| t)
-                    .filter(|&t| t > start)
-                    .reduce(f32::min)
-                    .unwrap_or(dur);
-                (start, end)
-            }
-        },
-        "still" => {
-            let t = match frame {
-                Some(n) => n as f32 / quality.fps as f32,
-                None => at.unwrap_or(0.0),
+/// Turns a command into what to export, or `None` to preview.
+fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Export>, String> {
+    let (quality, output, range) = match cmd {
+        None | Some(Command::Preview) => return Ok(None),
+        Some(Command::Render {
+            quality,
+            output,
+            section,
+        }) => {
+            let dur = tl.duration();
+            let range = match section {
+                None => (0.0, dur),
+                Some(name) => {
+                    let start = tl.marker(&name).ok_or(format!("no marker `{name}`"))?;
+                    let end = tl
+                        .markers()
+                        .iter()
+                        .map(|&(_, t)| t)
+                        .filter(|&t| t > start)
+                        .reduce(f32::min)
+                        .unwrap_or(dur);
+                    (start, end)
+                }
             };
-            (t, t)
+            (quality, output, range)
         }
-        other => return Err(format!("unknown command `{other}`")),
+        Some(Command::Still {
+            quality,
+            output,
+            at,
+            frame,
+        }) => {
+            let t = frame.map_or(at, |n| n as f32 / quality.fps as f32);
+            (quality, output, (t, t))
+        }
     };
-    let default_out = if cmd == "still" {
-        "frame.png"
-    } else {
-        "out.mp4"
-    };
-    Ok(Cli::Export(export::Export {
+    Ok(Some(export::Export {
         quality,
-        output: output.unwrap_or_else(|| default_out.into()),
+        output,
         range,
     }))
 }
@@ -419,34 +409,40 @@ mod tests {
         s.bake()
     }
 
-    fn parse(args: &str) -> Result<Cli, String> {
-        let args: Vec<String> = args.split_whitespace().map(String::from).collect();
-        parse_args(&args, &timeline())
+    fn parse(args: &str) -> Result<Option<export::Export>, String> {
+        let cli = Cli::try_parse_from(["scene"].into_iter().chain(args.split_whitespace()))
+            .map_err(|e| e.to_string())?;
+        resolve(cli.command, &timeline())
     }
 
     fn export(args: &str) -> export::Export {
         match parse(args) {
-            Ok(Cli::Export(ex)) => ex,
+            Ok(Some(ex)) => ex,
             other => panic!("{args}: {other:?}"),
         }
     }
 
     #[test]
     fn commands() {
-        assert!(matches!(parse(""), Ok(Cli::Preview)));
-        assert!(matches!(parse("render --help"), Ok(Cli::Help)));
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+        assert!(matches!(parse(""), Ok(None)));
+        assert!(matches!(parse("preview"), Ok(None)));
         let ex = export("render -q 720p30 -o x.webm");
         assert_eq!((ex.range, ex.output), ((0.0, 3.0), "x.webm".into()));
         assert_eq!(ex.quality.fps, 30);
+        assert_eq!(export("render").output, PathBuf::from("out.mp4"));
         assert_eq!(export("render --section a").range, (1.0, 2.0));
         assert_eq!(export("render --section b").range, (2.0, 3.0));
         assert_eq!(export("still --at 1.5s").range, (1.5, 1.5));
         assert_eq!(export("still --frame 30 -q 720p30").range, (1.0, 1.0));
         assert_eq!(export("still").output, PathBuf::from("frame.png"));
         for bad in [
+            "render --help",
             "render -q 8k",
             "render --section zz",
             "still --at x",
+            "still --at 1 --frame 2",
             "nope",
             "-o",
         ] {

@@ -1,48 +1,46 @@
-//! Randomized property tests for the correctness requirements in `docs/SPEC.md` §5.7.
-//!
-//! Uses a small seeded PRNG so failures are reproducible from the printed seed.
+//! Property tests for the correctness requirements in `docs/SPEC.md` §5.7.
 
+use proptest::prelude::*;
+use proptest::sample::Index;
 use ranim_diff::{
     Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak, apply, diff, edit_cost, expand, validate,
 };
 
-/// xorshift64*: tiny, deterministic, good enough for test inputs.
-struct Rng(u64);
+/// Up to `max_len` items over an alphabet of `alphabet` symbols.
+fn seq(max_len: usize, alphabet: u8) -> impl Strategy<Value = Vec<u8>> {
+    prop::collection::vec(0..alphabet, 0..=max_len)
+}
 
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        self.0.wrapping_mul(0x2545F4914F6CDD1D)
-    }
-
-    fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
-    }
-
-    /// A sequence of up to `max_len` items over an alphabet of `alphabet` symbols.
-    fn seq(&mut self, max_len: u64, alphabet: u64) -> Vec<u8> {
-        let len = self.below(max_len + 1);
-        (0..len).map(|_| self.below(alphabet) as u8).collect()
-    }
-
-    /// `base` with a few random edits, the typical "small change" case.
-    fn mutate(&mut self, base: &[u8], edits: u64, alphabet: u64) -> Vec<u8> {
-        let mut out = base.to_vec();
-        for _ in 0..self.below(edits + 1) {
-            let at = self.below(out.len() as u64 + 1) as usize;
-            match self.below(3) {
-                0 if at < out.len() => {
-                    out.remove(at);
+/// `base` with up to `edits` random deletes, inserts and substitutions.
+fn mutated(
+    base: impl Strategy<Value = Vec<u8>>,
+    edits: usize,
+    alphabet: u8,
+) -> impl Strategy<Value = (Vec<u8>, Vec<u8>)> {
+    let edit = (0..3u8, any::<Index>(), 0..alphabet);
+    (base, prop::collection::vec(edit, 0..=edits)).prop_map(|(a, edits)| {
+        let mut b = a.clone();
+        for (kind, at, x) in edits {
+            let at = at.index(b.len() + 1);
+            match kind {
+                0 if at < b.len() => {
+                    b.remove(at);
                 }
-                1 => out.insert(at, self.below(alphabet) as u8),
-                _ if at < out.len() => out[at] = self.below(alphabet) as u8,
+                1 => b.insert(at, x),
+                _ if at < b.len() => b[at] = x,
                 _ => {}
             }
         }
-        out
-    }
+        (a, b)
+    })
+}
+
+/// Two unrelated sequences, or a sequence and a small edit of it (the typical case).
+fn pair() -> impl Strategy<Value = (Vec<u8>, Vec<u8>)> {
+    prop_oneof![
+        (2..8u8).prop_flat_map(|n| (seq(40, n), seq(40, n))),
+        mutated(seq(60, 8), 6, 8),
+    ]
 }
 
 fn lcs_len(a: &[u8], b: &[u8]) -> usize {
@@ -96,98 +94,59 @@ fn stable() -> DiffOptions {
     DiffOptions::raw()
 }
 
-fn inputs(seed: u64, cases: usize, mut f: impl FnMut(&[u8], &[u8])) {
-    let mut rng = Rng(seed);
-    for case in 0..cases {
-        let (a, b) = if case % 2 == 0 {
-            let alphabet = 2 + rng.below(6);
-            (rng.seq(40, alphabet), rng.seq(40, alphabet))
-        } else {
-            let a = rng.seq(60, 8);
-            let b = rng.mutate(&a, 6, 8);
-            (a, b)
-        };
-        f(&a, &b);
-    }
-}
-
-#[test]
-fn every_script_applies_to_b() {
-    let options = all_options();
-    inputs(1, 400, |a, b| {
-        for opts in &options {
-            let ops = Differ::new(a, b, |x| *x)
+proptest! {
+    #[test]
+    fn every_script_applies_to_b((a, b) in pair()) {
+        for opts in all_options() {
+            let ops = Differ::new(&a, &b, |x| *x)
                 .options(opts.clone())
                 .class(|x| (*x < 3).then_some(()))
                 .run();
-            let got = apply(a, b, &ops, |x| *x)
-                .unwrap_or_else(|e| panic!("{e} for {a:?} -> {b:?} with {opts:?}: {ops:?}"));
-            assert_eq!(got, b, "{a:?} -> {b:?} with {opts:?}");
+            let got = apply(&a, &b, &ops, |x| *x)
+                .map_err(|e| TestCaseError::fail(format!("{e} with {opts:?}: {ops:?}")))?;
+            prop_assert_eq!(&got, &b, "{:?}", opts);
         }
-    });
-}
+    }
 
-#[test]
-fn expanded_line_scripts_apply_to_b() {
-    // Item 0 ends a line.
-    let lines = |s: &[u8]| {
-        let mut out = vec![];
-        let mut start = 0;
-        for (i, x) in s.iter().enumerate() {
-            if *x == 0 || i + 1 == s.len() {
-                out.push(start..i + 1);
-                start = i + 1;
+    #[test]
+    fn expanded_line_scripts_apply_to_b((a, b) in pair()) {
+        // Item 0 ends a line.
+        let lines = |s: &[u8]| {
+            let mut out = vec![];
+            let mut start = 0;
+            for (i, x) in s.iter().enumerate() {
+                if *x == 0 || i + 1 == s.len() {
+                    out.push(start..i + 1);
+                    start = i + 1;
+                }
             }
-        }
-        out
-    };
-    inputs(2, 400, |a, b| {
-        let (la, lb) = (lines(a), lines(b));
+            out
+        };
+        let (la, lb) = (lines(&a), lines(&b));
         let ka: Vec<_> = la.iter().map(|l| &a[l.clone()]).collect();
         let kb: Vec<_> = lb.iter().map(|l| &b[l.clone()]).collect();
         let outer = Differ::new(&ka, &kb, |l| *l).run();
         let ops = expand(&outer, &la, &lb, |ra, rb| {
             Differ::new(&a[ra], &b[rb], |x| *x).run()
         });
-        let got =
-            apply(a, b, &ops, |x| *x).unwrap_or_else(|e| panic!("{e} for {a:?} -> {b:?}: {ops:?}"));
-        assert_eq!(got, b);
-    });
-}
+        let got = apply(&a, &b, &ops, |x| *x)
+            .map_err(|e| TestCaseError::fail(format!("{e}: {ops:?}")))?;
+        prop_assert_eq!(&got, &b);
+    }
 
-#[test]
-fn myers_is_minimal() {
-    inputs(2, 400, |a, b| {
-        let want = a.len() + b.len() - 2 * lcs_len(a, b);
-        for alg in [Algorithm::Myers, Algorithm::MyersLinearSpace] {
-            let ops = diff(a, b, |x| *x, &raw(alg));
-            assert_eq!(edit_cost(&ops), want, "{alg:?}: {a:?} -> {b:?}");
-        }
-        let ops = diff(a, b, |x| *x, &stable());
-        assert_eq!(edit_cost(&ops), want, "stable: {a:?} -> {b:?}");
-        let patience = diff(a, b, |x| *x, &raw(Algorithm::Patience));
-        assert!(edit_cost(&patience) >= want);
-    });
-}
-
-#[test]
-fn myers_is_minimal_up_to_200_items() {
-    let mut rng = Rng(3);
-    for _ in 0..40 {
-        let alphabet = 2 + rng.below(20);
-        let a = rng.seq(200, alphabet);
-        let b = rng.seq(200, alphabet);
+    #[test]
+    fn myers_is_minimal((a, b) in pair()) {
         let want = a.len() + b.len() - 2 * lcs_len(&a, &b);
         for alg in [Algorithm::Myers, Algorithm::MyersLinearSpace] {
-            assert_eq!(edit_cost(&diff(&a, &b, |x| *x, &raw(alg))), want);
+            prop_assert_eq!(edit_cost(&diff(&a, &b, |x| *x, &raw(alg))), want, "{:?}", alg);
         }
-        assert_eq!(edit_cost(&diff(&a, &b, |x| *x, &stable())), want);
+        prop_assert_eq!(edit_cost(&diff(&a, &b, |x| *x, &stable())), want, "stable");
+        let patience = diff(&a, &b, |x| *x, &raw(Algorithm::Patience));
+        prop_assert!(edit_cost(&patience) >= want);
     }
-}
 
-#[test]
-fn deletions_come_before_insertions_in_each_hunk() {
-    inputs(4, 300, |a, b| {
+    #[test]
+    fn deletions_come_before_insertions_in_each_hunk((a, b) in pair()) {
         let variants = [
             raw(Algorithm::Myers),
             raw(Algorithm::MyersLinearSpace),
@@ -195,39 +154,55 @@ fn deletions_come_before_insertions_in_each_hunk() {
             stable(),
         ];
         for opts in variants {
-            let ops = diff(a, b, |x| *x, &opts);
+            let ops = diff(&a, &b, |x| *x, &opts);
             for w in ops.windows(2) {
-                assert!(
+                prop_assert!(
                     !matches!(w, [Op::Insert { .. }, Op::Delete { .. }]),
-                    "{opts:?}: {ops:?}"
+                    "{:?}: {:?}", opts, ops
                 );
             }
         }
-    });
-}
+    }
 
-#[test]
-fn deterministic() {
-    inputs(5, 100, |a, b| {
+    #[test]
+    fn deterministic((a, b) in pair()) {
         for opts in all_options() {
-            assert_eq!(diff(a, b, |x| *x, &opts), diff(a, b, |x| *x, &opts));
+            prop_assert_eq!(diff(&a, &b, |x| *x, &opts), diff(&a, &b, |x| *x, &opts));
         }
-    });
+    }
 }
 
-#[test]
-fn large_inputs_use_linear_space() {
-    let mut rng = Rng(6);
-    let a: Vec<u8> = (0..20_000).map(|_| rng.below(64) as u8).collect();
-    let b = rng.mutate(&a, 200, 64);
-    let ops = diff(&a, &b, |x| *x, &DiffOptions::default());
-    assert_eq!(apply(&a, &b, &ops, |x| *x).unwrap(), b);
-    // 20k × 20k is past the stable limit; the trimmed middle is not.
-    let linear = diff(&a, &b, |x| *x, &raw(Algorithm::MyersLinearSpace));
-    let auto = diff(&a, &b, |x| *x, &raw(Algorithm::Myers));
-    let stable = diff(&a, &b, |x| *x, &stable());
-    assert_eq!(edit_cost(&linear), edit_cost(&auto));
-    assert_eq!(edit_cost(&linear), edit_cost(&stable));
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(40))]
+
+    #[test]
+    fn myers_is_minimal_up_to_200_items(
+        (a, b) in (2..22u8).prop_flat_map(|n| (seq(200, n), seq(200, n)))
+    ) {
+        let want = a.len() + b.len() - 2 * lcs_len(&a, &b);
+        for alg in [Algorithm::Myers, Algorithm::MyersLinearSpace] {
+            prop_assert_eq!(edit_cost(&diff(&a, &b, |x| *x, &raw(alg))), want);
+        }
+        prop_assert_eq!(edit_cost(&diff(&a, &b, |x| *x, &stable())), want);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1))]
+
+    #[test]
+    fn large_inputs_use_linear_space(
+        (a, b) in mutated(prop::collection::vec(0..64u8, 20_000), 200, 64)
+    ) {
+        let ops = diff(&a, &b, |x| *x, &DiffOptions::default());
+        prop_assert_eq!(&apply(&a, &b, &ops, |x| *x).unwrap(), &b);
+        // 20k × 20k is past the stable limit; the trimmed middle is not.
+        let linear = diff(&a, &b, |x| *x, &raw(Algorithm::MyersLinearSpace));
+        let auto = diff(&a, &b, |x| *x, &raw(Algorithm::Myers));
+        let stable = diff(&a, &b, |x| *x, &stable());
+        prop_assert_eq!(edit_cost(&linear), edit_cost(&auto));
+        prop_assert_eq!(edit_cost(&linear), edit_cost(&stable));
+    }
 }
 
 #[test]
