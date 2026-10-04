@@ -111,6 +111,8 @@ ranim/
 │   ├── ranim-text/           # typst integration, fonts, code tokenizing
 │   ├── ranim-bevy/           # Bevy plugin: sync, render, preview, export
 │   ├── ranim-cli/            # `ranim` binary
+│   ├── ranim-script/         # Rhai bindings over core + text (§14)
+│   ├── ranim-web/            # wasm-bindgen browser player and playground (§14)
 │   └── ranim/                # facade crate re-exporting a prelude
 └── examples/
 ```
@@ -128,6 +130,8 @@ ranim/
 | Code highlighting | `syntect` or `tree-sitter-highlight` | Token kinds for coloring & diff keys |
 | Colors | `palette` | Perceptual (Oklab) color interpolation |
 | Video | `ffmpeg` subprocess | Raw RGBA piped to stdin |
+| Scripting | `rhai` | Scenes as scripts, natively and in the browser (§14) |
+| Web | `wasm-bindgen`, `web-sys` | Browser player; Canvas 2D rendering (§14) |
 
 ---
 
@@ -585,6 +589,7 @@ ranim preview [--scene Name]           # windowed preview with scrubber
 ranim render  [--scene Name] [-q 1080p60] [-o out.mp4] [--format mp4|webm|gif|png|svg]
 ranim still   [--scene Name] --at 3.5s -o frame.png
 ranim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
+ranim run     scene.rhai [preview|render|still] [...]   # a Rhai scene, no crate needed (§14)
 ```
 
 Quality presets: `480p15`, `720p30`, `1080p60` (default), `4k60`.
@@ -635,6 +640,7 @@ These double as integration tests (§11) and should all render correctly before 
 | M6 | `TransformDiff` | Op→animation mapping, choreography, debug overlay; examples 1, 2, 5 |
 | M7 | Code & lists | `Code`, hierarchical diff, `ListMobject`; examples 3, 4 |
 | M8 | Polish | Hot reload, more animations, docs site with rendered examples |
+| M9 | Scripting & web | `ranim-script` (Rhai), `ranim run`, `ranim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
 
 ---
 
@@ -655,6 +661,107 @@ These double as integration tests (§11) and should all render correctly before 
    Is that expressive enough?
 6. **LaTeX backend.** Optional `ranim-latex` crate shelling out to `latex` + `dvisvgm`, with token
    spans recovered via `\special` markers? Deferred until users ask.
+
+---
+
+## 14. Scripting and the browser (M9)
+
+Scenes are compiled Rust today, which needs a toolchain and cannot run in a browser. M9 adds
+**Rhai** scenes: the same API as a script, interpreted, so a scene can be written, edited and
+played entirely in a web page, or run natively with `ranim run` and no scene crate. Rhai is
+pure Rust, compiles to `wasm32-unknown-unknown`, and its syntax is close enough to Rust that
+scenes port almost line for line. It covers what most scenes need; Rust stays available for
+anything heavier.
+
+### 14.1 What already runs in the browser
+
+| Crate | In wasm | Notes |
+|---|---|---|
+| `ranim-diff`, `ranim-core` | As is | No I/O, threads or clocks; `eval(t)` and `to_svg` are pure |
+| `ranim-text` | As is | Typst runs in wasm, and the `World` is in-memory. Embedded `typst-assets` fonts add several MB, so the web build should fetch fonts as a separate, cached asset |
+| `ranim-bevy` | Not used | Vello needs WebGPU (§13 Q1); export shells out to `ffmpeg`, writes files and blocks on GPU readback. The web player renders without it |
+
+### 14.2 `ranim-script`: the binding layer
+
+A crate over `ranim-core` and `ranim-text` that exposes the scene API to scripts. It is split in
+two so other languages can be added later without redoing the work:
+
+- **A language-neutral API**: plain Rust functions over handles (`MobjectId`, `TextMobject`
+  groups, boxed `Animation`s), with options as name/value maps instead of builder generics.
+  This is what every frontend binds; it is also where defaults and validation live.
+- **The Rhai frontend**: registers that API with a `rhai::Engine`. A JavaScript frontend
+  (`wasm-bindgen` classes in `ranim-web`) or another embedded language would bind the same
+  layer.
+
+```rhai
+// pythagoras.rhai
+let title = scene.add(text("Solving for a").to_edge(UP));
+scene.play(write(title));
+
+let eq = scene.add(math_tex("a^2 + b^2 = c^2").scale(1.5));
+scene.play(write(eq).run_time(1.5));
+scene.wait(0.5);
+scene.marker("rearrange");
+
+scene.play(transform_diff(eq, math_tex("a^2 = c^2 - b^2").scale(1.5)));
+scene.play(circumscribe(eq));
+let dot = scene.add(dot(point(1.0, 0.0)));
+scene.always(dot, |state, t| state[dot].move_to(point(cos(t), sin(t))));
+```
+
+Rules:
+
+- **Bake once.** A script runs top to bottom once, recording into a `Scene`, then is baked as
+  usual; playback and seeking never run the script again. Determinism (§1.1) is unchanged.
+- **Closures.** `apply_function`, `always` and `Update` take Rhai function pointers. They run at
+  sample time, so the baked timeline holds the compiled `AST` (behind an `Arc`, Rhai's `sync`
+  feature, to satisfy `Animation: Send + Sync`). They are called every frame, so they must stay
+  pure functions of their arguments: no access to script globals that change.
+- **Limits.** Scripts run with Rhai's operation, call-depth and string-size limits, so an
+  infinite loop in a browser tab fails with an error instead of hanging the page.
+- **Errors.** Script and Typst errors carry line and column and are shown inline in the
+  playground and as `file:line:col` from `ranim run`.
+
+### 14.3 `ranim run`
+
+`ranim run scene.rhai [preview|render|still] [options]` takes the same commands and options as
+a compiled scene (§8.4, §8.5) and renders through `ranim-bevy`. In preview it watches the file
+and re-runs and re-bakes it on save, keeping the current `t`: the hot reload of §8.4 without
+rebuilding a `cdylib`.
+
+### 14.4 `ranim-web`: the browser player
+
+A `wasm-bindgen` crate built with `trunk`, without Bevy:
+
+- **Rendering**: each frame calls `eval(t)` and draws to a `<canvas>` with Canvas 2D, building a
+  `Path2D` from each `VPath`'s cubics, trimmed by `draw_range` with `VPath::trim`, in
+  `z_index` order. This works in every browser; a WebGPU/Vello backend can come later.
+- **Clock and scrubber**: `requestAnimationFrame` drives `t`; an HTML timeline bar gives
+  play/pause, frame stepping, markers and dragging, as in §8.4.
+- **Playground**: an editor next to the canvas runs the script on change (debounced), re-bakes
+  and keeps `t`. Baking runs in a Web Worker so long scenes don't freeze the page.
+- **Embedding**: `<ranim-player src="scene.rhai">` (or a precompiled scene) so the docs site's
+  rendered examples (M8) are live and scrubbable.
+- **Export**: SVG frames (from `to_svg`) and PNG stills (`canvas.toBlob`) as downloads. Video
+  through WebCodecs `VideoEncoder` plus an MP4/WebM muxer is a stretch goal, with frames still
+  timed by index so output stays deterministic.
+
+### 14.5 Acceptance
+
+- The §10 examples exist as `.rhai` scripts, and each bakes to the same timeline as its Rust
+  version (compared through `to_svg` at sampled times, §11).
+- They play in the browser player in current Chrome, Firefox and Safari, and render with
+  `ranim run`.
+- A script with an infinite loop or a Typst error reports an error and leaves the page usable.
+
+### 14.6 Open questions
+
+1. **Naming in scripts.** Mirror the Rust names exactly (`replacement_transform`) or adopt
+   shorter script names? Mirroring keeps docs shared across languages.
+2. **Updater performance.** Rhai closures evaluated per frame are slower than Rust. Is that
+   fine for typical updaters, or do common ones (follow, rotate around) need native helpers?
+3. **Font loading.** Which fonts ship by default on the web, and should scripts be able to load
+   their own?
 
 ---
 
