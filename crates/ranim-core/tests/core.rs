@@ -335,3 +335,93 @@ fn unwrite_reverses_write() {
     let end = tl.eval(tl.duration());
     assert!(glyphs.iter().all(|g| end[g].draw_range.end == 0.0));
 }
+
+#[test]
+fn draw_border_then_fill_phases() {
+    let sq = VState::square(2.0).fill(BLUE);
+    let mut s = Scene::new();
+    let id = s.add(sq.clone());
+    s.play(draw_border_then_fill(id));
+    let tl = s.bake();
+    assert_eq!(tl.duration(), 2.0);
+    // Halfway through the first half (t = 0.5 s): outline partly drawn, no fill yet.
+    let early = &tl.eval(0.5)[&id];
+    assert!(early.draw_range.end > 0.0 && early.draw_range.end < 1.0);
+    assert_eq!(early.fill.a, 0.0);
+    // Into the second half: outline complete, fill fading up.
+    let late = &tl.eval(1.5)[&id];
+    assert_eq!(late.draw_range, 0.0..1.0);
+    assert!(late.fill.a > 0.0 && late.fill.a < 1.0);
+    assert_eq!(tl.eval(2.0)[&id], sq);
+}
+
+#[test]
+fn replacement_transform_swaps_ids() {
+    let mut s = Scene::new();
+    let a = s.add(VState::square(2.0));
+    let b = s.add(VState::circle(1.0).fill(BLUE).shift(RIGHT * 3.0));
+    s.play(replacement_transform(a, b));
+    assert!(!s.state().contains_key(&a));
+    let tl = s.bake();
+    let start = tl.eval(0.0);
+    assert_eq!(start[&a], VState::square(2.0));
+    assert!(!start.contains_key(&b), "target hidden until the end");
+    let mid = tl.eval(0.5);
+    assert!(!mid.contains_key(&b));
+    assert!(mid[&a].path.center().x > 0.0 && mid[&a].path.center().x < 3.0);
+    let end = tl.eval(1.0);
+    assert!(!end.contains_key(&a));
+    assert_eq!(end[&b], VState::circle(1.0).fill(BLUE).shift(RIGHT * 3.0));
+}
+
+#[test]
+fn positioning_helpers() {
+    let close = |a: Point, b: Point| (a - b).hypot() < 1e-9;
+    let anchor = VState::square(2.0); // -1..1 both ways
+    let bbox = |m: &VState| m.path.bbox().unwrap();
+
+    let above = VState::square(1.0)
+        .shift(RIGHT * 5.0)
+        .next_to(&anchor, UP, 0.25);
+    assert!(close(bbox(&above).center(), Point::new(0.0, 1.75)));
+    let left = VState::square(1.0).next_to(&anchor, LEFT, DEFAULT_BUFF);
+    assert!((bbox(&left).x1 - -1.25).abs() < 1e-9);
+    let corner = VState::square(1.0).next_to(&anchor, UP + RIGHT, 0.0);
+    assert!(close(bbox(&corner).origin(), Point::new(1.0, 1.0)));
+
+    // align_to only moves along the axes of `dir`.
+    let m = VState::square(1.0)
+        .shift(Vec2::new(4.0, 3.0))
+        .align_to(&anchor, LEFT);
+    assert!((bbox(&m).x0 - -1.0).abs() < 1e-9);
+    assert!((bbox(&m).center().y - 3.0).abs() < 1e-9);
+    let to_point = VState::square(1.0).align_to(&Point::new(2.0, 2.0), DOWN);
+    assert!((bbox(&to_point).y0 - 2.0).abs() < 1e-9);
+
+    let top = VState::square(1.0).to_edge(UP);
+    assert!((bbox(&top).y1 - (FRAME_HEIGHT / 2.0 - EDGE_BUFF)).abs() < 1e-9);
+    assert!(bbox(&top).center().x.abs() < 1e-9);
+    let ul = VState::square(1.0).to_edge(UP + LEFT);
+    assert!(close(
+        Point::new(bbox(&ul).x0, bbox(&ul).y1),
+        Point::new(
+            -FRAME_WIDTH / 2.0 + EDGE_BUFF,
+            FRAME_HEIGHT / 2.0 - EDGE_BUFF
+        )
+    ));
+
+    // arrange: in a row, `buff` apart, centers lined up, group center kept.
+    let items = vec![
+        VState::square(1.0).shift(Vec2::new(0.0, 1.0)),
+        VState::square(2.0).shift(Vec2::new(0.0, 1.0)),
+        VState::rectangle(1.0, 0.5).shift(Vec2::new(0.0, 1.0)),
+    ];
+    let row = arrange(items, RIGHT, 0.5);
+    let bs: Vec<_> = row.iter().map(bbox).collect();
+    for w in bs.windows(2) {
+        assert!((w[1].x0 - w[0].x1 - 0.5).abs() < 1e-9);
+        assert!((w[1].center().y - w[0].center().y).abs() < 1e-9);
+    }
+    let group = bs.iter().copied().reduce(|a, b| a.union(b)).unwrap();
+    assert!(close(group.center(), Point::new(0.0, 1.0)));
+}

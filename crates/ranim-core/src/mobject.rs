@@ -190,6 +190,15 @@ impl VState {
     }
 }
 
+impl crate::position::Position for VState {
+    fn bbox(&self) -> Option<kurbo::Rect> {
+        self.path.bbox()
+    }
+    fn transform(self, a: Affine) -> Self {
+        VState::transform(self, a)
+    }
+}
+
 impl Interpolate for f32 {
     fn lerp(a: &Self, b: &Self, t: f32) -> Self {
         a + (b - a) * t

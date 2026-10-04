@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use ranim_core::color::{Color, WHITE};
 use ranim_core::geom::{SubPath, line_segment};
 use ranim_core::kurbo::{self, Affine, CubicBez, Point, Rect, Vec2};
-use ranim_core::{FRAME_HEIGHT, FRAME_WIDTH, Group, Scene, TransformDiff, VPath, VState};
+use ranim_core::{Group, Scene, TransformDiff, VPath, VState};
 use ranim_core::{Interpolate, Layout, Op};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::layout::{Frame, FrameItem, Transform};
@@ -249,24 +249,6 @@ impl TextMobject {
         self.transform(Affine::scale_about(factor, c))
     }
 
-    /// Moves against the frame edge in direction `dir` (e.g. `UP`), leaving manim's 0.5-unit gap.
-    pub fn to_edge(self, dir: Vec2) -> Self {
-        const BUFF: f64 = 0.5;
-        let Some(b) = self.bbox() else { return self };
-        let (hw, hh) = (FRAME_WIDTH / 2.0 - BUFF, FRAME_HEIGHT / 2.0 - BUFF);
-        let dx = match dir.x.total_cmp(&0.0) {
-            std::cmp::Ordering::Greater => hw - b.x1,
-            std::cmp::Ordering::Less => -hw - b.x0,
-            std::cmp::Ordering::Equal => 0.0,
-        };
-        let dy = match dir.y.total_cmp(&0.0) {
-            std::cmp::Ordering::Greater => hh - b.y1,
-            std::cmp::Ordering::Less => -hh - b.y0,
-            std::cmp::Ordering::Equal => 0.0,
-        };
-        self.shift(Vec2::new(dx, dy))
-    }
-
     /// Sets every glyph's fill color.
     pub fn fill(mut self, color: Color) -> Self {
         self.glyphs = self.glyphs.into_iter().map(|g| g.fill(color)).collect();
@@ -292,6 +274,15 @@ impl TextMobject {
         (self.tokens.iter())
             .map(|t| (t.key.clone(), t.glyphs.clone()))
             .collect()
+    }
+}
+
+impl ranim_core::Position for TextMobject {
+    fn bbox(&self) -> Option<Rect> {
+        TextMobject::bbox(self)
+    }
+    fn transform(self, a: Affine) -> Self {
+        TextMobject::transform(self, a)
     }
 }
 
@@ -623,6 +614,7 @@ fn compile(body: &str) -> Result<Frame, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ranim_core::{FRAME_HEIGHT, Position};
 
     fn keys(t: &TextMobject) -> Vec<String> {
         t.tokens.iter().map(|t| t.key.to_string()).collect()
