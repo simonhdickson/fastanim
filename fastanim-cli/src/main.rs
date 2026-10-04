@@ -81,7 +81,7 @@ struct RunArgs {
     /// The scene script
     script: PathBuf,
     /// Instead of playing it, write its typeset text to a `.bundle` beside it for the web player
-    #[arg(long, conflicts_with = "command")]
+    #[arg(long)]
     bundle: bool,
     #[command(subcommand)]
     command: Option<fastanim_bevy::Command>,
@@ -89,6 +89,9 @@ struct RunArgs {
 
 impl RunArgs {
     fn run(self) -> Result<(), String> {
+        if self.bundle && self.command.is_some() {
+            return Err("--bundle doesn't take a command".into());
+        }
         let tl = bake(&self.script)?;
         if self.bundle {
             let out = self.script.with_extension("bundle");
