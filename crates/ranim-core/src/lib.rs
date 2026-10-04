@@ -7,6 +7,7 @@ pub mod anim;
 pub mod color;
 pub mod geom;
 pub mod mobject;
+pub mod position;
 pub mod svg;
 pub mod timeline;
 pub mod transform_diff;
@@ -16,14 +17,16 @@ pub use kurbo::{Point, Vec2};
 pub use ranim_diff::Op;
 
 pub use anim::{
-    Animation, AnimationExt, Ease, LaggedStart, Overlay, Parallel, RateFn, Sequence, Transform,
-    Unwrite, Update, UpdateGroup, apply_function, circumscribe, create, fade_in, fade_out, flash,
-    grow_from_center, indicate, lagged_start, move_to, rotate, scale, shift, shrink_to_center,
-    spin_in, transform, uncreate, unwrite, wiggle, write,
+    Animation, AnimationExt, Ease, LaggedStart, Overlay, Parallel, RateFn, ReplacementTransform,
+    Sequence, Transform, Unwrite, Update, UpdateGroup, apply_function, circumscribe, create,
+    draw_border_then_fill, fade_in, fade_out, flash, grow_from_center, indicate, lagged_start,
+    move_to, replacement_transform, rotate, scale, shift, shrink_to_center, spin_in, transform,
+    uncreate, unwrite, wiggle, write,
 };
 pub use color::Color;
 pub use geom::{SubPath, VPath, align};
 pub use mobject::{MobjectId, SceneState, Stroke, VState};
+pub use position::{DEFAULT_BUFF, EDGE_BUFF, Position, arrange};
 pub use svg::to_svg;
 pub use timeline::{BakedTimeline, Scene};
 pub use transform_diff::{DiffStyle, Group, Layout, Phasing, ReplaceStyle, TransformDiff};

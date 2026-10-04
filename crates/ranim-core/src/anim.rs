@@ -6,7 +6,7 @@ use kurbo::{Affine, CubicBez, Point, Vec2};
 
 use crate::Interpolate;
 use crate::color::{Color, YELLOW};
-use crate::geom::align;
+use crate::geom::{VPath, align};
 use crate::mobject::{MobjectId, SceneState, Stroke, VState};
 use crate::timeline::Scene;
 use crate::transform_diff::center;
@@ -463,6 +463,46 @@ pub fn flash(s: &mut Scene, p: Point) -> Overlay {
     })
 }
 
+/// `s` part drawn at progress `p`: over the first half its outline traces in (in its fill color
+/// if it has no stroke), over the second its fill fades up while the outline settles back.
+fn border_then_fill(s: &VState, p: f32) -> VState {
+    if p >= 1.0 {
+        return s.clone();
+    }
+    let outline = if s.stroke.width > 0.0 && s.stroke.color.a > 0.0 {
+        s.stroke
+    } else {
+        Stroke {
+            color: s.fill.with_alpha(1.0),
+            width: 0.02,
+        }
+    };
+    if p < 0.5 {
+        VState {
+            stroke: outline,
+            fill: s.fill.with_alpha(0.0),
+            draw_range: 0.0..p * 2.0,
+            ..s.clone()
+        }
+    } else {
+        let q = p * 2.0 - 1.0;
+        VState {
+            stroke: Stroke {
+                color: Color::lerp(&outline.color, &s.stroke.color, q),
+                width: outline.width + (s.stroke.width - outline.width) * f64::from(q),
+            },
+            fill: s.fill.with_alpha(s.fill.a * q),
+            ..s.clone()
+        }
+    }
+}
+
+/// Traces the outline in, then fills it, manim's `DrawBorderThenFill`; lasts 2 s. Like one
+/// mobject of [`write`].
+pub fn draw_border_then_fill(id: MobjectId) -> Timed<Update> {
+    Update::new(id, border_then_fill).run_time(2.0)
+}
+
 /// Draws mobjects in one after another, manim's `Write`: each outline traces in, then its fill
 /// fades up while the outline fades back to its own style. See [`write`].
 pub struct Write {
@@ -494,37 +534,7 @@ impl Animation for Write {
             } else {
                 ((alpha - i as f32 * lag * w) / w).clamp(0.0, 1.0)
             };
-            if p >= 1.0 {
-                state.insert(id, s.clone());
-                continue;
-            }
-            let outline = if s.stroke.width > 0.0 && s.stroke.color.a > 0.0 {
-                s.stroke
-            } else {
-                Stroke {
-                    color: s.fill.with_alpha(1.0),
-                    width: 0.02,
-                }
-            };
-            let m = if p < 0.5 {
-                VState {
-                    stroke: outline,
-                    fill: s.fill.with_alpha(0.0),
-                    draw_range: 0.0..p * 2.0,
-                    ..s.clone()
-                }
-            } else {
-                let q = p * 2.0 - 1.0;
-                VState {
-                    stroke: Stroke {
-                        color: Color::lerp(&outline.color, &s.stroke.color, q),
-                        width: outline.width + (s.stroke.width - outline.width) * f64::from(q),
-                    },
-                    fill: s.fill.with_alpha(s.fill.a * q),
-                    ..s.clone()
-                }
-            };
-            state.insert(id, m);
+            state.insert(id, border_then_fill(s, p));
         }
     }
     fn duration(&self) -> f32 {
@@ -592,6 +602,40 @@ impl Animation for Transform {
             state.insert(self.id, self.target.clone());
         } else if alpha > 0.0 {
             state.insert(self.id, VState::lerp(a, b, alpha));
+        }
+    }
+}
+
+/// Morphs one mobject into another already in the scene, then swaps them, manim's
+/// `ReplacementTransform`: `target` is hidden until the end, when it takes over and `id` is
+/// removed. See [`replacement_transform`].
+pub struct ReplacementTransform {
+    id: MobjectId,
+    target: MobjectId,
+    morph: Transform,
+}
+
+/// Morphs mobject `id` into mobject `target` (e.g. just `add`ed), leaving only `target`.
+pub fn replacement_transform(id: MobjectId, target: MobjectId) -> ReplacementTransform {
+    ReplacementTransform {
+        id,
+        target,
+        morph: transform(id, VState::new(VPath::default())),
+    }
+}
+
+impl Animation for ReplacementTransform {
+    fn plan(&mut self, state: &SceneState) {
+        self.morph.target = get(state, self.target).clone();
+        self.morph.plan(state);
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        if alpha >= 1.0 {
+            // `target` is already in `state` as it was added.
+            state.remove(&self.id);
+        } else {
+            state.remove(&self.target);
+            self.morph.sample(alpha, state);
         }
     }
 }
