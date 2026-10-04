@@ -1,4 +1,4 @@
-# ranim — Design Specification
+# fastanim — Design Specification
 
 > A programmatic mathematical-animation engine in Rust, built on Bevy, in the spirit of
 > [manim](https://github.com/ManimCommunity/manim). Its defining feature is that
@@ -75,27 +75,27 @@ a move-detection pass on top (§5.4).
 └──────────────┬────────────────────────────────────────────────────────────┘
                │ records
 ┌──────────────▼──────────────┐     ┌───────────────────────────────┐
-│ ranim-core                  │◄────┤ ranim-diff                    │
+│ fastanim-core                  │◄────┤ fastanim-diff                    │
 │  geometry (VPath, Bezier)   │     │  Myers (greedy + linear space)│
 │  Mobject state + Interpolate│     │  move detection, cleanup      │
 │  Animation trait, rate fns  │     │  hierarchical diff            │
 │  Scene builder → Timeline   │     └───────────────────────────────┘
 │  Timeline baking + eval(t)  │     ┌───────────────────────────────┐
-└──────────────┬──────────────┘◄────┤ ranim-text                    │
+└──────────────┬──────────────┘◄────┤ fastanim-text                    │
                │ BakedTimeline      │  Typst layout → glyph paths   │
 ┌──────────────▼──────────────┐     │  token spans, code highlighter│
-│ ranim-bevy (RanimPlugin)    │     └───────────────────────────────┘
+│ fastanim-bevy (FastanimPlugin)    │     └───────────────────────────────┘
 │  ECS sync, SceneClock       │
 │  vector rendering (Vello)   │
 │  preview UI / scrubber      │
 │  headless capture → ffmpeg  │
 └──────────────┬──────────────┘
 ┌──────────────▼──────────────┐
-│ ranim-cli: render / preview │
+│ fastanim-cli: render / preview │
 └─────────────────────────────┘
 ```
 
-**Key decision:** scene construction and timeline evaluation live in `ranim-core` with **no Bevy
+**Key decision:** scene construction and timeline evaluation live in `fastanim-core` with **no Bevy
 dependency**. Bevy is the runtime/renderer, not the source of truth. This keeps the core
 testable with plain `cargo test`, keeps Bevy-version churn contained in one crate, and makes the
 timeline seekable.
@@ -103,17 +103,16 @@ timeline seekable.
 ### 3.1 Workspace layout
 
 ```
-ranim/
-├── Cargo.toml                # workspace
-├── crates/
-│   ├── ranim-diff/           # zero-dependency generic diff library
-│   ├── ranim-core/           # geometry, mobjects, animations, timeline
-│   ├── ranim-text/           # typst integration, fonts, code tokenizing
-│   ├── ranim-bevy/           # Bevy plugin: sync, render, preview, export
-│   ├── ranim-cli/            # `ranim` binary
-│   ├── ranim-script/         # Rhai bindings over core + text (§14)
-│   ├── ranim-web/            # wasm-bindgen browser player and playground (§14)
-│   └── ranim/                # facade crate re-exporting a prelude
+fastanim/
+├── Cargo.toml             # workspace
+├── fastanim-diff/         # zero-dependency generic diff library
+├── fastanim-core/         # geometry, mobjects, animations, timeline
+├── fastanim-text/         # typst integration, fonts, code tokenizing
+├── fastanim-bevy/         # Bevy plugin: sync, render, preview, export
+├── fastanim-cli/          # `fastanim` binary
+├── fastanim-script/       # Rhai bindings over core + text (§14)
+├── fastanim-web/          # wasm-bindgen browser player and playground (§14)
+├── fastanim/              # facade crate re-exporting a prelude
 └── examples/
 ```
 
@@ -121,7 +120,7 @@ ranim/
 
 | Concern | Choice | Notes |
 |---|---|---|
-| Engine | `bevy` (latest stable at project start, pinned) | Only `ranim-bevy` depends on it |
+| Engine | `bevy` (latest stable at project start, pinned) | Only `fastanim-bevy` depends on it |
 | Vector rendering | `vello` via `bevy_vello` | GPU path rendering, AA strokes/fills, gradients. Behind a `VectorBackend` trait so a `lyon` tessellation backend can be swapped in |
 | Geometry | `kurbo` | Béziers, arc length, affine, subdivision |
 | Math & rich text | `typst` (as library) | Layout gives glyph positions *and* source spans |
@@ -135,7 +134,7 @@ ranim/
 
 ---
 
-## 4. Core model (`ranim-core`)
+## 4. Core model (`fastanim-core`)
 
 ### 4.1 Geometry
 
@@ -280,7 +279,7 @@ independent of how long the video is.
 
 ---
 
-## 5. The diff engine (`ranim-diff`)
+## 5. The diff engine (`fastanim-diff`)
 
 A small, dependency-free, generic crate. It knows nothing about animation.
 
@@ -404,7 +403,7 @@ recognized as Equal/Move.
 
 ---
 
-## 6. Text, math and code (`ranim-text`)
+## 6. Text, math and code (`fastanim-text`)
 
 ### 6.1 Tokens
 
@@ -525,14 +524,14 @@ red = delete, blue arrows = move, amber = replace, grey = equal. Essential for t
 
 ---
 
-## 8. Bevy integration (`ranim-bevy`)
+## 8. Bevy integration (`fastanim-bevy`)
 
 ### 8.1 Plugin
 
 ```rust
 App::new()
     .add_plugins(DefaultPlugins)
-    .add_plugins(RanimPlugin::new(my_scene).mode(Mode::Preview))
+    .add_plugins(FastanimPlugin::new(my_scene).mode(Mode::Preview))
     .run();
 ```
 
@@ -555,7 +554,7 @@ Systems (in order, in `Update`):
 4. `build_vector_scene` — encodes all `VState`s (sorted by `RenderOrder`) into a Vello scene,
    applying `draw_range` by trimming paths by arc length.
 
-All the interesting logic is in `ranim-core`; Bevy systems are thin adapters.
+All the interesting logic is in `fastanim-core`; Bevy systems are thin adapters.
 
 ### 8.3 Coordinate system
 
@@ -567,7 +566,7 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 
 - Window with the scene and a bottom timeline bar showing clips and markers.
 - Space = play/pause, ←/→ = step frame, `[`/`]` = jump to previous/next marker, drag = scrub.
-- Hot reload (stretch): `ranim preview` watches the scene crate, rebuilds it as a `cdylib`,
+- Hot reload (stretch): `fastanim preview` watches the scene crate, rebuilds it as a `cdylib`,
   reloads, re-bakes and keeps the current `t`.
 
 ### 8.5 Export mode
@@ -581,15 +580,15 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 
 ---
 
-## 9. CLI (`ranim-cli`)
+## 9. CLI (`fastanim-cli`)
 
 ```
-ranim new <name>                       # scaffold a scene crate
-ranim preview [--scene Name]           # windowed preview with scrubber
-ranim render  [--scene Name] [-q 1080p60] [-o out.mp4] [--format mp4|webm|gif|png|svg]
-ranim still   [--scene Name] --at 3.5s -o frame.png
-ranim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
-ranim run     scene.rhai [preview|render|still] [...]   # a Rhai scene, no crate needed (§14)
+fastanim new <name>                       # scaffold a scene crate
+fastanim preview [--scene Name]           # windowed preview with scrubber
+fastanim render  [--scene Name] [-q 1080p60] [-o out.mp4] [--format mp4|webm|gif|png|svg]
+fastanim still   [--scene Name] --at 3.5s -o frame.png
+fastanim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
+fastanim run     scene.rhai [preview|render|still] [...]   # a Rhai scene, no crate needed (§14)
 ```
 
 Quality presets: `480p15`, `720p30`, `1080p60` (default), `4k60`.
@@ -619,9 +618,9 @@ These double as integration tests (§11) and should all render correctly before 
 
 | Layer | Tests |
 |---|---|
-| `ranim-diff` | Property tests (`apply(a, ops) == b`, cost == LCS baseline, variant equivalence), fuzzing, benchmarks with `criterion` |
-| `ranim-core` | Interpolation endpoints (`lerp(a,b,0)==a`, `lerp(a,b,1)==b`), path alignment invariants, timeline `eval` at clip boundaries, `eval(t)` independent of evaluation order |
-| `ranim-text` | Snapshot tests of token sequences for a corpus of Typst expressions and code snippets |
+| `fastanim-diff` | Property tests (`apply(a, ops) == b`, cost == LCS baseline, variant equivalence), fuzzing, benchmarks with `criterion` |
+| `fastanim-core` | Interpolation endpoints (`lerp(a,b,0)==a`, `lerp(a,b,1)==b`), path alignment invariants, timeline `eval` at clip boundaries, `eval(t)` independent of evaluation order |
+| `fastanim-text` | Snapshot tests of token sequences for a corpus of Typst expressions and code snippets |
 | `TransformDiff` | Snapshot tests of the *op script* (`insta`), which is stable and reviewable, rather than pixels |
 | Rendering | Golden-frame tests: SVG output compared textually; PNG output compared with a perceptual tolerance in CI on a software GPU (lavapipe/llvmpipe) |
 
@@ -632,15 +631,15 @@ These double as integration tests (§11) and should all render correctly before 
 | # | Milestone | Deliverable |
 |---|---|---|
 | M0 | Workspace skeleton | Crates, CI, `cargo test` green |
-| M1 | `ranim-diff` | Myers greedy + linear space, moves, replace pairing, cleanup, property tests, `ranim diff` CLI for plain strings |
+| M1 | `fastanim-diff` | Myers greedy + linear space, moves, replace pairing, cleanup, property tests, `fastanim diff` CLI for plain strings |
 | M2 | Core geometry & timeline | `VPath`, shapes, interpolation/alignment, `Animation` trait, `Scene` builder, `BakedTimeline::eval`, SVG still export (no Bevy yet) |
-| M3 | Bevy preview | `RanimPlugin`, Vello rendering, clock, scrubber; example 6 |
+| M3 | Bevy preview | `FastanimPlugin`, Vello rendering, clock, scrubber; example 6 |
 | M4 | Video export | Headless capture + ffmpeg, deterministic frames, quality presets |
 | M5 | Text & math | Typst integration, tokens, `Write`, `MathTex`, `Text` |
 | M6 | `TransformDiff` | Op→animation mapping, choreography, debug overlay; examples 1, 2, 5 |
 | M7 | Code & lists | `Code`, hierarchical diff, `ListMobject`; examples 3, 4 |
 | M8 | Polish | Hot reload, more animations, docs site with rendered examples |
-| M9 | Scripting & web | `ranim-script` (Rhai), `ranim run`, `ranim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
+| M9 | Scripting & web | `fastanim-script` (Rhai), `fastanim run`, `fastanim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
 
 ---
 
@@ -659,7 +658,7 @@ These double as integration tests (§11) and should all render correctly before 
 5. **Updaters vs. purity.** manim updaters can read other mobjects' live state. Keeping `eval(t)`
    pure means updaters must be `fn(t, &SceneState) -> VState` evaluated in dependency order.
    Is that expressive enough?
-6. **LaTeX backend.** Optional `ranim-latex` crate shelling out to `latex` + `dvisvgm`, with token
+6. **LaTeX backend.** Optional `fastanim-latex` crate shelling out to `latex` + `dvisvgm`, with token
    spans recovered via `\special` markers? Deferred until users ask.
 
 ---
@@ -668,7 +667,7 @@ These double as integration tests (§11) and should all render correctly before 
 
 Scenes are compiled Rust today, which needs a toolchain and cannot run in a browser. M9 adds
 **Rhai** scenes: the same API as a script, interpreted, so a scene can be written, edited and
-played entirely in a web page, or run natively with `ranim run` and no scene crate. Rhai is
+played entirely in a web page, or run natively with `fastanim run` and no scene crate. Rhai is
 pure Rust, compiles to `wasm32-unknown-unknown`, and its syntax is close enough to Rust that
 scenes port almost line for line. It covers what most scenes need; Rust stays available for
 anything heavier.
@@ -677,20 +676,20 @@ anything heavier.
 
 | Crate | In wasm | Notes |
 |---|---|---|
-| `ranim-diff`, `ranim-core` | As is | No I/O, threads or clocks; `eval(t)` and `to_svg` are pure |
-| `ranim-text` | As is | Typst runs in wasm, and the `World` is in-memory. Embedded `typst-assets` fonts add several MB, so the web build fetches them separately, only when needed (§14.5) |
-| `ranim-bevy` | Not used | Vello needs WebGPU (§13 Q1); export shells out to `ffmpeg`, writes files and blocks on GPU readback. The web player renders without it |
+| `fastanim-diff`, `fastanim-core` | As is | No I/O, threads or clocks; `eval(t)` and `to_svg` are pure |
+| `fastanim-text` | As is | Typst runs in wasm, and the `World` is in-memory. Embedded `typst-assets` fonts add several MB, so the web build fetches them separately, only when needed (§14.5) |
+| `fastanim-bevy` | Not used | Vello needs WebGPU (§13 Q1); export shells out to `ffmpeg`, writes files and blocks on GPU readback. The web player renders without it |
 
-### 14.2 `ranim-script`: the binding layer
+### 14.2 `fastanim-script`: the binding layer
 
-A crate over `ranim-core` and `ranim-text` that exposes the scene API to scripts. It is split in
+A crate over `fastanim-core` and `fastanim-text` that exposes the scene API to scripts. It is split in
 two so other languages can be added later without redoing the work:
 
 - **A language-neutral API**: plain Rust functions over handles (`MobjectId`, `TextMobject`
   groups, boxed `Animation`s), with options as name/value maps instead of builder generics.
   This is what every frontend binds; it is also where defaults and validation live.
 - **The Rhai frontend**: registers that API with a `rhai::Engine`. A JavaScript frontend
-  (`wasm-bindgen` classes in `ranim-web`) or another embedded language would bind the same
+  (`wasm-bindgen` classes in `fastanim-web`) or another embedded language would bind the same
   layer.
 
 ```rhai
@@ -720,17 +719,17 @@ Rules:
 - **Limits.** Scripts run with Rhai's operation, call-depth and string-size limits, so an
   infinite loop in a browser tab fails with an error instead of hanging the page.
 - **Errors.** Script and Typst errors carry line and column and are shown inline in the
-  playground and as `file:line:col` from `ranim run`.
+  playground and as `file:line:col` from `fastanim run`.
 
-### 14.3 `ranim run`
+### 14.3 `fastanim run`
 
-`ranim run scene.rhai [preview|render|still] [options]` takes the same commands and options as
-a compiled scene (§8.4, §8.5) and renders through `ranim-bevy`. In preview it watches the file
+`fastanim run scene.rhai [preview|render|still] [options]` takes the same commands and options as
+a compiled scene (§8.4, §8.5) and renders through `fastanim-bevy`. In preview it watches the file
 and re-runs and re-bakes it on save, keeping the current `t`: the hot reload of §8.4 without
-rebuilding a `cdylib`. `ranim run scene.rhai --bundle` writes the pre-typeset text for the web player
+rebuilding a `cdylib`. `fastanim run scene.rhai --bundle` writes the pre-typeset text for the web player
 (§14.5).
 
-### 14.4 `ranim-web`: the browser player
+### 14.4 `fastanim-web`: the browser player
 
 A `wasm-bindgen` crate built with `wasm-bindgen-cli` (`build.sh`), without Bevy:
 
@@ -741,7 +740,7 @@ A `wasm-bindgen` crate built with `wasm-bindgen-cli` (`build.sh`), without Bevy:
   play/pause, frame stepping, markers and dragging, as in §8.4.
 - **Playground**: an editor next to the canvas runs the script on change (debounced), re-bakes
   and keeps `t`. Baking runs in a Web Worker so long scenes don't freeze the page.
-- **Embedding**: `<ranim-player src="scene.rhai">` (or a bundled scene, §14.5) so the docs site's
+- **Embedding**: `<fastanim-player src="scene.rhai">` (or a bundled scene, §14.5) so the docs site's
   rendered examples (M8) are live and scrubbable.
 - **Export**: SVG frames (from `to_svg`) and PNG stills (`canvas.toBlob`) as downloads. Video
   through WebCodecs `VideoEncoder` plus an MP4/WebM muxer is a stretch goal, with frames still
@@ -753,15 +752,15 @@ Typst parallelizes with `rayon`, which has no threads on `wasm32-unknown-unknown
 the calling thread instead. That costs little here: each `math_tex`, `text` or `code` call
 typesets one small snippet onto one page, which has little internal parallelism to lose. What
 does cost is blocking the page while a scene bakes, the one-off font parsing and `Library`
-setup (`shared()` in `ranim-text`), and re-typesetting snippets that haven't changed. In order:
+setup (`shared()` in `fastanim-text`), and re-typesetting snippets that haven't changed. In order:
 
 1. **Bake off the main thread (required).** Script runs and baking happen in a Web Worker
    (§14.4); the page only receives the baked timeline. This removes the freeze, not the cost.
 2. **Cache typeset text (required).** Typesetting is a pure function of `(kind, source,
-   language)`, so `ranim-text` memoizes `TextMobject`s on that key. In the playground, an edit
+   language)`, so `fastanim-text` memoizes `TextMobject`s on that key. In the playground, an edit
    then only re-typesets the snippets it changed. The cache can be persisted in IndexedDB
    across visits.
-3. **Pre-typeset published scenes (required for the docs site).** `ranim run --bundle` typesets
+3. **Pre-typeset published scenes (required for the docs site).** `fastanim run --bundle` typesets
    every snippet natively and writes the glyph outlines next to the script; the player fills
    the cache from that bundle, so published scenes never run Typst in the browser and skip the
    font download. The fonts (the `typst-assets` set by default) are fetched as a separate,
@@ -778,7 +777,7 @@ setup (`shared()` in `ranim-text`), and re-typesetting snippets that haven't cha
 5. **Not planned: `wasm-bindgen-rayon`.** Shared-memory threads would give Typst its thread
    pool back, but they need a nightly toolchain with `-Z build-std` and atomics, and the page
    must be cross-origin isolated (`COOP: same-origin`, `COEP: require-corp`). That conflicts
-   with embedding `<ranim-player>` in other sites, and the gain on small snippets is modest.
+   with embedding `<fastanim-player>` in other sites, and the gain on small snippets is modest.
    It could be offered later as an opt-in for the standalone playground.
 
 None of this is measured yet; the playground should report time spent typesetting vs. baking
@@ -789,7 +788,7 @@ so the order above can be checked against real scenes.
 - The §10 examples exist as `.rhai` scripts, and each bakes to the same timeline as its Rust
   version (compared through `to_svg` at sampled times, §11).
 - They play in the browser player in current Chrome, Firefox and Safari, and render with
-  `ranim run`.
+  `fastanim run`.
 - A script with an infinite loop or a Typst error reports an error and leaves the page usable.
 - Editing one equation in a long script re-typesets only that equation (§14.5), and a bundled
   docs-site scene plays without downloading fonts.
@@ -808,7 +807,7 @@ so the order above can be checked against real scenes.
 ## Appendix A — End-to-end example
 
 ```rust
-use ranim::prelude::*;
+use fastanim::prelude::*;
 
 fn pythagoras(s: &mut Scene) {
     let title = s.add(Text::new("Solving for a").to_edge(UP));
@@ -832,7 +831,7 @@ fn pythagoras(s: &mut Scene) {
 }
 
 fn main() {
-    ranim::run(pythagoras); // CLI args select preview vs render
+    fastanim::run(pythagoras); // CLI args select preview vs render
 }
 ```
 

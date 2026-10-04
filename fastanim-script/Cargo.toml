@@ -1,0 +1,21 @@
+[package]
+name = "fastanim-script"
+description = "Rhai scenes for fastanim"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.92"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fastanim-core.workspace = true
+fastanim-text.workspace = true
+# No `ahash/runtime-rng`: it needs getrandom, which wasm32-unknown-unknown lacks (SPEC §14.1).
+rhai = { version = "1.26", default-features = false, features = ["std", "sync"] }
+
+[dev-dependencies]
+# For the Rust versions of the example scenes, which the scripts must match.
+fastanim-bevy.workspace = true
+
+[lints]
+workspace = true

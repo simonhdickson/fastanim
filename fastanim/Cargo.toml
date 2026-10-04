@@ -1,0 +1,16 @@
+[package]
+name = "fastanim"
+description = "Programmatic mathematical animation with diff-driven transforms"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.92"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fastanim-diff.workspace = true
+fastanim-core.workspace = true
+fastanim-text.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fastanim playground</title>
+  <style>
+    body { margin: 0; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
+    main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; padding: 12px; }
+    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+    /* The textarea is transparent over a highlighted copy of its text; neither wraps, so the
+       two line up as long as they share font, padding and scroll position. */
+    .editor { position: relative; height: 70vh; background: #1b1b1b; border: 1px solid #333;
+              color-scheme: dark; }
+    .editor textarea, .editor pre { position: absolute; inset: 0; margin: 0; padding: 8px; border: 0;
+               box-sizing: border-box; font: 13px/1.5 ui-monospace, monospace; tab-size: 4;
+               white-space: pre; overflow: auto; }
+    .editor textarea { width: 100%; height: 100%; resize: none; background: transparent;
+               color: transparent; caret-color: #eee; outline: none; }
+    .editor pre { color: #eee; overflow: hidden; pointer-events: none; }
+    .editor textarea::selection { background: #3a4a6a; color: transparent; }
+    .com { color: #6a737d; font-style: italic; } .str { color: #9ece6a; } .kw { color: #c678dd; }
+    .num { color: #e5a05b; } .const { color: #61afef; } .fn { color: #e5c07b; }
+    canvas { width: 100%; aspect-ratio: 16 / 9; display: block; background: #000; }
+    .bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .bar input[type=range] { flex: 1; min-width: 120px; }
+    button, select { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 10px; }
+    #error { color: #f77; white-space: pre-wrap; font-family: ui-monospace, monospace; min-height: 1.4em; }
+    #time { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+<main>
+  <section>
+    <div class="bar" style="margin: 0 0 8px">
+      <select id="example"><option>parity.rhai</option><option>diff.rhai</option></select>
+      <span id="status"></span>
+    </div>
+    <div class="editor">
+      <pre id="hl" aria-hidden="true"></pre>
+      <textarea id="src" spellcheck="false" aria-label="Scene script"></textarea>
+    </div>
+    <div id="error"></div>
+  </section>
+  <section>
+    <canvas id="canvas" width="1920" height="1080"></canvas>
+    <div class="bar">
+      <button id="play">Play</button>
+      <input id="scrub" type="range" min="0" step="0.001" value="0">
+      <span id="time">0.00 / 0.00</span>
+    </div>
+    <div class="bar" id="markers"></div>
+    <div class="bar">
+      <button id="svg">Download SVG</button>
+      <button id="png">Download PNG</button>
+    </div>
+  </section>
+</main>
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  // Baking and drawing happen in the worker, on the canvas handed to it.
+  const worker = new Worker("worker.js", { type: "module" });
+  const offscreen = $("canvas").transferControlToOffscreen();
+  worker.postMessage({ canvas: offscreen }, [offscreen]);
+  let duration = 0, t = 0, playing = false, last = null;
+
+  function show() {
+    worker.postMessage({ t });
+    $("scrub").value = t;
+    $("time").textContent = `${t.toFixed(2)} / ${duration.toFixed(2)}`;
+  }
+
+  function load(src) {
+    $("status").textContent = "baking…";
+    worker.postMessage({ src });
+  }
+
+  worker.onmessage = ({ data }) => {
+    if (data.error !== undefined) {
+      // The worker keeps showing the last good scene.
+      $("error").textContent = data.error;
+      $("status").textContent = "";
+    } else if (data.baked) {
+      const b = data.baked;
+      $("error").textContent = "";
+      $("status").textContent =
+        `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting)`;
+      duration = b.duration;
+      t = Math.min(t, duration);
+      $("scrub").max = duration;
+      $("markers").replaceChildren(...b.markers.map((m) => {
+        const btn = document.createElement("button");
+        btn.textContent = m.name;
+        btn.onclick = () => { t = m.t; show(); };
+        return btn;
+      }));
+      show();
+    } else if (data.svg !== undefined) {
+      download(new Blob([data.svg], { type: "image/svg+xml" }), `frame-${t.toFixed(2)}.svg`);
+    } else if (data.png) {
+      download(data.png, `frame-${t.toFixed(2)}.png`);
+    }
+  };
+
+  // Rhai tokens, in priority order: comments, strings, keywords, numbers, CONSTANTS, calls.
+  const TOKENS = /(\/\/.*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|`[^`]*`?|'(?:\\.|[^'\\])')|\b(let|const|fn|if|else|while|loop|for|in|do|until|break|continue|return|throw|try|catch|switch|import|export|as|private|true|false|this|global)\b|\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b|\b([A-Z][A-Z0-9_]+)\b|\b([a-z_]\w*)(?=\s*\()/g;
+  const CLASSES = [, "com", "str", "kw", "num", "const", "fn"];
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+  function highlight() {
+    const src = $("src").value;
+    let out = "", at = 0;
+    for (const m of src.matchAll(TOKENS)) {
+      const cls = CLASSES[m.findIndex((g, i) => i > 0 && g !== undefined)];
+      out += esc(src.slice(at, m.index)) + `<span class="${cls}">${esc(m[0])}</span>`;
+      at = m.index + m[0].length;
+    }
+    // A trailing newline needs a character after it to take up a line in the <pre>.
+    $("hl").innerHTML = out + esc(src.slice(at)) + " ";
+    syncScroll();
+  }
+
+  function syncScroll() {
+    $("hl").scrollTop = $("src").scrollTop;
+    $("hl").scrollLeft = $("src").scrollLeft;
+  }
+
+  async function example(name) {
+    $("src").value = await (await fetch(name)).text();
+    highlight();
+    t = 0;
+    load($("src").value);
+  }
+
+  function frame(now) {
+    if (playing) {
+      t += (now - (last ?? now)) / 1000;
+      if (t >= duration) { t = duration; setPlaying(false); }
+      show();
+    }
+    last = now;
+    requestAnimationFrame(frame);
+  }
+
+  function setPlaying(p) {
+    playing = p;
+    if (p && t >= duration) t = 0;
+    $("play").textContent = p ? "Pause" : "Play";
+  }
+
+  function download(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  let debounce;
+  $("src").addEventListener("scroll", syncScroll);
+  $("src").addEventListener("input", () => {
+    highlight();
+    clearTimeout(debounce);
+    debounce = setTimeout(() => load($("src").value), 400);
+  });
+  $("src").addEventListener("keydown", (e) => {
+    if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
+  });
+  $("example").onchange = (e) => example(e.target.value);
+  $("play").onclick = () => setPlaying(!playing);
+  $("scrub").oninput = (e) => { t = +e.target.value; show(); };
+  $("svg").onclick = () => worker.postMessage({ t, svg: true });
+  $("png").onclick = () => worker.postMessage({ t, png: true });
+  document.addEventListener("keydown", (e) => {
+    if (e.target === $("src")) return;
+    const step = { ArrowRight: 1 / 60, ArrowLeft: -1 / 60 }[e.key];
+    if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+    else if (step) { t = Math.min(Math.max(t + step, 0), duration); show(); }
+  });
+
+  example($("example").value);
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

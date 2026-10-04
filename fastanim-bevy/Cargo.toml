@@ -1,0 +1,20 @@
+[package]
+name = "fastanim-bevy"
+description = "Bevy plugin for fastanim: timeline sync, vector rendering, preview and export"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.92"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fastanim-core.workspace = true
+bevy = { version = "0.19", default-features = false, features = ["2d"] }
+bevy_vello = "0.14"
+clap = { version = "4.6.7", features = ["derive"] }
+
+[dev-dependencies]
+fastanim-text.workspace = true
+
+[lints]
+workspace = true

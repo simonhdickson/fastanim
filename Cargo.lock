@@ -2720,6 +2720,86 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastanim"
+version = "0.1.0"
+dependencies = [
+ "fastanim-core",
+ "fastanim-diff",
+ "fastanim-text",
+]
+
+[[package]]
+name = "fastanim-bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_vello",
+ "clap",
+ "fastanim-core",
+ "fastanim-text",
+]
+
+[[package]]
+name = "fastanim-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "fastanim-bevy",
+ "fastanim-core",
+ "fastanim-diff",
+ "fastanim-script",
+ "fastanim-text",
+]
+
+[[package]]
+name = "fastanim-core"
+version = "0.1.0"
+dependencies = [
+ "fastanim-diff",
+ "kurbo",
+]
+
+[[package]]
+name = "fastanim-diff"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "fastanim-script"
+version = "0.1.0"
+dependencies = [
+ "fastanim-bevy",
+ "fastanim-core",
+ "fastanim-text",
+ "rhai",
+]
+
+[[package]]
+name = "fastanim-text"
+version = "0.1.0"
+dependencies = [
+ "fastanim-core",
+ "ttf-parser",
+ "typst",
+ "typst-assets",
+ "typst-layout",
+]
+
+[[package]]
+name = "fastanim-web"
+version = "0.1.0"
+dependencies = [
+ "fastanim-core",
+ "fastanim-script",
+ "fastanim-text",
+ "js-sys",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5147,86 +5227,6 @@ name = "range-alloc"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
-
-[[package]]
-name = "ranim"
-version = "0.1.0"
-dependencies = [
- "ranim-core",
- "ranim-diff",
- "ranim-text",
-]
-
-[[package]]
-name = "ranim-bevy"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_vello",
- "clap",
- "ranim-core",
- "ranim-text",
-]
-
-[[package]]
-name = "ranim-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "ranim-bevy",
- "ranim-core",
- "ranim-diff",
- "ranim-script",
- "ranim-text",
-]
-
-[[package]]
-name = "ranim-core"
-version = "0.1.0"
-dependencies = [
- "kurbo",
- "ranim-diff",
-]
-
-[[package]]
-name = "ranim-diff"
-version = "0.1.0"
-dependencies = [
- "proptest",
-]
-
-[[package]]
-name = "ranim-script"
-version = "0.1.0"
-dependencies = [
- "ranim-bevy",
- "ranim-core",
- "ranim-text",
- "rhai",
-]
-
-[[package]]
-name = "ranim-text"
-version = "0.1.0"
-dependencies = [
- "ranim-core",
- "ttf-parser",
- "typst",
- "typst-assets",
- "typst-layout",
-]
-
-[[package]]
-name = "ranim-web"
-version = "0.1.0"
-dependencies = [
- "js-sys",
- "ranim-core",
- "ranim-script",
- "ranim-text",
- "wasm-bindgen",
- "web-sys",
-]
 
 [[package]]
 name = "raw-window-handle"

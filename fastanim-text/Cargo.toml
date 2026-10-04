@@ -1,0 +1,18 @@
+[package]
+name = "fastanim-text"
+description = "fastanim text, math and code layout into diffable tokens"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.92"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fastanim-core.workspace = true
+ttf-parser = "0.25"
+typst = "0.15"
+typst-assets = { version = "0.15", features = ["fonts"] }
+typst-layout = "0.15"
+
+[lints]
+workspace = true
