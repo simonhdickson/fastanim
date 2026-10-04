@@ -1,4 +1,3 @@
-# Build the browser playground and serve it on http://localhost:8000
+# Build the browser playground and serve it on http://localhost:8080, rebuilding on change
 web:
-    fastanim-web/build.sh
-    python3 -m http.server -d fastanim-web/dist
+    cd fastanim-web && trunk serve

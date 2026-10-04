@@ -1,0 +1,22 @@
+# `trunk serve` (or `just web`) builds the playground into dist/ and serves it with live
+# reload; `trunk build --release` is the CI build. wasm-bindgen is fetched at the version in
+# Cargo.lock.
+
+[build]
+target = "index.html"
+# worker.js and player.js import the generated files by name.
+filehash = false
+
+[watch]
+watch = [".", "../fastanim-core", "../fastanim-diff", "../fastanim-text", "../fastanim-script"]
+ignore = ["dist"]
+
+# Pre-typeset each scene (SPEC §14.5), one process each so a bundle holds only its own text.
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["-c", """
+set -e
+cargo build -q --release -p fastanim-web --example bundle
+for f in "$TRUNK_STAGING_DIR"/scenes/*.rhai; do ../target/release/examples/bundle "$f"; done
+"""]

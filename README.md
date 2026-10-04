@@ -78,12 +78,12 @@ cargo run -p fastanim-bevy --example parity -- render -q 720p30 -o parity.mp4
 cargo run -p fastanim-bevy --example parity -- still --at 3s -o frame.png
 cargo run -p fastanim-bevy --example diff          # equations, code refactor, bubble sort, morph
 cargo run -p fastanim-cli -- run fastanim-script/scenes/diff.rhai   # same scene as a script
-just web   # browser playground on http://localhost:8000
+just web   # browser playground on http://localhost:8080, rebuilt on change
 ```
 
 Video export needs `ffmpeg` on your `PATH`. The playground needs the
-`wasm32-unknown-unknown` target and `wasm-bindgen-cli` at the version in `Cargo.lock`
-(see `fastanim-web/build.sh`).
+`wasm32-unknown-unknown` target and [Trunk](https://trunk-rs.github.io/trunk/)
+(`cargo binstall trunk`), which fetches the matching `wasm-bindgen` itself.
 
 ## License
 

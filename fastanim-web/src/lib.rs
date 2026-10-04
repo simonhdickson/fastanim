@@ -2,7 +2,7 @@
 //! canvas with Canvas 2D, without Bevy. It runs in a Web Worker (`worker.js`) on an
 //! `OffscreenCanvas`, since the baked timeline holds script closures that can't be sent to the
 //! page. `player.js` wraps that as a `<fastanim-player>` element, `index.html` is the playground
-//! around it, and `build.sh` builds it all into `dist/`.
+//! around it, and Trunk (`Trunk.toml`) builds it all into `dist/`.
 
 use fastanim_core::color::BLACK;
 use fastanim_core::svg::path_data;

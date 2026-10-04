@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>fastanim playground</title>
+  <!-- Built and copied by Trunk (Trunk.toml). The wasm is loaded by worker.js, not the page. -->
+  <link data-trunk rel="rust" href="Cargo.toml" data-type="worker" data-bindgen-target="web">
+  <link data-trunk rel="copy-file" href="worker.js">
+  <link data-trunk rel="copy-file" href="player.js">
+  <link data-trunk rel="copy-dir" href="../fastanim-script/scenes">
   <style>
     body { margin: 0; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
     main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; padding: 12px; }
@@ -29,7 +34,7 @@
 <main>
   <section>
     <div class="bar" style="margin: 0 0 8px">
-      <select id="example"><option>parity.rhai</option><option>diff.rhai</option></select>
+      <select id="example"><option value="scenes/parity.rhai">parity.rhai</option><option value="scenes/diff.rhai">diff.rhai</option></select>
       <span id="status"></span>
     </div>
     <div class="editor">

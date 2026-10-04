@@ -731,7 +731,7 @@ rebuilding a `cdylib`. `fastanim run scene.rhai --bundle` writes the pre-typeset
 
 ### 14.4 `fastanim-web`: the browser player
 
-A `wasm-bindgen` crate built with `wasm-bindgen-cli` (`build.sh`), without Bevy:
+A `wasm-bindgen` crate built with Trunk (`Trunk.toml`), without Bevy:
 
 - **Rendering**: each frame calls `eval(t)` and draws to a `<canvas>` with Canvas 2D, building a
   `Path2D` from each `VPath`'s cubics, trimmed by `draw_range` with `VPath::trim`, in

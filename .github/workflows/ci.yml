@@ -39,11 +39,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - run: echo "WASM_BINDGEN_VERSION=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen-cli@${{ env.WASM_BINDGEN_VERSION }}
-      - run: fastanim-web/build.sh
+          tool: trunk
+      - run: trunk build --release
+        working-directory: fastanim-web
       - uses: actions/upload-pages-artifact@v3
         with:
           path: fastanim-web/dist

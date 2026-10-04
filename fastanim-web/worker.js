@@ -8,7 +8,7 @@
 //   { png }     reply { png: Blob } with the canvas
 // Messages that arrive while a bake runs are merged, so only the latest source and time are
 // worked on.
-import init, { Player, load_bundle } from "./fastanim_web.js";
+import init, { Player, load_bundle } from "./fastanim-web.js";
 
 const ready = init();
 let player = null, ctx = null, t = 0, next = {}, scheduled = false;

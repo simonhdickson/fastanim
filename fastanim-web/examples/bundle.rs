@@ -1,5 +1,5 @@
 //! Writes a `.bundle` of pre-typeset text beside a script, like `fastanim run --bundle` but
-//! without building Bevy; `build.sh` runs it.
+//! without building Bevy; Trunk runs it after each build.
 
 fn main() -> Result<(), String> {
     let path = std::env::args()
