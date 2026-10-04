@@ -24,8 +24,9 @@ swaps are two arcing moves. Polish (M8) so far: the rest of the standard animati
 (`grow_from_center`, `spin_in`, `draw_border_then_fill`, `uncreate`, `unwrite`,
 `shrink_to_center`, `move_to`, `replacement_transform`, `apply_function`, `indicate`, `wiggle`,
 `circumscribe`, `flash`), the `Position` helpers (`next_to`, `align_to`, `to_edge`, `arrange`), `Sequence` and
-`lagged_start`, and ease-in/out (quad, cubic, expo, back) and spring rate functions. Try them
-with:
+`lagged_start`, and ease-in/out (quad, cubic, expo, back) and spring rate functions. Scripting
+(M9) so far: `ranim-script` runs [Rhai](https://rhai.rs) scenes with the same API, and
+`ranim run` previews them (re-baking on save) or exports them. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
@@ -38,4 +39,5 @@ cargo run -p ranim-bevy --example parity        # live preview window
 cargo run -p ranim-bevy --example parity -- render -q 720p30 -o parity.mp4   # needs ffmpeg
 cargo run -p ranim-bevy --example parity -- still --at 3s -o frame.png
 cargo run -p ranim-bevy --example diff          # equations, code refactor, bubble sort, morph
+cargo run -p ranim-cli -- run crates/ranim-script/scenes/diff.rhai   # same scene as a script
 ```

@@ -1,10 +1,13 @@
 //! The `ranim` command-line tool (see `docs/SPEC.md` §9).
 //!
-//! Only `ranim diff` exists so far; the other commands arrive with later milestones.
+//! `ranim diff` and `ranim run` exist so far; the other commands arrive with later milestones.
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use ranim_core::BakedTimeline;
 use ranim_diff::{Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak};
 
 /// ranim: programmatic mathematical animation
@@ -22,6 +25,8 @@ enum Command {
         after_help = "Notation: =x equal, -[x] delete, +[x] insert, ↷x move, ~(x→y) replace."
     )]
     Diff(DiffArgs),
+    /// Run a Rhai scene script: preview it (reloading on save), or export it
+    Run(RunArgs),
     /// Scaffold a scene crate (not implemented yet)
     New,
     /// Open a scene in a window with a scrubber
@@ -46,6 +51,15 @@ fn main() -> ExitCode {
                 }
             };
         }
+        Command::Run(a) => {
+            return match a.run() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::FAILURE
+                }
+            };
+        }
         Command::New => {
             eprintln!("error: `ranim new` is not implemented yet");
             return ExitCode::FAILURE;
@@ -60,6 +74,49 @@ fn main() -> ExitCode {
          `cargo run -- {cmd} --help`."
     );
     ExitCode::FAILURE
+}
+
+#[derive(Debug, clap::Args)]
+struct RunArgs {
+    /// The scene script
+    script: PathBuf,
+    #[command(subcommand)]
+    command: Option<ranim_bevy::Command>,
+}
+
+impl RunArgs {
+    fn run(self) -> Result<(), String> {
+        let tl = bake(&self.script)?;
+        let preview = matches!(self.command, None | Some(ranim_bevy::Command::Preview));
+        let reload = preview.then(|| watch(self.script.clone()));
+        ranim_bevy::run_command(self.command, tl, reload)
+    }
+}
+
+/// Runs the script at `path`; errors are `path:line:col: message`.
+fn bake(path: &Path) -> Result<BakedTimeline, String> {
+    let src = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    ranim_script::bake(&src).map_err(|e| match e.line {
+        0 => format!("{}: {e}", path.display()),
+        _ => format!("{}:{e}", path.display()),
+    })
+}
+
+/// Re-bakes `path` whenever its modification time changes. A broken script is reported and
+/// the last good timeline kept.
+fn watch(path: PathBuf) -> ranim_bevy::Reload {
+    let mtime = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    let mut seen = mtime(&path);
+    Box::new(move || {
+        let now = mtime(&path);
+        if now == seen {
+            return None;
+        }
+        seen = now;
+        (bake(&path).inspect(|_| eprintln!("reloaded {}", path.display())))
+            .inspect_err(|e| eprintln!("error: {e}"))
+            .ok()
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

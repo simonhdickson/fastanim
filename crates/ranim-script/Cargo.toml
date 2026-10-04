@@ -1,0 +1,20 @@
+[package]
+name = "ranim-script"
+description = "Rhai scenes for ranim"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.92"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ranim-core.workspace = true
+ranim-text.workspace = true
+rhai = { version = "1.26", features = ["sync"] }
+
+[dev-dependencies]
+# For the Rust versions of the example scenes, which the scripts must match.
+ranim-bevy.workspace = true
+
+[lints]
+workspace = true

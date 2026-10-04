@@ -13,7 +13,10 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
+ranim-bevy.workspace = true
+ranim-core.workspace = true
 ranim-diff.workspace = true
+ranim-script.workspace = true
 ranim-text.workspace = true
 
 [lints]

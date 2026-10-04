@@ -33,7 +33,8 @@ fn main() {
     println!("mean = {mean}");
 }"#;
 
-fn construct(s: &mut Scene) {
+/// Records the scene; public so `ranim-script` can check its script version matches.
+pub fn construct(s: &mut Scene) {
     // 1. Pythagoras rearrangement.
     s.marker("pythagoras");
     let title = text("Solving for a").to_edge(UP).add_to(s);

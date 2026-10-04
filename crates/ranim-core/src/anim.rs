@@ -117,6 +117,21 @@ pub trait Animation: Send + Sync {
     }
 }
 
+impl Animation for Box<dyn Animation> {
+    fn plan(&mut self, state: &SceneState) {
+        (**self).plan(state);
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        (**self).sample(alpha, state);
+    }
+    fn duration(&self) -> f32 {
+        (**self).duration()
+    }
+    fn rate_fn(&self) -> RateFn {
+        (**self).rate_fn()
+    }
+}
+
 /// Builder methods available on every animation.
 pub trait AnimationExt: Animation + Sized {
     /// Overrides the length in seconds.

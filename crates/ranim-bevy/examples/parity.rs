@@ -10,7 +10,8 @@ use ranim_core::color::{BLUE, GREEN, RED, YELLOW};
 use ranim_core::*;
 use ranim_text::{math_tex, text};
 
-fn construct(s: &mut Scene) {
+/// Records the scene; public so `ranim-script` can check its script version matches.
+pub fn construct(s: &mut Scene) {
     let title = text("Classic manim parity").to_edge(UP).add_to(s);
     s.play(write(&title));
     let circle = s.add(VState::circle(1.5).stroke(BLUE, 0.06));

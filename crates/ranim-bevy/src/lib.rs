@@ -36,8 +36,9 @@ struct Cli {
     command: Option<Command>,
 }
 
+/// What to do with a baked scene: the subcommands of [`run`] and of `ranim run`.
 #[derive(Debug, Subcommand)]
-enum Command {
+pub enum Command {
     /// Open a window with a scrubber (default)
     Preview,
     /// Export video or frames
@@ -80,18 +81,28 @@ pub fn run(construct: impl FnOnce(&mut Scene)) {
     let cli = Cli::parse();
     let mut s = Scene::new();
     construct(&mut s);
-    let tl = s.bake();
-    let result = match resolve(cli.command, &tl) {
-        Ok(None) => {
-            preview(tl);
-            Ok(())
-        }
-        Ok(Some(ex)) => export::export(&tl, &ex),
-        Err(e) => Err(e),
-    };
-    if let Err(e) = result {
+    if let Err(e) = run_command(cli.command, s.bake(), None) {
         eprintln!("error: {e}");
         std::process::exit(1);
+    }
+}
+
+/// Polled every preview frame; a timeline it returns replaces the one shown.
+pub type Reload = Box<dyn FnMut() -> Option<BakedTimeline> + Send + Sync>;
+
+/// Previews or exports `tl` as `cmd` says (`None` previews). In preview, `reload` is polled
+/// every frame, and a timeline it returns is shown from the current time on.
+pub fn run_command(
+    cmd: Option<Command>,
+    tl: BakedTimeline,
+    reload: Option<Reload>,
+) -> Result<(), String> {
+    match resolve(cmd, &tl)? {
+        None => {
+            preview_with(tl, reload);
+            Ok(())
+        }
+        Some(ex) => export::export(&tl, &ex),
     }
 }
 
@@ -140,17 +151,39 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
 
 /// Opens a window that plays `timeline` with a scrubber. Blocks until the window closes.
 pub fn preview(timeline: BakedTimeline) {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "ranim".into(),
-                resolution: (1280, 720).into(),
-                ..default()
-            }),
+    preview_with(timeline, None);
+}
+
+fn preview_with(timeline: BakedTimeline, reload: Option<Reload>) {
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "ranim".into(),
+            resolution: (1280, 720).into(),
             ..default()
-        }))
-        .add_plugins(RanimPlugin::new(timeline))
-        .run();
+        }),
+        ..default()
+    }))
+    .add_plugins(RanimPlugin::new(timeline));
+    if let Some(r) = reload {
+        app.insert_resource(Reloader(r))
+            .add_systems(Update, reload_timeline.before(controls));
+    }
+    app.run();
+}
+
+#[derive(Resource)]
+struct Reloader(Reload);
+
+fn reload_timeline(
+    mut reload: ResMut<Reloader>,
+    mut tl: ResMut<Timeline>,
+    mut clock: ResMut<SceneClock>,
+) {
+    if let Some(new) = (reload.0)() {
+        clock.t = clock.t.min(new.duration());
+        tl.0 = Arc::new(new);
+    }
 }
 
 /// Plays a [`BakedTimeline`] in a window, with keyboard and mouse controls:
