@@ -8,7 +8,8 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use ranim_core::color::{Color, WHITE};
 use ranim_core::geom::{SubPath, line_segment};
@@ -141,7 +142,23 @@ impl TextMobject {
         Self::typeset(src, &body, Tokens::Code)
     }
 
+    /// Typesetting is a pure function of the Typst body, which encodes kind, source and
+    /// language, so results are memoized on it (SPEC §14.5): re-running a script only
+    /// typesets the snippets it changed.
     fn typeset(source: &str, body: &str, mode: Tokens) -> Result<Self, String> {
+        // ponytail: unbounded and never evicted; fine for a session's worth of snippets, add
+        // an LRU if a long-lived playground grows it too far.
+        static CACHE: OnceLock<Mutex<HashMap<String, TextMobject>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(Mutex::default);
+        if let Some(t) = cache.lock().unwrap().get(body) {
+            return Ok(t.clone());
+        }
+        let t = Self::typeset_uncached(source, body, mode)?;
+        cache.lock().unwrap().insert(body.to_owned(), t.clone());
+        Ok(t)
+    }
+
+    fn typeset_uncached(source: &str, body: &str, mode: Tokens) -> Result<Self, String> {
         let page = compile(body)?;
         let mut runs = Vec::new();
         walk(&page, Affine::IDENTITY, &mut runs);
@@ -635,6 +652,20 @@ mod tests {
             t.glyphs[1].path.bbox().unwrap(),
         );
         assert!(two.y0 > a.y0 + 0.1, "{two:?} vs {a:?}");
+    }
+
+    #[test]
+    fn typesetting_is_memoized() {
+        use std::time::Instant;
+        let src = "sum_(k=1)^n k^3 = (n(n+1)/2)^2";
+        let t0 = Instant::now();
+        let a = math_tex(src);
+        let first = t0.elapsed();
+        let t0 = Instant::now();
+        let b = math_tex(src);
+        let second = t0.elapsed();
+        assert_eq!(a, b);
+        assert!(second * 10 < first, "{second:?} vs {first:?}");
     }
 
     #[test]

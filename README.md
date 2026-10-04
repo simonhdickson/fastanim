@@ -26,7 +26,9 @@ swaps are two arcing moves. Polish (M8) so far: the rest of the standard animati
 `circumscribe`, `flash`), the `Position` helpers (`next_to`, `align_to`, `to_edge`, `arrange`), `Sequence` and
 `lagged_start`, and ease-in/out (quad, cubic, expo, back) and spring rate functions. Scripting
 (M9) so far: `ranim-script` runs [Rhai](https://rhai.rs) scenes with the same API, and
-`ranim run` previews them (re-baking on save) or exports them. Try them with:
+`ranim run` previews them (re-baking on save) or exports them; typeset text is memoized, so a
+re-bake only typesets what changed; and `ranim-web` plays scripts in the browser on a Canvas 2D
+playground. Try them with:
 
 ```sh
 cargo run -p ranim-cli -- diff "a + b = c" "b + a = c"
@@ -40,4 +42,5 @@ cargo run -p ranim-bevy --example parity -- render -q 720p30 -o parity.mp4   # n
 cargo run -p ranim-bevy --example parity -- still --at 3s -o frame.png
 cargo run -p ranim-bevy --example diff          # equations, code refactor, bubble sort, morph
 cargo run -p ranim-cli -- run crates/ranim-script/scenes/diff.rhai   # same scene as a script
+crates/ranim-web/build.sh && python3 -m http.server -d crates/ranim-web/dist   # browser playground
 ```

@@ -52,7 +52,8 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
     out
 }
 
-fn path_data(p: &VPath) -> String {
+/// SVG path data (`M`, `C`, `Z`) for `p`, in scene units; also what canvas `Path2D` takes.
+pub fn path_data(p: &VPath) -> String {
     let mut d = String::new();
     for sp in &p.subpaths {
         let Some(first) = sp.segments.first() else {

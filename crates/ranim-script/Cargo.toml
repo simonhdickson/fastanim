@@ -10,7 +10,8 @@ repository.workspace = true
 [dependencies]
 ranim-core.workspace = true
 ranim-text.workspace = true
-rhai = { version = "1.26", features = ["sync"] }
+# No `ahash/runtime-rng`: it needs getrandom, which wasm32-unknown-unknown lacks (SPEC §14.1).
+rhai = { version = "1.26", default-features = false, features = ["std", "sync"] }
 
 [dev-dependencies]
 # For the Rust versions of the example scenes, which the scripts must match.

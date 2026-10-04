@@ -732,7 +732,7 @@ rebuilding a `cdylib`. `ranim run scene.rhai --bundle` writes the pre-typeset te
 
 ### 14.4 `ranim-web`: the browser player
 
-A `wasm-bindgen` crate built with `trunk`, without Bevy:
+A `wasm-bindgen` crate built with `wasm-bindgen-cli` (`build.sh`), without Bevy:
 
 - **Rendering**: each frame calls `eval(t)` and draws to a `<canvas>` with Canvas 2D, building a
   `Path2D` from each `VPath`'s cubics, trimmed by `draw_range` with `VPath::trim`, in

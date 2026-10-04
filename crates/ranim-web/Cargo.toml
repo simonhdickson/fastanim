@@ -1,0 +1,21 @@
+[package]
+name = "ranim-web"
+description = "Browser player and playground for ranim scenes"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.92"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ranim-core.workspace = true
+ranim-script.workspace = true
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["CanvasRenderingContext2d", "HtmlCanvasElement", "Path2d"] }
+
+[lints]
+workspace = true

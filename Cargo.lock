@@ -5217,6 +5217,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ranim-web"
+version = "0.1.0"
+dependencies = [
+ "ranim-core",
+ "ranim-script",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
