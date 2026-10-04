@@ -678,7 +678,7 @@ anything heavier.
 | Crate | In wasm | Notes |
 |---|---|---|
 | `ranim-diff`, `ranim-core` | As is | No I/O, threads or clocks; `eval(t)` and `to_svg` are pure |
-| `ranim-text` | As is | Typst runs in wasm, and the `World` is in-memory. Embedded `typst-assets` fonts add several MB, so the web build should fetch fonts as a separate, cached asset |
+| `ranim-text` | As is | Typst runs in wasm, and the `World` is in-memory. Embedded `typst-assets` fonts add several MB, so the web build fetches them separately, only when needed (§14.5) |
 | `ranim-bevy` | Not used | Vello needs WebGPU (§13 Q1); export shells out to `ffmpeg`, writes files and blocks on GPU readback. The web player renders without it |
 
 ### 14.2 `ranim-script`: the binding layer
@@ -727,7 +727,8 @@ Rules:
 `ranim run scene.rhai [preview|render|still] [options]` takes the same commands and options as
 a compiled scene (§8.4, §8.5) and renders through `ranim-bevy`. In preview it watches the file
 and re-runs and re-bakes it on save, keeping the current `t`: the hot reload of §8.4 without
-rebuilding a `cdylib`.
+rebuilding a `cdylib`. `ranim run scene.rhai --bundle` writes the pre-typeset text for the web player
+(§14.5).
 
 ### 14.4 `ranim-web`: the browser player
 
@@ -740,28 +741,67 @@ A `wasm-bindgen` crate built with `trunk`, without Bevy:
   play/pause, frame stepping, markers and dragging, as in §8.4.
 - **Playground**: an editor next to the canvas runs the script on change (debounced), re-bakes
   and keeps `t`. Baking runs in a Web Worker so long scenes don't freeze the page.
-- **Embedding**: `<ranim-player src="scene.rhai">` (or a precompiled scene) so the docs site's
+- **Embedding**: `<ranim-player src="scene.rhai">` (or a bundled scene, §14.5) so the docs site's
   rendered examples (M8) are live and scrubbable.
 - **Export**: SVG frames (from `to_svg`) and PNG stills (`canvas.toBlob`) as downloads. Video
   through WebCodecs `VideoEncoder` plus an MP4/WebM muxer is a stretch goal, with frames still
   timed by index so output stays deterministic.
 
-### 14.5 Acceptance
+### 14.5 Text performance in the browser
+
+Typst parallelizes with `rayon`, which has no threads on `wasm32-unknown-unknown` and runs on
+the calling thread instead. That costs little here: each `math_tex`, `text` or `code` call
+typesets one small snippet onto one page, which has little internal parallelism to lose. What
+does cost is blocking the page while a scene bakes, the one-off font parsing and `Library`
+setup (`shared()` in `ranim-text`), and re-typesetting snippets that haven't changed. In order:
+
+1. **Bake off the main thread (required).** Script runs and baking happen in a Web Worker
+   (§14.4); the page only receives the baked timeline. This removes the freeze, not the cost.
+2. **Cache typeset text (required).** Typesetting is a pure function of `(kind, source,
+   language)`, so `ranim-text` memoizes `TextMobject`s on that key. In the playground, an edit
+   then only re-typesets the snippets it changed. The cache can be persisted in IndexedDB
+   across visits.
+3. **Pre-typeset published scenes (required for the docs site).** `ranim run --bundle` typesets
+   every snippet natively and writes the glyph outlines next to the script; the player fills
+   the cache from that bundle, so published scenes never run Typst in the browser and skip the
+   font download. The fonts (the `typst-assets` set by default) are fetched as a separate,
+   cacheable asset only when a script typesets something not in the cache.
+4. **Typeset in a worker pool (if long scripts still bake slowly).** Snippets are independent,
+   so they can be spread across workers, each its own wasm instance with its own fonts:
+   - **Collect:** run the script once, recording every text call as a request.
+   - **Fan out:** typeset the requests across the pool, filling the cache.
+   - **Bake:** run the script again, answered from the cache.
+
+   This works in every browser with no special headers. It costs memory per worker and a second
+   script run; making `TextMobject` a lazy handle resolved before baking would avoid the second
+   run, but positioning that needs a bounding box would then have to wait for it.
+5. **Not planned: `wasm-bindgen-rayon`.** Shared-memory threads would give Typst its thread
+   pool back, but they need a nightly toolchain with `-Z build-std` and atomics, and the page
+   must be cross-origin isolated (`COOP: same-origin`, `COEP: require-corp`). That conflicts
+   with embedding `<ranim-player>` in other sites, and the gain on small snippets is modest.
+   It could be offered later as an opt-in for the standalone playground.
+
+None of this is measured yet; the playground should report time spent typesetting vs. baking
+so the order above can be checked against real scenes.
+
+### 14.6 Acceptance
 
 - The §10 examples exist as `.rhai` scripts, and each bakes to the same timeline as its Rust
   version (compared through `to_svg` at sampled times, §11).
 - They play in the browser player in current Chrome, Firefox and Safari, and render with
   `ranim run`.
 - A script with an infinite loop or a Typst error reports an error and leaves the page usable.
+- Editing one equation in a long script re-typesets only that equation (§14.5), and a bundled
+  docs-site scene plays without downloading fonts.
 
-### 14.6 Open questions
+### 14.7 Open questions
 
 1. **Naming in scripts.** Mirror the Rust names exactly (`replacement_transform`) or adopt
    shorter script names? Mirroring keeps docs shared across languages.
 2. **Updater performance.** Rhai closures evaluated per frame are slower than Rust. Is that
    fine for typical updaters, or do common ones (follow, rotate around) need native helpers?
-3. **Font loading.** Which fonts ship by default on the web, and should scripts be able to load
-   their own?
+3. **Custom fonts.** Should scripts be able to load their own fonts on the web, and from where
+   (URL, upload, a font picker)? The default set is covered by §14.5.
 
 ---
 
