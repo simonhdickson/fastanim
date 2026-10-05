@@ -38,7 +38,8 @@ cargo run -p fastanim-cli -- run fastanim-script/scenes/parity.rhai
   quad, cubic, expo, back and spring rate functions.
 - **Layout**: `next_to`, `align_to`, `to_edge`, `arrange`.
 - **Text & math**: [Typst](https://typst.app) (bundled fonts, no LaTeX) laid out into
-  per-glyph shapes and diffable tokens via `text`, `math_tex` and `code`.
+  per-glyph shapes and diffable tokens via `text`, `math_tex` and `code`. `latex` takes
+  LaTeX math instead, converted to Typst by [MiTeX](https://github.com/mitex-rs/mitex).
 - **`TransformDiff`**: token diffs choreographed into slides, arcing moves, morphs and fades,
   with `DiffStyle` phasing, highlights and a debug tint. Code diffs line by line, then token by
   token; `list` cells swap with two arcing moves.

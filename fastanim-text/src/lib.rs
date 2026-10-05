@@ -1,7 +1,7 @@
 //! Text and math for fastanim: Typst layout into glyph paths, grouped into diffable tokens
 //! (see `docs/SPEC.md` §6).
 //!
-//! [`math_tex`], [`text`] and [`code`] typeset with the fonts bundled in `typst-assets`, so
+//! [`math_tex`], [`latex`], [`text`] and [`code`] typeset with the fonts bundled in `typst-assets`, so
 //! nothing needs installing. Each visible glyph (and each rule, like a fraction bar) becomes one
 //! [`VState`], filled white (or by syntax highlighting) and centered on the origin. [`list`]
 //! lays out boxed values for algorithm animations.
@@ -79,6 +79,15 @@ pub struct TextMobject {
 /// Panics with Typst's error message if `src` doesn't compile; see [`TextMobject::math`].
 pub fn math_tex(src: &str) -> TextMobject {
     TextMobject::math(src).unwrap_or_else(|e| panic!("math_tex({src:?}): {e}"))
+}
+
+/// Typesets LaTeX math, e.g. `r"\frac{a}{b}^2"`, by converting it to Typst with
+/// [MiTeX](https://github.com/mitex-rs/mitex). Tokens are the same as [`math_tex`]'s, so the two
+/// diff against each other. Math mode only: no `\usepackage` or preamble macros.
+///
+/// Panics if it doesn't convert or compile; see [`TextMobject::latex`].
+pub fn latex(src: &str) -> TextMobject {
+    TextMobject::latex(src).unwrap_or_else(|e| panic!("latex({src:?}): {e}"))
 }
 
 /// Typesets plain text (no markup). One token per word.
@@ -210,6 +219,17 @@ impl TextMobject {
     /// Typesets Typst math; `Err` holds Typst's error messages.
     pub fn math(src: &str) -> Result<Self, String> {
         Self::typeset(src, &format!("$ {src} $"), Tokens::Glyphs)
+    }
+
+    /// Typesets LaTeX math; `Err` holds MiTeX's or Typst's error messages.
+    pub fn latex(src: &str) -> Result<Self, String> {
+        let typst = mitex::convert_math(src, None)?;
+        let body = format!(
+            "#import \"/mitex/latex/standard.typ\": package\n\
+             #math.equation(block: true, eval({}, scope: package.scope))",
+            typst_str(&format!("${typst}$"))
+        );
+        Self::typeset(src, &body, Tokens::Glyphs)
     }
 
     /// Typesets plain text; `Err` holds Typst's error messages.
@@ -662,7 +682,17 @@ fn shared() -> &'static Shared {
     })
 }
 
-/// A single in-memory file, with no access to the filesystem, packages or the clock.
+/// MiTeX's Typst definitions for the commands its conversions call, e.g. `mitexsqrt`.
+const MITEX: [(&str, &str); 2] = [
+    ("/mitex/prelude.typ", include_str!("../mitex/prelude.typ")),
+    (
+        "/mitex/latex/standard.typ",
+        include_str!("../mitex/latex/standard.typ"),
+    ),
+];
+
+/// A single in-memory file, plus the [`MITEX`] files, with no access to the filesystem,
+/// packages or the clock.
 struct Doc {
     source: Source,
 }
@@ -679,10 +709,14 @@ impl World for Doc {
     }
     fn source(&self, id: FileId) -> typst::diag::FileResult<Source> {
         if id == self.source.id() {
-            Ok(self.source.clone())
-        } else {
-            Err(typst::diag::FileError::AccessDenied)
+            return Ok(self.source.clone());
         }
+        let path = id.vpath().get_with_slash();
+        MITEX
+            .iter()
+            .find(|(p, _)| *p == path)
+            .map(|(_, text)| Source::new(id, (*text).to_owned()))
+            .ok_or(typst::diag::FileError::AccessDenied)
     }
     fn file(&self, _: FileId) -> typst::diag::FileResult<Bytes> {
         Err(typst::diag::FileError::AccessDenied)
@@ -735,6 +769,18 @@ mod tests {
             t.glyphs[1].path.bbox().unwrap(),
         );
         assert!(two.y0 > a.y0 + 0.1, "{two:?} vs {a:?}");
+    }
+
+    #[test]
+    fn latex_tokens_match_typst_math() {
+        assert_eq!(
+            keys(&latex(r"a^2 + b^2 = c^2")),
+            keys(&math_tex("a^2 + b^2 = c^2"))
+        );
+        // Commands that need MiTeX's Typst definitions.
+        assert_eq!(keys(&latex(r"\sqrt{x}")), ["√", "rule", "𝑥"]);
+        assert_eq!(keys(&latex(r"\text{if } x")), ["i", "f", "𝑥"]);
+        assert!(TextMobject::latex(r"\frac{a").is_err());
     }
 
     #[test]

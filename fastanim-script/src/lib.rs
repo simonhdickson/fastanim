@@ -15,7 +15,7 @@
 //! ```
 //!
 //! Scripts see a `scene` variable with `add`, `remove`, `play`, `wait`, `marker`, `always`
-//! and `get`; shape, text and animation functions named as in Rust (`circle`, `math_tex`,
+//! and `get`; shape, text and animation functions named as in Rust (`circle`, `math_tex`, `latex`,
 //! `transform_diff`, ...); `point(x, y)` for points and vectors; and the constants `UP`,
 //! `DOWN`, `LEFT`, `RIGHT`, `ORIGIN`, the colors, `LINEAR`, `SMOOTH`, `THERE_AND_BACK`,
 //! `DEFAULT_BUFF`, `FRAME_WIDTH`, `FRAME_HEIGHT`, `PI` and `TAU`. Numbers passed as floats
@@ -487,6 +487,9 @@ fn engine() -> Engine {
         })
         .register_fn("math_tex", |s: &str| {
             TextMobject::math(s).map_err(Into::into) as Res<_>
+        })
+        .register_fn("latex", |s: &str| {
+            TextMobject::latex(s).map_err(Into::into) as Res<_>
         })
         .register_fn("code", |s: &str, lang: &str| {
             TextMobject::code(s, lang).map_err(Into::into) as Res<_>

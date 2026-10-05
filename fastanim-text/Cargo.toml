@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 fastanim-core.workspace = true
+mitex = "0.2.4"
 ttf-parser = "0.25"
 typst = "0.15"
 typst-assets = { version = "0.15", features = ["fonts"] }

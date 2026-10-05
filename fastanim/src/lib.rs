@@ -21,6 +21,6 @@ pub mod prelude {
     };
     pub use fastanim_diff::{Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak};
     pub use fastanim_text::{
-        TextMobject, axis_labels, axis_numbers, math_tex, text, transform_diff,
+        TextMobject, axis_labels, axis_numbers, latex, math_tex, text, transform_diff,
     };
 }
