@@ -93,3 +93,11 @@ fn sine_curve_bakes() {
     assert_eq!(t.duration(), 9.5);
     t.eval(t.duration());
 }
+
+#[test]
+fn sin_and_cos_bakes() {
+    // A port of manim's SinAndCosFunctionPlot: axes, numbers, labels and plots on them.
+    let t = script("sin_and_cos");
+    assert_eq!(t.duration(), 1.0);
+    assert!(t.eval(0.0).len() > 20);
+}

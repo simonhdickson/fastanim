@@ -167,3 +167,13 @@ fn bubble_sort_swaps_are_two_moves() {
     assert_eq!(v, [1, 2, 4, 5, 8]);
     assert_eq!(g.parts, list(&v).parts());
 }
+
+#[test]
+fn axis_numbers_skip_the_crossing() {
+    use fastanim_core::Axes;
+    let ax = Axes::new([-2.0, 2.0, 1.0], [0.0, 1.0, 0.5]);
+    let n = fastanim_text::axis_numbers(&ax);
+    // x: -2 -1 1 2 (not 0); y: 0.5 1 (not 0, where the axes cross).
+    let keys: String = n.tokens.iter().map(|t| t.key.text.as_str()).collect();
+    assert_eq!(keys, "−2−1120.51", "{keys}");
+}

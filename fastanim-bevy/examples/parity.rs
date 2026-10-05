@@ -41,10 +41,10 @@ pub fn construct(s: &mut Scene) {
     s.play(write(&formula));
 
     s.marker("graph");
-    let axes = s.add(VState::axes(-6.5..6.5, -2.0..2.0));
+    let ax = Axes::sized([-7.0, 7.0, 1.0], [-2.0, 2.0, 1.0], 14.0, 4.0);
+    let axes = s.add(ax.shape());
     s.play(create(axes));
-    let graph =
-        s.add(VState::function_graph(f64::sin, -2.0 * PI..2.0 * PI, 24).stroke(GREEN, 0.05));
+    let graph = s.add(ax.plot(f64::sin, -2.0 * PI..2.0 * PI).stroke(GREEN, 0.05));
     s.play(create(graph).run_time(2.0));
 
     let dot = s.add(VState::dot(Point::new(-2.0 * PI, 0.0)).fill(YELLOW));
@@ -53,7 +53,7 @@ pub fn construct(s: &mut Scene) {
     s.always(dot, move |st, t| {
         let phase = f64::from(t) / 4.0 % 2.0;
         let x = 2.0 * PI * (2.0 * phase.min(2.0 - phase) - 1.0);
-        st[&dot].clone().move_to(Point::new(x, x.sin()))
+        st[&dot].clone().move_to(ax.c2p(x, x.sin()))
     });
     s.wait(8.0);
 }

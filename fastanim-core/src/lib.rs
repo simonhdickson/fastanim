@@ -4,6 +4,7 @@
 //! Has no Bevy dependency so it can be tested with plain `cargo test`.
 
 pub mod anim;
+pub mod axes;
 pub mod color;
 pub mod geom;
 pub mod mobject;
@@ -23,6 +24,7 @@ pub use anim::{
     move_to, replacement_transform, rotate, scale, shift, shrink_to_center, spin_in, transform,
     uncreate, unwrite, wiggle, write,
 };
+pub use axes::Axes;
 pub use color::Color;
 pub use geom::{SubPath, VPath, align};
 pub use mobject::{MobjectId, SceneState, Stroke, VState};

@@ -11,7 +11,7 @@ pub use fastanim_text as text;
 pub mod prelude {
     pub use fastanim_core::color::*;
     pub use fastanim_core::{
-        Animation, AnimationExt, BakedTimeline, DEFAULT_BUFF, DOWN, DiffStyle, Ease, Group,
+        Animation, AnimationExt, Axes, BakedTimeline, DEFAULT_BUFF, DOWN, DiffStyle, Ease, Group,
         Interpolate, LEFT, Layout, MobjectId, ORIGIN, Parallel, Phasing, Point, Position, RIGHT,
         RateFn, ReplaceStyle, Scene, SceneState, Sequence, TransformDiff, UP, VPath, VState, Vec2,
         apply_function, arrange, circumscribe, create, draw_border_then_fill, fade_in, fade_out,
@@ -20,5 +20,7 @@ pub mod prelude {
         write,
     };
     pub use fastanim_diff::{Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak};
-    pub use fastanim_text::{TextMobject, math_tex, text, transform_diff};
+    pub use fastanim_text::{
+        TextMobject, axis_labels, axis_numbers, math_tex, text, transform_diff,
+    };
 }

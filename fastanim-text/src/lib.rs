@@ -14,7 +14,9 @@ use std::sync::{Mutex, OnceLock};
 use fastanim_core::color::{Color, WHITE};
 use fastanim_core::geom::{SubPath, line_segment};
 use fastanim_core::kurbo::{self, Affine, CubicBez, Point, Rect, Vec2};
-use fastanim_core::{Group, Scene, TransformDiff, VPath, VState};
+use fastanim_core::{
+    Axes, DOWN, Group, LEFT, Position, RIGHT, Scene, TransformDiff, UP, VPath, VState,
+};
 use fastanim_core::{Interpolate, Layout, Op};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::layout::{Frame, FrameItem, Transform};
@@ -118,6 +120,58 @@ pub fn list<T: fmt::Display>(values: &[T]) -> TextMobject {
         source: (tokens.iter().map(|t| t.key.text.as_str()))
             .collect::<Vec<_>>()
             .join(", "),
+        glyphs,
+        tokens,
+        lines: Vec::new(),
+    }
+}
+
+/// Tick numbers for `ax`, below the x-axis and left of the y-axis, skipping where the axes
+/// cross: manim's `add_coordinates`.
+pub fn axis_numbers(ax: &Axes) -> TextMobject {
+    // manim numbers are font size 36 against 48 for `MathTex`.
+    const SCALE: f64 = 0.75;
+    let o = ax.crossing();
+    // Rounded so `0.1 * 3` prints as `0.3`.
+    let num = |v: f64| math_tex(&format!("{}", (v * 1e6).round() / 1e6)).scale(SCALE);
+    let xs = (ax.x_ticks().into_iter().filter(|&x| x != o.x))
+        .map(|x| num(x).next_to(&ax.c2p(x, o.y), DOWN, NUMBER_BUFF));
+    let ys = (ax.y_ticks().into_iter().filter(|&y| y != o.y))
+        .map(|y| num(y).next_to(&ax.c2p(o.x, y), LEFT, NUMBER_BUFF));
+    join(xs.chain(ys))
+}
+
+/// Gap between a tick and its number (manim's `MED_SMALL_BUFF`).
+const NUMBER_BUFF: f64 = 0.25;
+
+/// `x` past the right end of the x-axis and `y` above the top of the y-axis, as one text:
+/// manim's `get_axis_labels`.
+pub fn axis_labels(ax: &Axes, x: TextMobject, y: TextMobject) -> TextMobject {
+    // manim's SMALL_BUFF, and its edges and directions; 0.1 is the tick half-length.
+    const BUFF: f64 = 0.1;
+    let o = ax.crossing();
+    let x_end = ax.c2p(ax.x_range[1], o.y) + UP * 0.1;
+    let y_end = ax.c2p(o.x, ax.y_range[1]) + RIGHT * 0.1;
+    join([
+        x.next_to(&x_end, UP + RIGHT, BUFF),
+        y.next_to(&y_end, UP * 4.0 + RIGHT, BUFF),
+    ])
+}
+
+/// Texts as one, glyphs and tokens in order. Lines are dropped.
+fn join(texts: impl IntoIterator<Item = TextMobject>) -> TextMobject {
+    let (mut glyphs, mut tokens, mut sources) = (Vec::new(), Vec::new(), Vec::new());
+    for t in texts {
+        let at = glyphs.len();
+        tokens.extend(t.tokens.into_iter().map(|tok| Token {
+            glyphs: tok.glyphs.start + at..tok.glyphs.end + at,
+            ..tok
+        }));
+        glyphs.extend(t.glyphs);
+        sources.push(t.source);
+    }
+    TextMobject {
+        source: sources.join(" "),
         glyphs,
         tokens,
         lines: Vec::new(),

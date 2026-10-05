@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW};
 use fastanim_core::kurbo::{Affine, Point, Vec2};
 use fastanim_core::{
-    Animation, AnimationExt, BakedTimeline, Color, DEFAULT_BUFF, DOWN, DiffStyle, Ease,
+    Animation, AnimationExt, Axes, BakedTimeline, Color, DEFAULT_BUFF, DOWN, DiffStyle, Ease,
     FRAME_HEIGHT, FRAME_WIDTH, Group, LEFT, MobjectId, Parallel, Position, RIGHT, RateFn, Scene,
     SceneState, Sequence, UP, Update, UpdateGroup, VState,
 };
@@ -323,6 +323,35 @@ fn points(a: Array) -> Res<Vec<Point>> {
         .collect()
 }
 
+/// `[min, max, step]`, or `[min, max]` with step 1; ints allowed.
+fn range(a: Array) -> Res<[f64; 3]> {
+    let n = (a.iter())
+        .map(|d| d.as_float().or_else(|_| d.as_int().map(|i| i as f64)))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|ty| format!("range values must be numbers, got {ty}"))?;
+    match n[..] {
+        [lo, hi, step] if lo < hi && step > 0.0 => Ok([lo, hi, step]),
+        [lo, hi] if lo < hi => Ok([lo, hi, 1.0]),
+        _ => Err("expected [min, max] or [min, max, step], min < max, step > 0".into()),
+    }
+}
+
+/// `build` with script closure `f` as the function; the first error `f` raises fails it.
+fn graph(
+    cx: &NativeCallContext,
+    f: &FnPtr,
+    build: impl FnOnce(&dyn Fn(f64) -> f64) -> VState,
+) -> Res<VState> {
+    let err = RefCell::new(None);
+    let m = build(&|x| {
+        f.call_within_context(cx, (x,)).unwrap_or_else(|e| {
+            err.borrow_mut().get_or_insert(e);
+            0.0
+        })
+    });
+    err.into_inner().map_or(Ok(m), Err)
+}
+
 fn constant(name: &str) -> Option<Dynamic> {
     let v = |v: Vec2| Some(Dynamic::from(v));
     let c = |c: Color| Some(Dynamic::from(c));
@@ -360,13 +389,15 @@ macro_rules! positional {
         $e.register_fn("shift", |m: $t, v: Vec2| m.shift(v))
             .register_fn("move_to", |m: $t, p: Vec2| m.move_to(p.to_point()))
             .register_fn("scale", |m: $t, k: f64| m.scale(k))
-            .register_fn("fill", |m: $t, c: Color| m.fill(c))
             .register_fn("to_edge", |m: $t, d: Vec2| m.to_edge(d))
             .register_fn("next_to", |m: $t, o: VState, d: Vec2| {
                 m.next_to(&o, d, DEFAULT_BUFF)
             })
             .register_fn("next_to", |m: $t, o: TextMobject, d: Vec2| {
                 m.next_to(&o, d, DEFAULT_BUFF)
+            })
+            .register_fn("next_to", |m: $t, p: Vec2, d: Vec2| {
+                m.next_to(&p.to_point(), d, DEFAULT_BUFF)
             })
             .register_fn("next_to", |m: $t, o: VState, d: Vec2, b: f64| {
                 m.next_to(&o, d, b)
@@ -432,29 +463,18 @@ fn engine() -> Engine {
         .register_fn("polygon", |a: Array| {
             Ok(VState::polygon(&points(a)?)) as Res<_>
         })
-        .register_fn("axes", |x0: f64, x1: f64, y0: f64, y1: f64| {
-            VState::axes(x0..x1, y0..y1)
-        })
         .register_fn(
             "function_graph",
             |cx: NativeCallContext, f: FnPtr, x0: f64, x1: f64, segments: i64| -> Res<_> {
                 if segments < 1 {
                     return Err("segments must be at least 1".into());
                 }
-                let err = RefCell::new(None);
-                let m = VState::function_graph(
-                    |x| {
-                        f.call_within_context(&cx, (x,)).unwrap_or_else(|e| {
-                            err.borrow_mut().get_or_insert(e);
-                            0.0
-                        })
-                    },
-                    x0..x1,
-                    segments as usize,
-                );
-                err.into_inner().map_or(Ok(m), Err)
+                graph(&cx, &f, |f| {
+                    VState::function_graph(f, x0..x1, segments as usize)
+                })
             },
         )
+        .register_fn("fill", |m: VState, c: Color| m.fill(c))
         .register_fn("stroke", |m: VState, c: Color, w: f64| m.stroke(c, w))
         .register_fn("z_index", |m: VState, z: i64| m.z_index(z as i32))
         .register_fn("rotate", |m: VState, a: f64| m.rotate(a));
@@ -472,6 +492,7 @@ fn engine() -> Engine {
             TextMobject::code(s, lang).map_err(Into::into) as Res<_>
         })
         .register_fn("list", |a: Array| fastanim_text::list(&a))
+        .register_fn("fill", |m: TextMobject, c: Color| m.fill(c))
         .register_fn("rotate", |m: TextMobject, a: f64| {
             let c = m.bbox().map_or(Point::ORIGIN, |b| b.center());
             m.transform(Affine::rotate_about(a, c))
@@ -485,6 +506,34 @@ fn engine() -> Engine {
         });
     positional!(e, TextMobject);
 
+    // Axes.
+    e.register_type_with_name::<Axes>("Axes")
+        .register_fn("axes", |x: Array, y: Array| {
+            Ok(Axes::new(range(x)?, range(y)?)) as Res<_>
+        })
+        .register_fn("axes", |x: Array, y: Array, w: f64, h: f64| {
+            Ok(Axes::sized(range(x)?, range(y)?, w, h)) as Res<_>
+        })
+        .register_fn("shape", |a: &mut Axes| a.shape())
+        .register_fn("c2p", |a: &mut Axes, x: f64, y: f64| a.c2p(x, y).to_vec2())
+        .register_fn("p2c", |a: &mut Axes, p: Vec2| a.p2c(p.to_point()).to_vec2())
+        .register_fn(
+            "plot",
+            |cx: NativeCallContext, a: &mut Axes, f: FnPtr, x0: f64, x1: f64| {
+                let a = *a;
+                graph(&cx, &f, |f| a.plot(f, x0..x1))
+            },
+        )
+        .register_fn("vertical_line", |a: &mut Axes, p: Vec2| {
+            a.vertical_line(p.to_point())
+        })
+        .register_fn("numbers", |a: &mut Axes| fastanim_text::axis_numbers(a))
+        .register_fn("labels", |a: &mut Axes, x: &str, y: &str| -> Res<_> {
+            let (x, y) = (TextMobject::math(x)?, TextMobject::math(y)?);
+            Ok(fastanim_text::axis_labels(a, x, y))
+        });
+    positional!(e, Axes);
+
     // The scene.
     e.register_type_with_name::<Mob>("Mobject");
     e.register_type_with_name::<State>("State")
@@ -492,6 +541,9 @@ fn engine() -> Engine {
     e.register_type_with_name::<SceneHandle>("Scene")
         .register_fn("add", |s: &mut SceneHandle, m: VState| {
             Ok(Mob::Shape(s.lock()?.scene.add(m))) as Res<_>
+        })
+        .register_fn("add", |s: &mut SceneHandle, a: Axes| {
+            Ok(Mob::Shape(s.lock()?.scene.add(a.shape()))) as Res<_>
         })
         .register_fn("add", |s: &mut SceneHandle, t: TextMobject| -> Res<_> {
             let cx = &mut *s.lock()?;

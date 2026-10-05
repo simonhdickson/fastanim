@@ -118,23 +118,6 @@ impl VState {
         })
     }
 
-    /// x and y axes through the origin with unit tick marks; coordinates are scene units.
-    pub fn axes(x_range: Range<f64>, y_range: Range<f64>) -> Self {
-        const TICK: f64 = 0.1;
-        let line = |a: (f64, f64), b: (f64, f64)| {
-            crate::geom::SubPath::polyline(&[a.into(), b.into()], false)
-        };
-        let mut subpaths = vec![
-            line((x_range.start, 0.0), (x_range.end, 0.0)),
-            line((0.0, y_range.start), (0.0, y_range.end)),
-        ];
-        let ticks =
-            |r: &Range<f64>| (r.start.ceil() as i64..=r.end.floor() as i64).filter(|&i| i != 0);
-        subpaths.extend(ticks(&x_range).map(|i| line((i as f64, -TICK), (i as f64, TICK))));
-        subpaths.extend(ticks(&y_range).map(|i| line((-TICK, i as f64), (TICK, i as f64))));
-        Self::new(VPath { subpaths }).stroke(WHITE, 0.03)
-    }
-
     /// Small filled white dot at `p`.
     pub fn dot(p: Point) -> Self {
         Self::circle(0.08).fill(WHITE).shift(p.to_vec2())

@@ -22,9 +22,10 @@ let formula = scene.add(math_tex("y = sin(x)").scale(1.5).fill(GREEN).to_edge(DO
 scene.play(write(formula));
 
 scene.marker("graph");
-let axes = scene.add(axes(-6.5, 6.5, -2.0, 2.0));
+let ax = axes([-7, 7, 1], [-2, 2, 1], 14.0, 4.0);
+let axes = scene.add(ax);
 scene.play(create(axes));
-let graph = scene.add(function_graph(|x| x.sin(), -2.0 * PI, 2.0 * PI, 24).stroke(GREEN, 0.05));
+let graph = scene.add(ax.plot(|x| x.sin(), -2.0 * PI, 2.0 * PI).stroke(GREEN, 0.05));
 scene.play(create(graph).run_time(2.0));
 
 let dot = scene.add(dot(point(-2.0 * PI, 0.0)).fill(YELLOW));
@@ -33,6 +34,6 @@ scene.play(fade_in(dot).run_time(0.5));
 scene.always(dot, |state, t| {
     let phase = t / 4.0 % 2.0;
     let x = 2.0 * PI * (2.0 * min(phase, 2.0 - phase) - 1.0);
-    state[dot].move_to(point(x, x.sin()))
+    state[dot].move_to(ax.c2p(x, x.sin()))
 });
 scene.wait(8.0);

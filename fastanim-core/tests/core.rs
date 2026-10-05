@@ -425,3 +425,37 @@ fn positioning_helpers() {
     let group = bs.iter().copied().reduce(|a, b| a.union(b)).unwrap();
     assert!(close(group.center(), Point::new(0.0, 1.0)));
 }
+
+#[test]
+fn axes_map_graph_to_scene() {
+    let close = |a: Point, b: Point| (a - b).hypot() < 1e-9;
+    // 20 x units over 10 scene units, 4 y units over 2: centered, half scale.
+    let ax = Axes::sized([-10.0, 10.0, 2.0], [-2.0, 2.0, 1.0], 10.0, 2.0);
+    assert!(close(ax.c2p(0.0, 0.0), Point::ORIGIN));
+    assert!(close(ax.c2p(10.0, 2.0), Point::new(5.0, 1.0)));
+    assert!(close(ax.p2c(Point::new(5.0, 1.0)), Point::new(10.0, 2.0)));
+    assert_eq!(
+        ax.x_ticks(),
+        [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+    );
+
+    // Moving the axes moves what they map to.
+    let moved = ax.shift(Vec2::new(1.0, -1.0)).to_edge(LEFT);
+    let p = moved.c2p(-10.0, 0.0);
+    assert!(
+        (p.x - (-FRAME_WIDTH / 2.0 + EDGE_BUFF)).abs() < 1e-9,
+        "{p:?}"
+    );
+
+    // A range without 0 crosses at its nearest end; ticks start at min.
+    let ax = Axes::new([1.0, 4.5, 1.0], [-3.0, -1.0, 0.5]);
+    assert_eq!(ax.crossing(), Point::new(1.0, -1.0));
+    assert_eq!(ax.x_ticks(), [1.0, 2.0, 3.0, 4.0]);
+    let vl = ax.vertical_line(ax.c2p(3.0, -2.0)).path.bbox().unwrap();
+    assert!(close(Point::new(vl.x0, vl.y1), ax.c2p(3.0, -1.0)));
+
+    // Plots land in scene space.
+    let g = ax.plot(|x| -x, 1.0..3.0).path.bbox().unwrap();
+    assert!(close(Point::new(g.x0, g.y1), ax.c2p(1.0, -1.0)));
+    assert!(close(Point::new(g.x1, g.y0), ax.c2p(3.0, -3.0)));
+}
