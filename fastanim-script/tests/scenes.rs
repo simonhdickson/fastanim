@@ -85,3 +85,11 @@ fn runaway_scripts_stop() {
     let e = err("fn f(x) { f(x) } f(1)");
     assert!(e.message.to_lowercase().contains("stack"), "{e}");
 }
+
+#[test]
+fn sine_curve_bakes() {
+    // A port of manim's SineCurveUnitCircle; there is no Rust twin, so just check it runs.
+    let t = script("sine_curve");
+    assert_eq!(t.duration(), 9.5);
+    t.eval(t.duration());
+}
