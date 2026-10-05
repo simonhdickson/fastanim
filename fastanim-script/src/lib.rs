@@ -106,6 +106,28 @@ pub fn bake(src: &str) -> Result<BakedTimeline, Error> {
     Ok(scene.bake())
 }
 
+/// Every function a scene can call, as Rhai signatures, then the constants. Rhai's own
+/// standard library (`min`, `sin`, `to_float`, ...) is left out.
+#[cfg(feature = "metadata")]
+pub fn signatures() -> Vec<String> {
+    let e = engine();
+    // Rhai leaves fallible return types as raw Rust paths; show the script-facing name.
+    let mut out: Vec<String> = (e.gen_fn_signatures(false).into_iter())
+        .map(|sig| {
+            let Some((head, ret)) = sig.rsplit_once(" -> ") else {
+                return sig;
+            };
+            let ret = (ret.strip_prefix("core::result::Result<"))
+                .and_then(|r| r.split_once(','))
+                .map_or(ret, |(ok, _)| ok);
+            format!("{head} -> {}", e.map_type_name(ret))
+        })
+        .collect();
+    out.sort();
+    out.extend(CONSTANTS.iter().map(|c| format!("const {c}")));
+    out
+}
+
 /// What closures need after the script has finished: the engine, the script, and a slot for
 /// the first error, since animations can't fail.
 #[derive(Clone)]
@@ -351,6 +373,14 @@ fn graph(
     });
     err.into_inner().map_or(Ok(m), Err)
 }
+
+/// The names `constant` knows, for `signatures`; keep in step with it.
+#[cfg(feature = "metadata")]
+const CONSTANTS: &[&str] = &[
+    "UP", "DOWN", "LEFT", "RIGHT", "ORIGIN", "WHITE", "BLACK", "BLUE", "RED", "GREEN", "YELLOW",
+    "GREY", "ORANGE", "TRANSPARENT", "LINEAR", "SMOOTH", "THERE_AND_BACK", "DEFAULT_BUFF",
+    "FRAME_WIDTH", "FRAME_HEIGHT", "PI", "TAU",
+];
 
 fn constant(name: &str) -> Option<Dynamic> {
     let v = |v: Vec2| Some(Dynamic::from(v));

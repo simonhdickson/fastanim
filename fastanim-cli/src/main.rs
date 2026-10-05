@@ -27,6 +27,8 @@ enum Command {
     Diff(DiffArgs),
     /// Run a Rhai scene script: preview it (reloading on save), or export it
     Run(RunArgs),
+    /// List every function and constant a scene script can use
+    ScriptApi,
     /// Scaffold a scene crate (not implemented yet)
     New,
     /// Open a scene in a window with a scrubber
@@ -59,6 +61,12 @@ fn main() -> ExitCode {
                     ExitCode::FAILURE
                 }
             };
+        }
+        Command::ScriptApi => {
+            for sig in fastanim_script::signatures() {
+                println!("{sig}");
+            }
+            return ExitCode::SUCCESS;
         }
         Command::New => {
             eprintln!("error: `fastanim new` is not implemented yet");

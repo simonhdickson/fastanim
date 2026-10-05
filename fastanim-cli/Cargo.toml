@@ -16,7 +16,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 fastanim-bevy.workspace = true
 fastanim-core.workspace = true
 fastanim-diff.workspace = true
-fastanim-script.workspace = true
+fastanim-script = { workspace = true, features = ["metadata"] }
 fastanim-text.workspace = true
 
 [lints]

@@ -13,6 +13,10 @@ fastanim-text.workspace = true
 # No `ahash/runtime-rng`: it needs getrandom, which wasm32-unknown-unknown lacks (SPEC §14.1).
 rhai = { version = "1.26", default-features = false, features = ["std", "sync"] }
 
+[features]
+# `signatures`, for `fastanim script-api`; off by default since the web player doesn't need it.
+metadata = ["rhai/metadata"]
+
 [dev-dependencies]
 # For the Rust versions of the example scenes, which the scripts must match.
 fastanim-bevy.workspace = true
