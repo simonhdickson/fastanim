@@ -7,6 +7,7 @@
 //   await el.open(url)          fetch, bake and play a script (and its bundle); returns the script
 //   el.load(script, bundle?)    bake a script given as text
 //   el.download("svg" | "png")  save the current frame
+//   el.download("video")        save the whole scene as WebM (fires `recorded` when saved)
 // It fires `baked` (detail: { duration, markers, bakeMs, typesetMs }) and `bakeerror`
 // (detail: the message, also shown under the player); on error the last good scene stays.
 
@@ -107,6 +108,9 @@ class FastanimPlayer extends HTMLElement {
       save(new Blob([data.svg], { type: "image/svg+xml" }), `frame-${this.#t.toFixed(2)}.svg`);
     } else if (data.png) {
       save(data.png, `frame-${this.#t.toFixed(2)}.png`);
+    } else if (data.video) {
+      save(data.video, "scene.webm");
+      this.dispatchEvent(new CustomEvent("recorded"));
     }
   }
 

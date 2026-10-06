@@ -8,6 +8,7 @@
   <link data-trunk rel="rust" href="Cargo.toml" data-type="worker" data-bindgen-target="web">
   <link data-trunk rel="copy-file" href="worker.js">
   <link data-trunk rel="copy-file" href="player.js">
+  <link data-trunk rel="copy-file" href="webm.js">
   <link data-trunk rel="copy-dir" href="../fastanim-script/scenes">
   <style>
     body { margin: 0; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
@@ -47,6 +48,7 @@
     <div class="bar">
       <button id="svg">Download SVG</button>
       <button id="png">Download PNG</button>
+      <button id="video">Record video</button>
     </div>
   </section>
 </main>
@@ -109,6 +111,11 @@
   $("example").onchange = (e) => example(e.target.value);
   $("svg").onclick = () => player.download("svg");
   $("png").onclick = () => player.download("png");
+  $("video").onclick = () => {
+    $("status").textContent = "recording…";
+    player.download("video");
+  };
+  player.addEventListener("recorded", () => { $("status").textContent = ""; });
 
   example($("example").value);
 </script>
