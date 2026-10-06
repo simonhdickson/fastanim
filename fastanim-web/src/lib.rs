@@ -17,6 +17,13 @@ pub fn load_bundle(bundle: &str) -> Result<usize, JsError> {
     fastanim_text::import_bundle(bundle).map_err(|e| JsError::new(&e))
 }
 
+/// Everything typeset so far, bundled or not, as a bundle for [`load_bundle`]; the worker keeps
+/// it in IndexedDB so text typeset on one visit isn't typeset again on the next (SPEC §14.5).
+#[wasm_bindgen]
+pub fn save_bundle() -> String {
+    fastanim_text::export_bundle()
+}
+
 /// A baked scene.
 #[wasm_bindgen]
 pub struct Player {

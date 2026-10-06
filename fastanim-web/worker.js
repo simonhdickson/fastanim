@@ -8,11 +8,11 @@
 //   { png }     reply { png: Blob } with the canvas
 //   { video }   reply { video: Blob }, the whole scene as WebM, or { error }
 // Messages that arrive while a bake or recording runs are merged, so only the latest source
-// and time are worked on.
-import init, { Player, load_bundle } from "./fastanim-web.js";
+// and time are worked on. Typeset text persists in IndexedDB across visits (SPEC §14.5).
+import init, { Player, load_bundle, save_bundle } from "./fastanim-web.js";
 import { webm } from "./webm.js";
 
-const ready = init();
+const ready = init().then(restore);
 let player = null, ctx = null, t = 0, next = {}, scheduled = false, queue = Promise.resolve();
 
 self.onmessage = ({ data }) => {
@@ -36,6 +36,7 @@ async function work() {
       const p = new Player(job.src);
       player?.free();
       player = p;
+      if (p.typeset_ms() > 0) persist();
       const names = p.marker_names(), times = p.marker_times();
       postMessage({ baked: {
         duration: p.duration(),
@@ -57,6 +58,41 @@ async function work() {
     catch (e) { postMessage({ error: e.message ?? String(e) }); }
     player.draw(ctx, t);
   }
+}
+
+// The typesetting cache, as one bundle under one key. A missing, blocked or stale (other
+// format version) store just means typesetting again.
+// ponytail: grows with every snippet ever typeset and never evicts; prune to the snippets the
+// last script used if it gets large.
+function db() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("fastanim", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("cache");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function store(mode, f) {
+  return db().then((d) => new Promise((resolve, reject) => {
+    const tx = d.transaction("cache", mode);
+    const req = f(tx.objectStore("cache"));
+    tx.oncomplete = () => { d.close(); resolve(req.result); };
+    tx.onerror = tx.onabort = () => { d.close(); reject(tx.error); };
+  }));
+}
+
+async function restore() {
+  try {
+    const bundle = await store("readonly", (s) => s.get("bundle"));
+    if (bundle) load_bundle(bundle);
+  } catch {
+    store("readwrite", (s) => s.delete("bundle")).catch(() => {});
+  }
+}
+
+function persist() {
+  store("readwrite", (s) => s.put(save_bundle(), "bundle")).catch(() => {});
 }
 
 const FPS = 60;
