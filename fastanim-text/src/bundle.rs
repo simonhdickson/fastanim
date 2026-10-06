@@ -1,5 +1,5 @@
 //! Pre-typeset text (SPEC §14.5): the typesetting cache written out natively by
-//! `fastanim run --bundle` and read back by the web player, so published scenes never run Typst
+//! `fastanim bundle` and read back by the web player, so published scenes never run Typst
 //! in the browser.
 //!
 //! The format is whitespace-separated text. Strings are a byte length, one space, then the

@@ -10,7 +10,7 @@ use fastanim_core::{BakedTimeline, Color, FRAME_WIDTH, to_svg};
 use wasm_bindgen::prelude::*;
 use web_sys::{OffscreenCanvasRenderingContext2d, Path2d};
 
-/// Fills the typesetting cache from a `.bundle` written by `fastanim run --bundle`, so the
+/// Fills the typesetting cache from a `.bundle` written by `fastanim bundle`, so the
 /// text in it is never typeset here (SPEC §14.5); returns how many snippets it held.
 #[wasm_bindgen]
 pub fn load_bundle(bundle: &str) -> Result<usize, JsError> {

@@ -1,7 +1,7 @@
 // SPEC §10 examples 1–5: diff-driven transforms of equations, code and lists, and a shape
 // morph. The script version of fastanim-bevy/examples/diff.rs.
 //
-// fastanim run fastanim-script/scenes/diff.rhai
+// fastanim preview fastanim-script/scenes/diff.rhai
 
 const BEFORE = `fn main() {
     let scores = vec![3, 9, 4, 7];

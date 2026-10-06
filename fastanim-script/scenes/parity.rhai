@@ -1,7 +1,7 @@
 // SPEC §10 example 6, "classic manim parity": the script version of
 // fastanim-bevy/examples/parity.rs.
 //
-// fastanim run fastanim-script/scenes/parity.rhai
+// fastanim preview fastanim-script/scenes/parity.rhai
 
 let title = scene.add(text("Classic manim parity").to_edge(UP));
 scene.play(write(title));

@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
+clap_complete = "4.6.11"
 fastanim-bevy.workspace = true
 fastanim-core.workspace = true
 fastanim-diff.workspace = true

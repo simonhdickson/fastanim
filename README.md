@@ -22,7 +22,7 @@ scene.play(write(formula));
 ```
 
 ```sh
-cargo run -p fastanim-cli -- run fastanim-script/scenes/parity.rhai
+cargo run -p fastanim-cli -- preview fastanim-script/scenes/parity.rhai
 ```
 
 ## Features
@@ -47,7 +47,7 @@ cargo run -p fastanim-cli -- run fastanim-script/scenes/parity.rhai
   (Space play/pause, ←/→ step, `[`/`]` markers, drag the bar).
 - **Export**: headless rendering piped to ffmpeg as MP4, WebM or GIF, or PNG/SVG frames, with
   quality presets, `--section` and stills.
-- **Scripting**: `fastanim run` previews Rhai scenes, re-baking on save, or exports them.
+- **Scripting**: `fastanim preview` plays Rhai scenes, re-baking on save; `fastanim render` and `fastanim still` export them.
   Typeset text is memoized, so a re-bake only typesets what changed.
 - **Browser playground**: `fastanim-web` bakes and draws scripts in a Web Worker onto a
   Canvas 2D, reporting time spent typesetting vs. baking.
@@ -78,7 +78,7 @@ cargo run -p fastanim-bevy --example parity        # live preview window
 cargo run -p fastanim-bevy --example parity -- render -q 720p30 -o parity.mp4
 cargo run -p fastanim-bevy --example parity -- still --at 3s -o frame.png
 cargo run -p fastanim-bevy --example diff          # equations, code refactor, bubble sort, morph
-cargo run -p fastanim-cli -- run fastanim-script/scenes/diff.rhai   # same scene as a script
+cargo run -p fastanim-cli -- preview fastanim-script/scenes/diff.rhai   # same scene as a script
 just web   # browser playground on http://localhost:8080, rebuilt on change
 ```
 

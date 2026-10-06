@@ -5,10 +5,11 @@
 //! This drives Vello on its own wgpu device rather than a windowless Bevy app: the encoding is
 //! the same [`encode`] the preview uses, and nothing else in Bevy is needed to make a frame.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::time::Instant;
 
 use bevy::tasks::futures_lite::future::block_on;
 use bevy_vello::vello::kurbo::Affine;
@@ -257,14 +258,14 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("could not start ffmpeg: {e}"))?;
     let mut stdin = ffmpeg.stdin.take().expect("piped stdin");
+    let start = Instant::now();
     for (i, &t) in times.iter().enumerate() {
         let pixels = renderer.render(&tl.eval(t))?;
         stdin
             .write_all(&pixels)
             .map_err(|e| format!("ffmpeg: {e}"))?;
-        eprint!("\rframe {}/{}", i + 1, times.len());
+        progress(i + 1, times.len(), start);
     }
-    eprintln!();
     drop(stdin);
     let status = ffmpeg.wait().map_err(|e| e.to_string())?;
     if !status.success() {
@@ -279,8 +280,29 @@ fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path, still: bool) -> io:
         return std::fs::write(out, to_svg(&tl.eval(times[0]), bg));
     }
     std::fs::create_dir_all(out)?;
+    let start = Instant::now();
     for (i, &t) in times.iter().enumerate() {
         std::fs::write(out.join(format!("{i:04}.svg")), to_svg(&tl.eval(t), bg))?;
+        progress(i + 1, times.len(), start);
     }
     Ok(())
+}
+
+/// Redraws `[####----] done/total  eta` on stderr after each frame, if stderr is a terminal and
+/// there's more than one frame.
+fn progress(done: usize, total: usize, start: Instant) {
+    if total < 2 || !io::stderr().is_terminal() {
+        return;
+    }
+    const WIDTH: usize = 30;
+    let filled = WIDTH * done / total;
+    let eta = start.elapsed().as_secs_f32() * (total - done) as f32 / done as f32;
+    eprint!(
+        "\r[{}{}] {done}/{total}  eta {eta:.0}s ",
+        "#".repeat(filled),
+        "-".repeat(WIDTH - filled)
+    );
+    if done == total {
+        eprintln!();
+    }
 }

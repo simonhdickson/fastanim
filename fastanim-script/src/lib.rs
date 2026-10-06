@@ -377,9 +377,28 @@ fn graph(
 /// The names `constant` knows, for `signatures`; keep in step with it.
 #[cfg(feature = "metadata")]
 const CONSTANTS: &[&str] = &[
-    "UP", "DOWN", "LEFT", "RIGHT", "ORIGIN", "WHITE", "BLACK", "BLUE", "RED", "GREEN", "YELLOW",
-    "GREY", "ORANGE", "TRANSPARENT", "LINEAR", "SMOOTH", "THERE_AND_BACK", "DEFAULT_BUFF",
-    "FRAME_WIDTH", "FRAME_HEIGHT", "PI", "TAU",
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+    "ORIGIN",
+    "WHITE",
+    "BLACK",
+    "BLUE",
+    "RED",
+    "GREEN",
+    "YELLOW",
+    "GREY",
+    "ORANGE",
+    "TRANSPARENT",
+    "LINEAR",
+    "SMOOTH",
+    "THERE_AND_BACK",
+    "DEFAULT_BUFF",
+    "FRAME_WIDTH",
+    "FRAME_HEIGHT",
+    "PI",
+    "TAU",
 ];
 
 fn constant(name: &str) -> Option<Dynamic> {

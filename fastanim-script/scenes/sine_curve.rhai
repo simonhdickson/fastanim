@@ -2,7 +2,7 @@
 // https://infograph.tistory.com/230): a dot circles the unit circle and traces sin.
 // manim accumulates state in updaters; here every frame is pure in t, so scrubbing works.
 //
-// fastanim run fastanim-script/scenes/sine_curve.rhai
+// fastanim preview fastanim-script/scenes/sine_curve.rhai
 
 let origin = point(-4.0, 0.0);
 let curve_start = -3.0;

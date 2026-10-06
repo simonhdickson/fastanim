@@ -1,12 +1,12 @@
 //! The `fastanim` command-line tool (see `docs/SPEC.md` §9).
-//!
-//! `fastanim diff` and `fastanim run` exist so far; the other commands arrive with later milestones.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
+use fastanim_bevy::{Command as BevyCommand, RenderArgs, StillArgs};
 use fastanim_core::BakedTimeline;
 use fastanim_diff::{Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak};
 
@@ -25,90 +25,82 @@ enum Command {
         after_help = "Notation: =x equal, -[x] delete, +[x] insert, ↷x move, ~(x→y) replace."
     )]
     Diff(DiffArgs),
-    /// Run a Rhai scene script: preview it (reloading on save), or export it
-    Run(RunArgs),
+    /// Open a Rhai scene in a window with a scrubber, reloading it on save
+    Preview {
+        /// The scene script
+        script: PathBuf,
+    },
+    /// Export a Rhai scene as video or frames
+    Render {
+        /// The scene script
+        script: PathBuf,
+        #[command(flatten)]
+        args: RenderArgs,
+    },
+    /// Export one frame of a Rhai scene
+    Still {
+        /// The scene script
+        script: PathBuf,
+        #[command(flatten)]
+        args: StillArgs,
+    },
+    /// Write a Rhai scene's typeset text to a `.bundle` beside it, for the web player
+    Bundle {
+        /// The scene script
+        script: PathBuf,
+    },
     /// List every function and constant a scene script can use
     ScriptApi,
-    /// Scaffold a scene crate (not implemented yet)
-    New,
-    /// Open a scene in a window with a scrubber
-    Preview,
-    /// Export a scene as video or frames
-    Render,
-    /// Export one frame of a scene
-    Still,
+    /// Print a shell completion script, e.g. `fastanim completions fish | source`
+    Completions {
+        /// The shell to complete for
+        shell: Shell,
+    },
 }
 
 fn main() -> ExitCode {
-    let cmd = match Cli::parse().command {
-        Command::Diff(a) => {
-            return match a.run() {
-                Ok(out) => {
-                    print!("{out}");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::FAILURE
-                }
-            };
+    match run(Cli::parse().command) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
         }
-        Command::Run(a) => {
-            return match a.run() {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::FAILURE
-                }
-            };
+    }
+}
+
+fn run(command: Command) -> Result<(), String> {
+    match command {
+        Command::Diff(a) => a.run().map(|out| print!("{out}")),
+        Command::Preview { script } => {
+            let tl = bake(&script)?;
+            fastanim_bevy::run_command(None, tl, Some(watch(script)))
         }
+        Command::Render { script, args } => {
+            fastanim_bevy::run_command(Some(BevyCommand::Render(args)), bake(&script)?, None)
+        }
+        Command::Still { script, args } => {
+            fastanim_bevy::run_command(Some(BevyCommand::Still(args)), bake(&script)?, None)
+        }
+        Command::Bundle { script } => bake(&script).and_then(|_| {
+            let out = script.with_extension("bundle");
+            fs::write(&out, fastanim_text::export_bundle())
+                .map_err(|e| format!("{}: {e}", out.display()))
+        }),
         Command::ScriptApi => {
-            for sig in fastanim_script::signatures() {
-                println!("{sig}");
-            }
-            return ExitCode::SUCCESS;
+            fastanim_script::signatures()
+                .iter()
+                .for_each(|sig| println!("{sig}"));
+            Ok(())
         }
-        Command::New => {
-            eprintln!("error: `fastanim new` is not implemented yet");
-            return ExitCode::FAILURE;
+        Command::Completions { shell } => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "fastanim",
+                &mut std::io::stdout(),
+            );
+            Ok(())
         }
-        Command::Preview => "preview",
-        Command::Render => "render",
-        Command::Still => "still",
-    };
-    eprintln!(
-        "error: `fastanim {cmd}` needs a scene crate, which `fastanim new` will scaffold. \
-         Until then, call `fastanim_bevy::run(construct)` from your scene's `main` and use \
-         `cargo run -- {cmd} --help`."
-    );
-    ExitCode::FAILURE
-}
-
-#[derive(Debug, clap::Args)]
-struct RunArgs {
-    /// The scene script
-    script: PathBuf,
-    /// Instead of playing it, write its typeset text to a `.bundle` beside it for the web player
-    #[arg(long)]
-    bundle: bool,
-    #[command(subcommand)]
-    command: Option<fastanim_bevy::Command>,
-}
-
-impl RunArgs {
-    fn run(self) -> Result<(), String> {
-        if self.bundle && self.command.is_some() {
-            return Err("--bundle doesn't take a command".into());
-        }
-        let tl = bake(&self.script)?;
-        if self.bundle {
-            let out = self.script.with_extension("bundle");
-            return fs::write(&out, fastanim_text::export_bundle())
-                .map_err(|e| format!("{}: {e}", out.display()));
-        }
-        let preview = matches!(self.command, None | Some(fastanim_bevy::Command::Preview));
-        let reload = preview.then(|| watch(self.script.clone()));
-        fastanim_bevy::run_command(self.command, tl, reload)
     }
 }
 
@@ -246,17 +238,6 @@ struct Token {
 }
 
 fn tokenize(s: &str, unit: Unit) -> Result<Vec<Token>, String> {
-    if unit == Unit::Math {
-        let t = fastanim_text::TextMobject::math(s)?;
-        return Ok(t
-            .tokens
-            .iter()
-            .map(|tok| Token {
-                text: tok.key.to_string(),
-                col: t.glyphs[tok.glyphs.start].path.center().x,
-            })
-            .collect());
-    }
     Ok(match unit {
         Unit::Char => s
             .chars()
@@ -294,7 +275,16 @@ fn tokenize(s: &str, unit: Unit) -> Result<Vec<Token>, String> {
                 col: col as f64,
             })
             .collect(),
-        Unit::Math => unreachable!(),
+        Unit::Math => {
+            let t = fastanim_text::TextMobject::math(s)?;
+            t.tokens
+                .iter()
+                .map(|tok| Token {
+                    text: tok.key.to_string(),
+                    col: t.glyphs[tok.glyphs.start].path.center().x,
+                })
+                .collect()
+        }
     })
 }
 
@@ -387,7 +377,6 @@ mod tests {
 
     #[test]
     fn cli_is_well_formed() {
-        use clap::CommandFactory;
         Cli::command().debug_assert();
     }
 }

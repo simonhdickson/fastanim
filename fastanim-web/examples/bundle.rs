@@ -1,4 +1,4 @@
-//! Writes a `.bundle` of pre-typeset text beside a script, like `fastanim run --bundle` but
+//! Writes a `.bundle` of pre-typeset text beside a script, like `fastanim bundle` but
 //! without building Bevy; Trunk runs it after each build.
 
 fn main() -> Result<(), String> {

@@ -1,6 +1,6 @@
 // <fastanim-player src="scene.rhai"></fastanim-player>: a scene script played in the page,
 // with play/pause, a scrubber and marker buttons (SPEC §14.4). A `.bundle` beside the script,
-// from `fastanim run --bundle`, is loaded too, so its text is never typeset in the browser.
+// from `fastanim bundle`, is loaded too, so its text is never typeset in the browser.
 // Focus it for keys: Space play/pause, ←/→ step a frame, [/] previous/next marker.
 //
 // Baking and drawing happen in `worker.js`. Scripting the element:

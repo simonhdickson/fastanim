@@ -36,38 +36,46 @@ struct Cli {
     command: Option<Command>,
 }
 
-/// What to do with a baked scene: the subcommands of [`run`] and of `fastanim run`.
+/// What to do with a baked scene: the subcommands of [`run`].
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Open a window with a scrubber (default)
     Preview,
     /// Export video or frames
-    Render {
-        #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
-        /// 480p15, 720p30, 1080p60 or 4k60
-        quality: export::Quality,
-        /// Output; its extension picks the format: mp4, webm, gif, png or svg
-        #[arg(short, long, value_name = "PATH", default_value = "out.mp4")]
-        output: PathBuf,
-        /// Only render from <MARKER> to the next marker
-        #[arg(long, value_name = "MARKER")]
-        section: Option<String>,
-    },
+    Render(RenderArgs),
     /// Export one frame
-    Still {
-        /// 480p15, 720p30, 1080p60 or 4k60
-        #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
-        quality: export::Quality,
-        /// Output; its extension picks the format: png or svg
-        #[arg(short, long, value_name = "PATH", default_value = "frame.png")]
-        output: PathBuf,
-        /// Time to render, e.g. 3.5 or 3.5s
-        #[arg(long, value_name = "SECS", value_parser = parse_secs, default_value = "0")]
-        at: f32,
-        /// Frame index to render
-        #[arg(long, value_name = "N", conflicts_with = "at")]
-        frame: Option<u32>,
-    },
+    Still(StillArgs),
+}
+
+/// Options for [`Command::Render`].
+#[derive(Debug, clap::Args)]
+pub struct RenderArgs {
+    /// 480p15, 720p30, 1080p60 or 4k60
+    #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
+    pub quality: export::Quality,
+    /// Output; its extension picks the format: mp4, webm, gif, png or svg
+    #[arg(short, long, value_name = "PATH", default_value = "out.mp4")]
+    pub output: PathBuf,
+    /// Only render from <MARKER> to the next marker
+    #[arg(long, value_name = "MARKER")]
+    pub section: Option<String>,
+}
+
+/// Options for [`Command::Still`].
+#[derive(Debug, clap::Args)]
+pub struct StillArgs {
+    /// 480p15, 720p30, 1080p60 or 4k60
+    #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
+    pub quality: export::Quality,
+    /// Output; its extension picks the format: png or svg
+    #[arg(short, long, value_name = "PATH", default_value = "frame.png")]
+    pub output: PathBuf,
+    /// Time to render, e.g. 3.5 or 3.5s
+    #[arg(long, value_name = "SECS", value_parser = parse_secs, default_value = "0")]
+    pub at: f32,
+    /// Frame index to render
+    #[arg(long, value_name = "N", conflicts_with = "at")]
+    pub frame: Option<u32>,
 }
 
 fn parse_secs(v: &str) -> Result<f32, String> {
@@ -110,11 +118,11 @@ pub fn run_command(
 fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Export>, String> {
     let (quality, output, range) = match cmd {
         None | Some(Command::Preview) => return Ok(None),
-        Some(Command::Render {
+        Some(Command::Render(RenderArgs {
             quality,
             output,
             section,
-        }) => {
+        })) => {
             let dur = tl.duration();
             let range = match section {
                 None => (0.0, dur),
@@ -132,12 +140,12 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
             };
             (quality, output, range)
         }
-        Some(Command::Still {
+        Some(Command::Still(StillArgs {
             quality,
             output,
             at,
             frame,
-        }) => {
+        })) => {
             let t = frame.map_or(at, |n| n as f32 / quality.fps as f32);
             (quality, output, (t, t))
         }

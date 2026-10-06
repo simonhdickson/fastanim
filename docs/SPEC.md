@@ -583,13 +583,17 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 ## 9. CLI (`fastanim-cli`)
 
 ```
-fastanim new <name>                       # scaffold a scene crate
-fastanim preview [--scene Name]           # windowed preview with scrubber
-fastanim render  [--scene Name] [-q 1080p60] [-o out.mp4] [--format mp4|webm|gif|png|svg]
-fastanim still   [--scene Name] --at 3.5s -o frame.png
+fastanim preview scene.rhai               # windowed preview with scrubber, reloads on save
+fastanim render  scene.rhai [-q 1080p60] [-o out.mp4] [--section Marker]   # mp4|webm|gif|png|svg
+fastanim still   scene.rhai [--at 3.5s | --frame N] [-o frame.png]
+fastanim bundle  scene.rhai               # pre-typeset text for the web player (§14.5)
 fastanim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
-fastanim run     scene.rhai [preview|render|still] [...]   # a Rhai scene, no crate needed (§14)
+fastanim script-api                       # every function a scene script can use
+fastanim completions <shell>              # shell completion script
 ```
+
+Scenes are Rhai scripts (§14); a compiled scene crate calls `fastanim_bevy::run(construct)` from its
+`main` and takes `preview`, `render` and `still` the same way, without the script argument.
 
 Quality presets: `480p15`, `720p30`, `1080p60` (default), `4k60`.
 
@@ -639,7 +643,7 @@ These double as integration tests (§11) and should all render correctly before 
 | M6 | `TransformDiff` | Op→animation mapping, choreography, debug overlay; examples 1, 2, 5 |
 | M7 | Code & lists | `Code`, hierarchical diff, `ListMobject`; examples 3, 4 |
 | M8 | Polish | Hot reload, more animations, docs site with rendered examples |
-| M9 | Scripting & web | `fastanim-script` (Rhai), `fastanim run`, `fastanim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
+| M9 | Scripting & web | `fastanim-script` (Rhai), `fastanim preview`/`render`, `fastanim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
 
 ---
 
@@ -667,7 +671,7 @@ These double as integration tests (§11) and should all render correctly before 
 
 Scenes are compiled Rust today, which needs a toolchain and cannot run in a browser. M9 adds
 **Rhai** scenes: the same API as a script, interpreted, so a scene can be written, edited and
-played entirely in a web page, or run natively with `fastanim run` and no scene crate. Rhai is
+played entirely in a web page, or run natively with `fastanim preview` and no scene crate. Rhai is
 pure Rust, compiles to `wasm32-unknown-unknown`, and its syntax is close enough to Rust that
 scenes port almost line for line. It covers what most scenes need; Rust stays available for
 anything heavier.
@@ -719,14 +723,14 @@ Rules:
 - **Limits.** Scripts run with Rhai's operation, call-depth and string-size limits, so an
   infinite loop in a browser tab fails with an error instead of hanging the page.
 - **Errors.** Script and Typst errors carry line and column and are shown inline in the
-  playground and as `file:line:col` from `fastanim run`.
+  playground and as `file:line:col` from the CLI.
 
-### 14.3 `fastanim run`
+### 14.3 Running scripts
 
-`fastanim run scene.rhai [preview|render|still] [options]` takes the same commands and options as
+`fastanim preview|render|still scene.rhai [options]` takes the same commands and options as
 a compiled scene (§8.4, §8.5) and renders through `fastanim-bevy`. In preview it watches the file
 and re-runs and re-bakes it on save, keeping the current `t`: the hot reload of §8.4 without
-rebuilding a `cdylib`. `fastanim run scene.rhai --bundle` writes the pre-typeset text for the web player
+rebuilding a `cdylib`. `fastanim bundle scene.rhai` writes the pre-typeset text for the web player
 (§14.5).
 
 ### 14.4 `fastanim-web`: the browser player
@@ -760,7 +764,7 @@ setup (`shared()` in `fastanim-text`), and re-typesetting snippets that haven't 
    language)`, so `fastanim-text` memoizes `TextMobject`s on that key. In the playground, an edit
    then only re-typesets the snippets it changed. The cache can be persisted in IndexedDB
    across visits.
-3. **Pre-typeset published scenes (required for the docs site).** `fastanim run --bundle` typesets
+3. **Pre-typeset published scenes (required for the docs site).** `fastanim bundle` typesets
    every snippet natively and writes the glyph outlines next to the script; the player fills
    the cache from that bundle, so published scenes never run Typst in the browser and skip the
    font download. The fonts (the `typst-assets` set by default) are fetched as a separate,
@@ -788,7 +792,7 @@ so the order above can be checked against real scenes.
 - The §10 examples exist as `.rhai` scripts, and each bakes to the same timeline as its Rust
   version (compared through `to_svg` at sampled times, §11).
 - They play in the browser player in current Chrome, Firefox and Safari, and render with
-  `fastanim run`.
+  `fastanim render`.
 - A script with an infinite loop or a Typst error reports an error and leaves the page usable.
 - Editing one equation in a long script re-typesets only that equation (§14.5), and a bundled
   docs-site scene plays without downloading fonts.

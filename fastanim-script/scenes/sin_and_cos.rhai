@@ -1,6 +1,6 @@
 // manim's SinAndCosFunctionPlot example: sin and cos on labelled axes, with a marked x = 2π.
 //
-// fastanim run fastanim-script/scenes/sin_and_cos.rhai
+// fastanim preview fastanim-script/scenes/sin_and_cos.rhai
 
 let ax = axes([-10.0, 10.3, 1.0], [-1.5, 1.5, 1.0], 10.0, 6.0);
 scene.add(ax.shape().stroke(GREEN, 0.03));
