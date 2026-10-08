@@ -3,49 +3,80 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubicloud-standard-2]
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers ffmpeg
+
+      - name: Deps
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers ffmpeg
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets
-      - run: cargo test --workspace
+
+      - name: Check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets
+
+      - name: Build & run tests
+        run: cargo test --workspace
 
   pages:
-    needs: check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    needs: check
+
+    strategy:
+      matrix:
+        os: [ubicloud-standard-2]
+
+    runs-on: ${{ matrix.os }}
+
     permissions:
       pages: write
       id-token: write
+
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
-      - run: trunk build --release
+
+      - name: Trunk
+        run: trunk build --release
         working-directory: fastanim-web
-      - uses: actions/upload-pages-artifact@v3
+
+      - name: Upload to Pages
+        uses: actions/upload-pages-artifact@v3
         with:
           path: fastanim-web/dist
-      - id: deploy
+
+      - name: Deploy Pages
+        id: deploy
         uses: actions/deploy-pages@v4
