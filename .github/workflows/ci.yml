@@ -71,7 +71,7 @@ jobs:
           tool: trunk
 
       - name: Trunk
-        run: trunk build --release
+        run: trunk build --release --public-url ./
         working-directory: fastanim-web
 
       - name: Upload to Pages
