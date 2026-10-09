@@ -45,6 +45,9 @@ scene.play(write(formula));
 cargo run -p fastanim-cli -- preview fastanim-script/scenes/parity.rhai
 ```
 
+The [scripting docs](https://simonhdickson.github.io/fastanim/docs/) cover the Rhai API
+(source in `docs/book`, `just docs` to serve locally).
+
 ## Features
 
 - **Diff engine**: Myers (greedy and linear-space) and patience diff, with move detection,

@@ -1,0 +1,10 @@
+[book]
+title = "fastanim scripting"
+description = "Writing fastanim scenes as Rhai scripts"
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/fastanim/docs/"
+git-repository-url = "https://github.com/simonhdickson/fastanim"
+edit-url-template = "https://github.com/simonhdickson/fastanim/edit/main/docs/book/{path}"
