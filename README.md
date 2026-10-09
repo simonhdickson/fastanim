@@ -7,6 +7,26 @@ Its distinguishing feature: transforms between equations, text, code and groups 
 planned with **Myers' diff**, so unchanged parts stay put or slide, moved parts travel, and only
 real changes fade or morph.
 
+## Install
+
+Prebuilt binaries for Linux (x86_64), macOS (Apple Silicon) and Windows (x86_64) are attached
+to each [GitHub release](https://github.com/simonhdickson/fastanim/releases). With
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall) they install without compiling:
+
+```sh
+cargo binstall --git https://github.com/simonhdickson/fastanim fastanim-cli
+```
+
+Or build from source with `cargo install` (Rust 1.92+):
+
+```sh
+cargo install --locked --git https://github.com/simonhdickson/fastanim fastanim-cli
+```
+
+On Linux, building needs `libudev-dev`, `libwayland-dev` and `libxkbcommon-dev` (or your
+distro's equivalents). Either way you get a `fastanim` binary; video export also needs `ffmpeg`
+on your `PATH`.
+
 ## A taste
 
 Scenes can be written in Rust or as [Rhai](https://rhai.rs) scripts with the same API:
