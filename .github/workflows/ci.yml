@@ -76,7 +76,7 @@ jobs:
 
       # The scripting docs, served beside the playground at /docs/.
       - name: mdBook
-        run: mdbook build docs/book -d ../../fastanim-web/dist/docs
+        run: mdbook build docs/book -d fastanim-web/dist/docs
 
       - name: Upload to Pages
         uses: actions/upload-pages-artifact@v3
