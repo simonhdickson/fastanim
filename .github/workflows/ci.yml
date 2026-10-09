@@ -15,11 +15,7 @@ env:
 
 jobs:
   check:
-    strategy:
-      matrix:
-        os: [ubicloud-standard-4]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     env:
       RUSTFLAGS: -D warnings -C link-arg=-fuse-ld=/usr/bin/mold
@@ -50,11 +46,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
 
-    strategy:
-      matrix:
-        os: [ubicloud-standard-4]
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     permissions:
       pages: write
