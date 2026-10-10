@@ -1,3 +1,6 @@
 target/
 frames/
 fastanim-web/dist/
+/.venv/
+__pycache__/
+fastanim-py/python/fastanim/*.so

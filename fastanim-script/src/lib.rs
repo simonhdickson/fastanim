@@ -27,7 +27,7 @@
 use std::sync::{Arc, Mutex};
 
 use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW};
-use fastanim_core::kurbo::{Affine, Point, Vec2};
+use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Animation, AnimationExt, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH, Group,
     LEFT, MobjectId, Parallel, RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update, UpdateGroup,
@@ -393,6 +393,41 @@ pub fn transform_diff(m: Mob, to: TextMobject, style: DiffStyle, list: bool) -> 
             fastanim_text::transform_diff(s, from, &to)
         };
         Ok(Box::new(d.style(style)))
+    })
+}
+
+/// The glyphs of a mobject (one, for a shape), positioned as a whole.
+#[derive(Clone)]
+pub struct Glyphs(pub Vec<VState>);
+
+impl fastanim_core::Position for Glyphs {
+    fn bbox(&self) -> Option<Rect> {
+        (self.0.iter().filter_map(|g| g.path.bbox())).reduce(|a, b| a.union(b))
+    }
+
+    fn transform(self, a: Affine) -> Self {
+        Self(self.0.into_iter().map(|g| g.transform(a)).collect())
+    }
+}
+
+/// Morphs `m` from its state when played to `f` of that state: a `transform` with the target
+/// computed at plan time (Python's `.animate`). `f` must keep the number of glyphs.
+pub fn animate(
+    m: Mob,
+    f: impl Fn(Glyphs) -> Result<Glyphs, String> + Send + Sync + 'static,
+) -> Anim {
+    Anim::new(move |cx| {
+        let ids = cx.ids(m)?;
+        let state = cx.scene.state();
+        let to = f(Glyphs(ids.iter().map(|id| state[id].clone()).collect()))?.0;
+        if to.len() != ids.len() {
+            return Err("`.animate` must keep every glyph".into());
+        }
+        Ok(Box::new(Parallel(
+            (ids.into_iter().zip(to))
+                .map(|(id, t)| Box::new(fastanim_core::transform(id, t)) as Box<dyn Animation>)
+                .collect(),
+        )))
     })
 }
 
