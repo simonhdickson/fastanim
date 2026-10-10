@@ -112,6 +112,8 @@ fastanim/
 ├── fastanim-cli/          # `fastanim` binary
 ├── fastanim-script/       # Rhai bindings over core + text (§14)
 ├── fastanim-web/          # wasm-bindgen browser player and playground (§14)
+├── fastanim-py/           # pyo3 extension module, the `fastanim` Python package (§15)
+├── fastanim-lua/          # mlua frontend over fastanim-script (§15)
 ├── fastanim/              # facade crate re-exporting a prelude
 └── examples/
 ```
@@ -131,6 +133,7 @@ fastanim/
 | Video | `ffmpeg` subprocess | Raw RGBA piped to stdin |
 | Scripting | `rhai` | Scenes as scripts, natively and in the browser (§14) |
 | Web | `wasm-bindgen`, `web-sys` | Browser player; Canvas 2D rendering (§14) |
+| More scripting | `pyo3` + `maturin`, `mlua` | Scenes in Python (a package) and Lua (embedded) (§15) |
 
 ---
 
@@ -644,6 +647,7 @@ These double as integration tests (§11) and should all render correctly before 
 | M7 | Code & lists | `Code`, hierarchical diff, `ListMobject`; examples 3, 4 |
 | M8 | Polish | Hot reload, more animations, docs site with rendered examples |
 | M9 | Scripting & web | `fastanim-script` (Rhai), `fastanim preview`/`render`, `fastanim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
+| M10 | Python and Lua | Language-neutral `fastanim-script` core, the Python package, then the Lua frontend, generated editor types; §10 examples in each (§15) |
 
 ---
 
@@ -805,6 +809,189 @@ so the order above can be checked against real scenes.
    fine for typical updaters, or do common ones (follow, rotate around) need native helpers?
 3. **Custom fonts.** Should scripts be able to load their own fonts on the web, and from where
    (URL, upload, a font picker)? The default set is covered by §14.5.
+
+---
+
+## 15. Scenes in Python and Lua (M10)
+
+Rhai (§14) gives one scripting language that runs everywhere, including the browser. M10 lets
+scenes be written in languages people already know, for local use. **Python** comes first, as
+a package Python drives: manim is Python, so it is what most users will reach for. **Lua**
+follows, embedded in `fastanim`, as the cheapest second frontend. A scene in either runs once
+and records into a `Scene` (§14.2, "bake once"), so preview, render and export work the same,
+and editing a scene re-runs it in milliseconds with no build step. JavaScript (embedded with
+`rquickjs`) waits until someone asks for it; the core is built so adding it is a frontend, not
+a redesign.
+
+Ruled out: scenes as WebAssembly components (a WIT scene API, any language that compiles to
+wasm). Every scene would need a build: about 5 s and 12.5 MB for a minimal JavaScript scene
+through `jco componentize`, more for Python, and a full compile for Rust, which already has a
+faster native path (§8). That suits plugins, not scripting.
+
+### 15.1 Prerequisite: the language-neutral core
+
+§14.2 plans a layer of plain Rust functions over handles, with Rhai as one frontend. Today
+`fastanim-script` binds Rhai directly (`Dynamic`, `FnPtr` and overloads run through the
+validation code). M10 starts by splitting it:
+
+- **Core** (`fastanim-script`): the `Ctx` of a scene being recorded (the `Scene`, text groups,
+  the `Mob` handle table), the `Anim` builders, option parsing and validation, and errors as
+  plain strings. Closures sit behind a trait (call an updater, an update, a point map, a graph
+  function), which each frontend implements over its own function type.
+- **Frontends**: Rhai (the current `engine()`, behind a `rhai` feature), Python and Lua, each a
+  thin mapping onto the core: types, overloads, operators and naming conventions.
+- **One API description.** The core lists every function, its parameters and the constants, as
+  `signatures()` does for Rhai today. `fastanim script-api --lang rhai|py|lua` prints it, and
+  the editor types are generated from it: `.pyi` stubs and LuaLS annotations. A test fails when
+  a frontend leaves out something in the description.
+
+The Rhai tests and `.rhai` scenes must not change through the split.
+
+### 15.2 Python: a package
+
+Embedding CPython would tie `fastanim` to a `libpython` found at runtime and hide the user's
+virtualenv. Python users expect the reverse: `pip install fastanim`, then their own
+interpreter, their own packages (numpy) and editor completion. So Python gets an extension
+module (`fastanim-py`), built with `pyo3` and `maturin` from the same core.
+
+```python
+# pythagoras.py
+from fastanim import *
+
+@scene
+def pythagoras(s: Scene):
+    title = s.add(text("Solving for a").to_edge(UP))
+    s.play(write(title))
+
+    eq = s.add(math_tex("a^2 + b^2 = c^2").scale(1.5))
+    s.play(write(eq), run_time=1.5)
+    s.wait(0.5)
+    s.marker("rearrange")
+
+    s.play(transform_diff(eq, math_tex("a^2 = c^2 - b^2").scale(1.5), highlight_changes=True))
+    s.play(eq.animate.shift(UP).scale(0.8))
+
+    dot = s.add(circle(0.08, fill=YELLOW))
+
+    @s.always(dot)
+    def follow(state, t):
+        return state[dot].move_to((cos(t), sin(t)))
+```
+
+#### Packages and the `preview` extra
+
+| Install | Gives |
+|---|---|
+| `pip install fastanim` | Recording and baking, SVG stills and SVG frame sequences (`to_svg`, §8.5), the `.pyi` stubs. No GPU, window or `ffmpeg`, so it suits CI and docs builds |
+| `pip install fastanim[preview]` | Adds the preview window (§8.4) and everything that renders through Bevy: video, GIF and PNG (§8.5) |
+
+Two native modules can't share Rust objects (each is its own compilation), so the extra doesn't
+add a plugin to the base module. It installs `fastanim-preview`, a second wheel with the whole
+native module built with `fastanim-bevy` included. `fastanim` imports from it when present and
+from its own lighter module otherwise; the Python API is the same either way, and a command
+that needs the extra says to install it.
+
+#### Running
+
+- `python -m fastanim preview|render|still pythagoras.py[:pythagoras]`, with the options of
+  §8.4 and §8.5. The name picks a scene when a file has several `@scene` functions; with one,
+  it can be left out. A plain `def construct(scene)` works too.
+- In code: `pythagoras.render("out.mp4", quality="1080p60")`, `pythagoras.preview()`,
+  `pythagoras.still("frame.svg", at=3.5)`, `pythagoras.bake()` for the timeline itself.
+- Preview watches the file and runs the scene again on save, re-importing the module so edits
+  take effect, and keeps the current `t`.
+
+#### Pythonic API
+
+The names stay those of Rust and Rhai (`snake_case` already), so docs carry over. What changes
+is how they are called:
+
+- **Keyword arguments for options and timing.** `scene.play(write(eq), run_time=1.5,
+  rate=SMOOTH)`; `transform_diff(a, b, highlight_changes=True, lag_ratio=0.1)`; style at
+  construction, `circle(1, stroke=BLUE, stroke_width=0.06, fill=RED)`, alongside the chained
+  methods (`.stroke(BLUE, 0.06)`), which stay.
+- **Plain Python values.** Ints wherever a float is; points as `point(x, y)`, any `(x, y)`
+  tuple or a length-2 numpy array; colors as constants, `"#ffcc00"` or an `(r, g, b[, a])`
+  tuple; eases as strings, typed as `Literal["quad", "cubic", "expo", "back"]` in the stubs.
+- **Varargs for groups.** `scene.play(a, b, c)` plays together; `sequence(a, b)`,
+  `lagged_start(a, b, lag_ratio=0.2)`.
+- **Decorators for closures.** `@scene.always(m)` and `@scene` as above; lambdas work wherever
+  a function is taken (`scene.always(m, lambda state, t: ...)`).
+- **`.animate`** on a mobject handle: `eq.animate.shift(UP).scale(0.8)` is an animation from
+  the mobject's state when played to that state with the chained methods applied, the
+  `transform` of the Rust API with the target computed at plan time. It is the one manim idiom
+  borrowed, because it fits fastanim's model: the target is a function of the start state.
+- **Properties and indexing.** `scene.time`, `state[m]`, `point.x`; points support `+ - * /`,
+  `abs()` and unpacking (`x, y = p`).
+- **Exceptions.** `fastanim.SceneError` (a `ValueError`) for misuse such as playing a removed
+  mobject, `fastanim.TypesetError` for Typst errors with the snippet and position; both carry
+  the scene's own traceback.
+- **Docs in the module.** Every function has a docstring, so `help(transform_diff)` and editor
+  hovers show the same text as the book.
+
+#### Not manim-compatible
+
+Running manim scenes unchanged would be possible in principle and is not a goal. manim's API is
+large (hundreds of `Mobject` classes and `Animation` subclasses), and its core idioms assume
+mutable mobjects updated frame by frame: `add_updater` with `dt`, `ValueTracker`,
+`always_redraw`, in-place `become`. fastanim's timeline is a pure function of `t` (§1.1), which
+is what makes scrubbing, seeking and deterministic export work, so those idioms would need an
+emulation layer that either breaks scrubbing or re-simulates from the start on every seek. A
+partial layer would be worse than none: scenes would fail on whatever it left out. Instead the
+names follow manim where the concepts match (`create`, `write`, `next_to`, `.animate`), and the
+book has a manim-to-fastanim table that also shows how to rewrite `dt` updaters as functions of
+`t` (as `sine_curve.rhai` does).
+
+### 15.3 Lua: embedded
+
+`fastanim-lua` binds the core with `mlua`, Lua 5.4 vendored (LuaJIT as an option), so users
+install nothing besides `fastanim`. `fastanim preview|render|still scene.lua` picks the
+frontend from the extension, with the same options and hot reload as `.rhai` (§14.3). Limits
+use an instruction-count hook, like Rhai's operation limit.
+
+### 15.4 Closures
+
+Updaters, `update`, `apply_function` and graph functions are the language's own closures,
+kept in the baked timeline and called every frame, as with Rhai (§14.2): they must be pure
+functions of their arguments. Each frontend holds them in the form its runtime allows to cross
+threads (a `Py<PyAny>` in Python, a registry key in Lua with `mlua`'s `send` feature) behind a
+`Mutex`, to keep `Animation: Send + Sync`. A closure error during playback is recorded and the
+frame uses the input unchanged. Python takes the GIL once per updater per frame; that is
+measured on `sine_curve` before the API is final (§15.7).
+
+### 15.5 Errors
+
+Each frontend raises core errors as its language's own (a Python exception, a Lua error), with
+the language's own traceback, shown as `file:line` from the CLI.
+
+### 15.6 The browser stays Rhai
+
+The web player and playground (§14.4) run Rhai only. A baked timeline holds live closures, so a
+Python or Lua scene can't be bundled for the browser; it is published as video or SVG frames
+instead. The web build is for showing fastanim off and for quick experiments; serious work runs
+locally.
+
+### 15.7 Acceptance
+
+In order:
+
+1. `fastanim-script` is split (§15.1) with no change to Rhai behaviour or tests.
+2. `pip install fastanim` and `pip install fastanim[preview]` work on Linux, macOS and Windows.
+   The §10 examples exist as `.py` scenes using the Pythonic API (§15.2), and each bakes to
+   the same timeline as its Rust and Rhai versions (compared through `to_svg` at sampled
+   times, §11). The `.pyi` stubs type-check them with `mypy --strict`. Without the extra, the
+   examples still bake and export SVG.
+3. The same for `.lua` scenes and the LuaLS annotations.
+4. In both languages, an infinite loop or a failing closure reports an error with its location,
+   and `sine_curve` previews at 60 fps.
+
+### 15.8 Open questions
+
+1. **Vectorized graph functions.** `function_graph` and `plot` call their function once per
+   sample. Should a numpy ufunc be called once with an array of every x instead, for updaters
+   that redraw a graph each frame?
+2. **Closures on the web.** Scenes whose updaters are built-in (no closures) could be
+   serialized and played in the browser in any language. Worth it later?
 
 ---
 
