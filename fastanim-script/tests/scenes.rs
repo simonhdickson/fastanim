@@ -101,3 +101,12 @@ fn sin_and_cos_bakes() {
     assert_eq!(t.duration(), 1.0);
     assert!(t.eval(0.0).len() > 20);
 }
+
+#[test]
+fn t_vs_dt_bakes() {
+    // f(t) = sin(2πt)·t driven by t and, as a manim dt updater would, by dt.
+    let t = script("t_vs_dt");
+    assert_eq!(t.duration(), 5.0);
+    t.eval(2.5);
+    t.eval(t.duration());
+}
