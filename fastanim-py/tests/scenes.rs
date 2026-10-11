@@ -1,4 +1,4 @@
-//! The example scenes bake to the same timelines as their Rust versions (SPEC §15.7), and bad
+//! The example scenes bake to the same timelines as their Rust or Rhai versions (SPEC §15.7), and bad
 //! scenes fail with Python exceptions. Runs the package in an embedded interpreter, so it needs
 //! no wheel.
 
@@ -76,6 +76,26 @@ fn parity_matches_rust() {
 #[test]
 fn diff_matches_rust() {
     assert_same(&rust(diff::construct), &script("diff"));
+}
+
+/// The Rhai version of an example with no Rust one.
+fn rhai(name: &str) -> BakedTimeline {
+    let path = format!(
+        "{}/../fastanim-script/scenes/{name}.rhai",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    fastanim_script::bake(&std::fs::read_to_string(&path).unwrap())
+        .unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+#[test]
+fn sin_and_cos_matches_rhai() {
+    assert_same(&rhai("sin_and_cos"), &script("sin_and_cos"));
+}
+
+#[test]
+fn sine_curve_matches_rhai() {
+    assert_same(&rhai("sine_curve"), &script("sine_curve"));
 }
 
 /// The exception `src`'s scene `s` raises, as `Type: message`.

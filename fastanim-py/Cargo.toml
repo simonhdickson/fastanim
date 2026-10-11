@@ -19,8 +19,9 @@ fastanim-text.workspace = true
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
 
 [dev-dependencies]
-# For the Rust versions of the example scenes, which the Python ones must match.
+# For the Rust and Rhai versions of the example scenes, which the Python ones must match.
 fastanim-bevy.workspace = true
+fastanim-script.workspace = true
 
 [lints]
 workspace = true
