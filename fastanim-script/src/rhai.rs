@@ -376,6 +376,22 @@ fn engine() -> (Engine, Slot) {
                 graph(&cx, &f, |f| a.plot(f, x0..x1))
             },
         )
+        .register_fn(
+            "plot",
+            |cx: NativeCallContext,
+             a: &mut Axes,
+             f: FnPtr,
+             x0: f64,
+             x1: f64,
+             segments: i64|
+             -> Res<_> {
+                if segments < 1 {
+                    return Err("segments must be at least 1".into());
+                }
+                let a = *a;
+                graph(&cx, &f, |f| a.plot_segments(f, x0..x1, segments as usize))
+            },
+        )
         .register_fn("vertical_line", |a: &mut Axes, p: Vec2| {
             a.vertical_line(p.to_point())
         })

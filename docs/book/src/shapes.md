@@ -83,6 +83,7 @@ let label = text("box").next_to(box, DOWN);
 | `ax.c2p(x, y)` | Graph coordinates to a scene point |
 | `ax.p2c(p)` | Scene point to graph coordinates |
 | `ax.plot(f, x0, x1)` | Shape: graph of `f` in graph coordinates |
+| `ax.plot(f, x0, x1, segments)` | The same in `segments` cubics instead of 64, for wiggly graphs |
 | `ax.vertical_line(p)` | Shape: line from the x-axis up to `p` |
 | `ax.numbers()` | Text: tick numbers |
 | `ax.labels(x, y)` | Text: axis labels, as Typst math |

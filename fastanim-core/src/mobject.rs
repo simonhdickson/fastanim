@@ -99,14 +99,17 @@ impl VState {
         let n = segments.max(1);
         let h = (x_range.end - x_range.start) / n as f64;
         let slope = |x: f64| (f(x + h * 1e-3) - f(x - h * 1e-3)) / (h * 2e-3);
-        let segs = (0..n)
+        // Each knot is shared by two segments; sample it once, as `f` may be a slow script.
+        let knots: Vec<_> = (0..=n)
             .map(|i| {
-                let (x0, x1) = (
-                    x_range.start + h * i as f64,
-                    x_range.start + h * (i + 1) as f64,
-                );
-                let (p0, p3) = (Point::new(x0, f(x0)), Point::new(x1, f(x1)));
-                let (d0, d1) = (Vec2::new(h, h * slope(x0)), Vec2::new(h, h * slope(x1)));
+                let x = x_range.start + h * i as f64;
+                (Point::new(x, f(x)), Vec2::new(h, h * slope(x)))
+            })
+            .collect();
+        let segs = knots
+            .windows(2)
+            .map(|k| {
+                let ((p0, d0), (p3, d1)) = (k[0], k[1]);
                 kurbo::CubicBez::new(p0, p0 + d0 / 3.0, p3 - d1 / 3.0, p3)
             })
             .collect();

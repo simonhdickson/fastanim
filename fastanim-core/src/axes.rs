@@ -105,10 +105,19 @@ impl Axes {
         VState::new(VPath { subpaths }).stroke(WHITE, 0.03)
     }
 
-    /// Graph of `y = f(x)` over `x_range` in graph units, manim's `plot`.
-    // ponytail: fixed 64 segments; take a count if a plot shows its corners.
+    /// Graph of `y = f(x)` over `x_range` in graph units, manim's `plot`, in 64 segments.
     pub fn plot(&self, f: impl Fn(f64) -> f64, x_range: Range<f64>) -> VState {
-        VState::function_graph(f, x_range, 64).transform(self.to_scene)
+        self.plot_segments(f, x_range, 64)
+    }
+
+    /// [`Axes::plot`] in `segments` smooth cubics, for graphs too wiggly for 64.
+    pub fn plot_segments(
+        &self,
+        f: impl Fn(f64) -> f64,
+        x_range: Range<f64>,
+        segments: usize,
+    ) -> VState {
+        VState::function_graph(f, x_range, segments).transform(self.to_scene)
     }
 
     /// Line from scene point `p` straight to the x-axis, manim's `get_vertical_line`
