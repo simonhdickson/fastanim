@@ -83,6 +83,7 @@ parallel(_: array) -> Animation
 play(_: &mut Scene, _: Animation) -> ()
 play(_: &mut Scene, _: array) -> ()
 plot(_: &mut Axes, _: Fn, _: f64, _: f64) -> Shape
+plot(_: &mut Axes, _: Fn, _: f64, _: f64, _: i64) -> Shape
 point(_: f64, _: f64) -> Point
 polygon(_: array) -> Shape
 rate(_: Animation, _: Rate) -> Animation
