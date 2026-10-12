@@ -1,7 +1,7 @@
 // Bakes and draws off the page's thread (SPEC §14.5). The page sends any of
 //   { canvas }  the OffscreenCanvas to draw on, once
 //   { bundle }  pre-typeset text to fill the cache from, before baking; errors reply { error }
-//   { src }     a script to bake; replies { baked: { duration, markers, bakeMs, typesetMs } }
+//   { src }     a script to bake; replies { baked: { duration, markers, bakeMs, typesetMs, planMs, snapshotMs } }
 //               or { error }, and keeps the last good scene on error
 //   { t }       the time to draw
 //   { svg }     reply { svg } with the frame at the current time
@@ -43,6 +43,8 @@ async function work() {
         markers: names.map((name, i) => ({ name, t: times[i] })),
         bakeMs: p.bake_ms(),
         typesetMs: p.typeset_ms(),
+        planMs: p.plan_ms(),
+        snapshotMs: p.snapshot_ms(),
       } });
     } catch (e) {
       postMessage({ error: e.message ?? String(e) });

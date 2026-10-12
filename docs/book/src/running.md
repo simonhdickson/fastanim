@@ -1,6 +1,6 @@
 # Running scenes
 
-The `fastanim` CLI runs scripts in four ways.
+The `fastanim` CLI runs scripts in five ways.
 
 | Command | What it does |
 | --- | --- |
@@ -8,6 +8,7 @@ The `fastanim` CLI runs scripts in four ways.
 | `fastanim render <script>` | Exports video or frames |
 | `fastanim still <script>` | Exports one frame |
 | `fastanim bundle <script>` | Writes the scene's typeset text to a `.bundle` for the web player |
+| `fastanim profile <script> [--runs N]` | Bakes the scene cold, then N times warm, and prints time spent typesetting, planning animations, copying keyframes and running the script |
 
 ## Preview
 

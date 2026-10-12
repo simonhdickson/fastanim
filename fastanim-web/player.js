@@ -8,7 +8,7 @@
 //   el.load(script, bundle?)    bake a script given as text
 //   el.download("svg" | "png")  save the current frame
 //   el.download("video")        save the whole scene as WebM (fires `recorded` when saved)
-// It fires `baked` (detail: { duration, markers, bakeMs, typesetMs }) and `bakeerror`
+// It fires `baked` (detail: { duration, markers, bakeMs, typesetMs, planMs, snapshotMs }) and `bakeerror`
 // (detail: the message, also shown under the player); on error the last good scene stays.
 
 const STYLE = `
