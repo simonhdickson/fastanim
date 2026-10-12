@@ -36,9 +36,8 @@ Manim updaters often accumulate (`dot.shift(dt * v)` every frame). Rewrite them 
 scene.always(d, |s, t| dot(point(-4.0 + t, 0.0)));
 ```
 
-A formula of time can't be carried over to a `dt` updater as it stands. `t_vs_dt.rhai` in
-`fastanim-script/scenes` plots f(t) = sin(2πt)·t next to what a manim updater doing
-`shift(UP * f(dt))` would draw instead: a straight climb whose slope depends on the frame rate.
+`growing_wave.rhai` in `fastanim-script/scenes` plots f(t) = sin(2πt)·t this way: the dot and
+its trace are both functions of `t`.
 
 ## Closures
 

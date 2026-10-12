@@ -103,10 +103,10 @@ fn sin_and_cos_bakes() {
 }
 
 #[test]
-fn t_vs_dt_bakes() {
-    // f(t) = sin(2πt)·t driven by t and, as a manim dt updater would, by dt.
-    let t = script("t_vs_dt");
-    assert_eq!(t.duration(), 5.0);
-    t.eval(2.5);
+fn growing_wave_bakes() {
+    // f(t) = sin(2πt)·t over its first 20 seconds.
+    let t = script("growing_wave");
+    assert_eq!(t.duration(), 21.0);
+    t.eval(10.0);
     t.eval(t.duration());
 }
