@@ -222,6 +222,14 @@ fn graph(
     crate::graph(|x| f.call_within_context(cx, (x,)), build)
 }
 
+/// [`Axes::fit_y_range`] with script closure `f`; the first error `f` raises fails it.
+fn fit_y(cx: &NativeCallContext, f: &FnPtr, x: [f64; 3]) -> Res<[f64; 3]> {
+    crate::graph(
+        |x| f.call_within_context(cx, (x,)),
+        |f| Axes::fit_y_range(f, x),
+    )
+}
+
 fn constant(name: &str) -> Option<Dynamic> {
     Some(match crate::constant(name)? {
         Const::Point(v) => Dynamic::from(v),
@@ -366,9 +374,30 @@ fn engine() -> (Engine, Slot) {
         .register_fn("axes", |x: Array, y: Array, w: f64, h: f64| {
             Ok(Axes::sized(range(x)?, range(y)?, w, h)) as Res<_>
         })
+        .register_fn(
+            "fit_axes",
+            |cx: NativeCallContext, f: FnPtr, x: Array| -> Res<_> {
+                let x = range(x)?;
+                let y = fit_y(&cx, &f, x)?;
+                Ok(Axes::new(x, y))
+            },
+        )
+        .register_fn(
+            "fit_axes",
+            |cx: NativeCallContext, f: FnPtr, x: Array, w: f64, h: f64| -> Res<_> {
+                let x = range(x)?;
+                let y = fit_y(&cx, &f, x)?;
+                Ok(Axes::sized(x, y, w, h))
+            },
+        )
         .register_fn("shape", |a: &mut Axes| a.shape())
         .register_fn("c2p", |a: &mut Axes, x: f64, y: f64| a.c2p(x, y).to_vec2())
         .register_fn("p2c", |a: &mut Axes, p: Vec2| a.p2c(p.to_point()).to_vec2())
+        .register_fn("plot", |cx: NativeCallContext, a: &mut Axes, f: FnPtr| {
+            let a = *a;
+            let [x0, x1, _] = a.x_range;
+            graph(&cx, &f, |f| a.plot(f, x0..x1))
+        })
         .register_fn(
             "plot",
             |cx: NativeCallContext, a: &mut Axes, f: FnPtr, x0: f64, x1: f64| {

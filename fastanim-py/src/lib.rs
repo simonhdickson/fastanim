@@ -378,10 +378,24 @@ positioned!(PyAxes {
         PyPoint(self.0.p2c(p.pt()).to_vec2())
     }
 
-    /// The graph of `f` from `x0` to `x1`, in these coordinates.
-    fn plot(&self, py: Python<'_>, f: Py<PyAny>, x0: f64, x1: f64) -> PyResult<Shape> {
+    /// The graph of `f` from `x0` to `x1` (default: the whole x range), in these coordinates,
+    /// with `segments` cubic pieces.
+    #[pyo3(signature = (f, x0 = None, x1 = None, segments = 64))]
+    fn plot(
+        &self,
+        py: Python<'_>,
+        f: Py<PyAny>,
+        x0: Option<f64>,
+        x1: Option<f64>,
+        segments: usize,
+    ) -> PyResult<Shape> {
+        if segments < 1 {
+            return Err(PyValueError::new_err("segments must be at least 1"));
+        }
         let a = self.0;
-        graph(py, &f, |g| a.plot(g, x0..x1))
+        let [lo, hi, _] = a.x_range;
+        let range = x0.unwrap_or(lo)..x1.unwrap_or(hi);
+        graph(py, &f, |g| a.plot_segments(g, range, segments))
     }
 
     fn vertical_line(&self, p: P) -> Shape {
@@ -409,6 +423,24 @@ fn graph(
 ) -> PyResult<Shape> {
     let m = fastanim_script::graph(|x| f.call1(py, (x,))?.extract::<f64>(py), build)?;
     Ok(Shape(m))
+}
+
+/// Axes over `x_range` with the y range fitted to `f`, optionally sized.
+#[pyfunction]
+#[pyo3(signature = (f, x_range, width = None, height = None))]
+fn fit_axes(
+    py: Python<'_>,
+    f: Py<PyAny>,
+    x_range: Vec<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
+) -> PyResult<PyAxes> {
+    let x = fastanim_script::range(&x_range).map_err(PyValueError::new_err)?;
+    let y = fastanim_script::graph(
+        |x| f.call1(py, (x,))?.extract::<f64>(py),
+        |g| CoreAxes::fit_y_range(g, x),
+    )?;
+    axes(x.to_vec(), y.to_vec(), width, height)
 }
 
 // The scene.
@@ -1156,6 +1188,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         code,
         list,
         axes,
+        fit_axes,
         ease_in,
         ease_out,
         ease_in_out,

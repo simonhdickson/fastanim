@@ -110,3 +110,16 @@ fn growing_wave_bakes() {
     t.eval(10.0);
     t.eval(t.duration());
 }
+
+#[test]
+fn fit_axes_and_default_plot_range() {
+    // x² over [-3, 3] fits y to [0, 10], so y = 10 is the top of 6-tall axes.
+    let src = r#"
+        let ax = fit_axes(|x| x * x, [-3, 3]);
+        if ax.c2p(0.0, 10.0).y != 3.0 { throw "fit"; }
+        scene.add(ax.plot(|x| x * x));
+    "#;
+    fastanim_script::bake(src).unwrap();
+    let e = err("fit_axes(|x| { throw \"boom\" }, [0, 1])");
+    assert!(e.message.contains("boom"), "{e}");
+}

@@ -47,6 +47,37 @@ impl Axes {
         }
     }
 
+    /// A `[min, max, step]` y range that holds `f` over `x_range`, with a 1, 2 or 5 × 10ⁿ
+    /// step and ends on whole steps. Not in manim, which always takes ranges by hand.
+    // shortcut: samples f at 256 points, so spikes narrower than that can poke out.
+    pub fn fit_y_range(f: impl Fn(f64) -> f64, x_range: [f64; 3]) -> [f64; 3] {
+        let [x0, x1, _] = x_range;
+        let (lo, hi) = (0..=256)
+            .map(|i| f(x0 + (x1 - x0) * i as f64 / 256.0))
+            .filter(|y| y.is_finite())
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), y| {
+                (lo.min(y), hi.max(y))
+            });
+        if lo > hi {
+            return [-1.0, 1.0, 1.0];
+        }
+        // A flat graph gets a unit of room either side.
+        let (lo, hi) = if hi - lo < 1e-9 {
+            (lo - 1.0, hi + 1.0)
+        } else {
+            (lo, hi)
+        };
+        // Aim for about 8 ticks.
+        let raw = (hi - lo) / 8.0;
+        let mag = 10f64.powf(raw.log10().floor());
+        let step = [1.0, 2.0, 5.0, 10.0]
+            .into_iter()
+            .map(|m| m * mag)
+            .find(|&s| s >= raw)
+            .unwrap();
+        [(lo / step).floor() * step, (hi / step).ceil() * step, step]
+    }
+
     /// Graph coordinates to a scene point, manim's `c2p`.
     pub fn c2p(&self, x: f64, y: f64) -> Point {
         self.to_scene * Point::new(x, y)

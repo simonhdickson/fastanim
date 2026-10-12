@@ -458,4 +458,15 @@ fn axes_map_graph_to_scene() {
     let g = ax.plot(|x| -x, 1.0..3.0).path.bbox().unwrap();
     assert!(close(Point::new(g.x0, g.y1), ax.c2p(1.0, -1.0)));
     assert!(close(Point::new(g.x1, g.y0), ax.c2p(3.0, -3.0)));
+
+    // A fitted y range covers the graph on whole, round steps.
+    assert_eq!(
+        Axes::fit_y_range(|x| x * x, [-3.0, 3.0, 1.0]),
+        [0.0, 10.0, 2.0]
+    );
+    assert_eq!(
+        Axes::fit_y_range(f64::sin, [0.0, 7.0, 1.0]),
+        [-1.0, 1.0, 0.5]
+    );
+    assert_eq!(Axes::fit_y_range(|_| 3.0, [0.0, 1.0, 1.0]), [2.0, 4.0, 0.5]);
 }

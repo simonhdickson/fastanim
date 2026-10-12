@@ -78,10 +78,15 @@ let label = text("box").next_to(box, DOWN);
 `axes(x_range, y_range)` makes manim-style axes, 12 by 6 units. Ranges are `[min, max]` or
 `[min, max, step]`; `axes(x_range, y_range, width, height)` sets the size.
 
+`fit_axes(f, x_range)` (or `fit_axes(f, x_range, width, height)`) picks the y range for you:
+it samples `f` across `x_range` and rounds out to about 8 ticks of 1, 2 or 5 × 10ⁿ. manim has
+no equivalent.
+
 | Method | Returns |
 | --- | --- |
 | `ax.c2p(x, y)` | Graph coordinates to a scene point |
 | `ax.p2c(p)` | Scene point to graph coordinates |
+| `ax.plot(f)` | Shape: graph of `f` across the whole x range |
 | `ax.plot(f, x0, x1)` | Shape: graph of `f` in graph coordinates |
 | `ax.plot(f, x0, x1, segments)` | The same in `segments` cubics instead of 64, for wiggly graphs |
 | `ax.vertical_line(p)` | Shape: line from the x-axis up to `p` |

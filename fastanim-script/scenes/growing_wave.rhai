@@ -7,7 +7,8 @@
 let run = 20.0;
 let f = |t| (TAU * t).sin() * t;
 
-let ax = axes([0.0, 20.0, 2.0], [-20.0, 20.0, 5.0], 11.0, 6.0);
+// The y range comes from f: -20 to 20 in steps of 5.
+let ax = fit_axes(f, [0.0, 20.0, 2.0], 11.0, 6.0);
 scene.add(ax.shape().stroke(GREY, 0.03));
 scene.add(ax.labels("t", "y"));
 scene.add(math_tex("f(t) = sin(2 pi t) dot t").scale(0.8).to_edge(UP));

@@ -40,6 +40,8 @@ fade_in(_: Mobject) -> Animation
 fade_out(_: Mobject) -> Animation
 fill(_: Shape, _: Color) -> Shape
 fill(_: Text, _: Color) -> Text
+fit_axes(_: Fn, _: array) -> Axes
+fit_axes(_: Fn, _: array, _: f64, _: f64) -> Axes
 flash(_: Point) -> Animation
 function_graph(_: Fn, _: f64, _: f64, _: i64) -> Shape
 get$glyphs(_: &mut Text) -> array
@@ -82,6 +84,7 @@ p2c(_: &mut Axes, _: Point) -> Point
 parallel(_: array) -> Animation
 play(_: &mut Scene, _: Animation) -> ()
 play(_: &mut Scene, _: array) -> ()
+plot(_: &mut Axes, _: Fn) -> Shape
 plot(_: &mut Axes, _: Fn, _: f64, _: f64) -> Shape
 plot(_: &mut Axes, _: Fn, _: f64, _: f64, _: i64) -> Shape
 point(_: f64, _: f64) -> Point

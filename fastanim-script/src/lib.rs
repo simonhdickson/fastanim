@@ -510,10 +510,10 @@ pub fn range(n: &[f64]) -> Result<[f64; 3], String> {
 }
 
 /// `build` with fallible `f` as the function; the first error `f` raises fails it.
-pub fn graph<E>(
+pub fn graph<T, E>(
     f: impl Fn(f64) -> Result<f64, E>,
-    build: impl FnOnce(&dyn Fn(f64) -> f64) -> VState,
-) -> Result<VState, E> {
+    build: impl FnOnce(&dyn Fn(f64) -> f64) -> T,
+) -> Result<T, E> {
     let err = std::cell::RefCell::new(None);
     let m = build(&|x| {
         f(x).unwrap_or_else(|e| {

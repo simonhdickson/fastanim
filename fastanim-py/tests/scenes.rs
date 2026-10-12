@@ -160,3 +160,19 @@ def s(s):
     assert_eq!(tl.marker("end"), Some(tl.duration()));
     assert!(tl.duration() > 3.0);
 }
+
+#[test]
+fn fit_axes_and_default_plot_range() {
+    // x² over [-3, 3] fits y to [0, 10], so y = 10 is the top of 6-tall axes.
+    let src = r##"
+from fastanim import *
+
+@scene
+def s(s):
+    ax = fit_axes(lambda x: x * x, (-3, 3))
+    assert ax.c2p(0, 10) == point(0, 3)
+    s.add(ax.plot(lambda x: x * x))
+    s.add(ax.plot(lambda x: x, 0, 1, segments=8))
+"##;
+    attach(|py| bake_src(py, src, "s")).unwrap_or_else(|e| panic!("{e}"));
+}
