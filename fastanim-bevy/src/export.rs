@@ -70,7 +70,17 @@ pub fn frame_times(start: f32, end: f32, fps: u32) -> impl Iterator<Item = f32> 
     (first..=last).map(move |i| i as f32 / fps as f32)
 }
 
-/// Renders scene states to RGBA pixels on an offscreen GPU texture.
+/// GPU conversion of the rendered frame to yuv420p, so readback and ffmpeg's pipe carry 1.5
+/// bytes a pixel instead of 4.
+struct Yuv {
+    pipeline: wgpu::ComputePipeline,
+    bind_group: wgpu::BindGroup,
+    out: wgpu::Buffer,
+    /// Output bytes, before padding `out` to whole u32s.
+    len: usize,
+}
+
+/// Renders scene states to RGBA or yuv420p pixels on an offscreen GPU texture.
 pub struct FrameRenderer {
     ctx: RenderContext,
     dev: usize,
@@ -81,13 +91,15 @@ pub struct FrameRenderer {
     padded_row: u32,
     width: u32,
     height: u32,
+    yuv: Option<Yuv>,
     frame: vello::Scene,
     scene: vello::Scene,
 }
 
 impl FrameRenderer {
-    /// Opens a GPU device and allocates a `width × height` target.
-    pub fn new(width: u32, height: u32) -> Result<Self, String> {
+    /// Opens a GPU device and allocates a `width × height` target. With `yuv`, frames come back
+    /// as planar yuv420p (BT.601 limited range) instead of RGBA.
+    pub fn new(width: u32, height: u32, yuv: bool) -> Result<Self, String> {
         let mut ctx = RenderContext::new();
         let dev = block_on(ctx.device(None)).ok_or("no compatible GPU adapter found")?;
         let device = &ctx.devices[dev].device;
@@ -110,14 +122,60 @@ impl FrameRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
         let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let yuv = yuv.then(|| {
+            let (w, h) = (width as usize, height as usize);
+            let len = w * h + 2 * w.div_ceil(2) * h.div_ceil(2);
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("fastanim yuv420p"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("yuv420p.wgsl").into()),
+            });
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("fastanim yuv420p"),
+                layout: None,
+                module: &module,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+            let out = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("fastanim yuv420p"),
+                size: len.next_multiple_of(4) as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("fastanim yuv420p"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: out.as_entire_binding(),
+                    },
+                ],
+            });
+            Yuv {
+                pipeline,
+                bind_group,
+                out,
+                len,
+            }
+        });
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("fastanim readback"),
-            size: u64::from(padded_row * height),
+            size: yuv
+                .as_ref()
+                .map_or(u64::from(padded_row * height), |y| y.out.size()),
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -131,12 +189,14 @@ impl FrameRenderer {
             padded_row,
             width,
             height,
+            yuv,
             frame: vello::Scene::new(),
             scene: vello::Scene::new(),
         })
     }
 
-    /// Renders one frame on black and returns tightly packed RGBA rows, top to bottom.
+    /// Renders one frame on black and returns tightly packed RGBA rows, top to bottom, or its
+    /// yuv420p planes if made with `yuv`.
     // shortcut: one blocking readback per frame; double-buffer if GPU+readback, not eval, limits export.
     pub fn render(&mut self, state: &SceneState) -> Result<Vec<u8>, String> {
         let (w, h) = (f64::from(self.width), f64::from(self.height));
@@ -165,18 +225,27 @@ impl FrameRenderer {
             .map_err(|e| format!("vello: {e}"))?;
 
         let mut enc = device.create_command_encoder(&Default::default());
-        enc.copy_texture_to_buffer(
-            self.texture.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.padded_row),
-                    rows_per_image: None,
+        if let Some(yuv) = &self.yuv {
+            let mut pass = enc.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&yuv.pipeline);
+            pass.set_bind_group(0, &yuv.bind_group, &[]);
+            pass.dispatch_workgroups((yuv.out.size() / 4).div_ceil(64) as u32, 1, 1);
+            drop(pass);
+            enc.copy_buffer_to_buffer(&yuv.out, 0, &self.buffer, 0, None);
+        } else {
+            enc.copy_texture_to_buffer(
+                self.texture.as_image_copy(),
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &self.buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(self.padded_row),
+                        rows_per_image: None,
+                    },
                 },
-            },
-            self.texture.size(),
-        );
+                self.texture.size(),
+            );
+        }
         queue.submit([enc.finish()]);
 
         let slice = self.buffer.slice(..);
@@ -188,6 +257,11 @@ impl FrameRenderer {
         rx.recv()
             .map_err(|e| e.to_string())?
             .map_err(|e| format!("readback: {e}"))?;
+        if let Some(yuv) = &self.yuv {
+            let pixels = slice.get_mapped_range()[..yuv.len].to_vec();
+            self.buffer.unmap();
+            return Ok(pixels);
+        }
         let row = self.width as usize * 4;
         // Row-wise memcpy: a byte iterator over mapped memory is several ms per 1080p frame.
         let mut pixels = Vec::with_capacity(row * self.height as usize);
@@ -209,6 +283,10 @@ pub struct Export {
     pub output: PathBuf,
     /// First and last time to render, in seconds.
     pub range: (f32, f32),
+    /// Encode on the GPU with VAAPI; mp4 only.
+    pub hw: bool,
+    /// Convert frames to yuv420p on the GPU before readback; mp4 and webm only.
+    pub gpu_yuv: bool,
 }
 
 /// Renders `tl` over `ex.range` and writes it to `ex.output`.
@@ -224,7 +302,31 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         // SVG bypasses the GPU and ffmpeg entirely.
         return write_svgs(tl, &times, &ex.output, still).map_err(|e| e.to_string());
     }
+    if ex.hw && ext != "mp4" {
+        return Err("--hw only supports mp4 output".into());
+    }
+    if ex.gpu_yuv && !matches!(ext, "mp4" | "webm") {
+        return Err("--gpu-yuv only supports mp4 and webm output".into());
+    }
+    // shortcut: first render node only; add a device option if multi-GPU machines need it.
+    let device: &[&str] = if ex.hw {
+        &["-vaapi_device", "/dev/dri/renderD128"]
+    } else {
+        &[]
+    };
     let codec: &[&str] = match ext {
+        // Convert to nv12 on the CPU: scale_vaapi's conversion shifts colours from libx264's.
+        // QP 18 matches libx264 CRF 18 in SSIM, at about 1.7x the file size.
+        "mp4" if ex.hw => &[
+            "-vf",
+            "format=nv12,hwupload",
+            "-c:v",
+            "h264_vaapi",
+            "-rc_mode",
+            "CQP",
+            "-qp",
+            "18",
+        ],
         "mp4" => &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"],
         "webm" => &["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30"],
         "gif" => &["-vf", "split[a][b];[a]palettegen[p];[b][p]paletteuse"],
@@ -239,18 +341,12 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         ex.output.clone()
     };
 
-    let mut renderer = FrameRenderer::new(ex.quality.width, ex.quality.height)?;
+    let mut renderer = FrameRenderer::new(ex.quality.width, ex.quality.height, ex.gpu_yuv)?;
     let q = ex.quality;
     let mut ffmpeg = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-loglevel",
-            "error",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "rgba",
-        ])
+        .args(["-y", "-loglevel", "error", "-f", "rawvideo"])
+        .args(["-pix_fmt", if ex.gpu_yuv { "yuv420p" } else { "rgba" }])
+        .args(device)
         .args(["-s", &format!("{}x{}", q.width, q.height)])
         .args(["-r", &q.fps.to_string(), "-i", "-"])
         .args(codec)

@@ -35,6 +35,10 @@ fastanim render scene.rhai --section intro -o intro.webm
 - `-o, --output`: the extension picks the format: `mp4`, `webm`, `gif`, `png` or `svg`.
   `png` and `svg` write one file per frame.
 - `--section <marker>`: render only from that marker to the next one.
+- `--hw`: encode `mp4` on the GPU with VAAPI (AMD or Intel on Linux). Same quality as the
+  default `libx264` encode, larger files, much less CPU.
+- `--gpu-yuv`: convert frames to yuv420p on the GPU before handing them to ffmpeg (`mp4` and
+  `webm`). Moves under half the bytes per frame; faster, and combines with `--hw`.
 
 ## Still
 

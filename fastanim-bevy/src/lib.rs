@@ -59,6 +59,12 @@ pub struct RenderArgs {
     /// Only render from <MARKER> to the next marker
     #[arg(long, value_name = "MARKER")]
     pub section: Option<String>,
+    /// Encode mp4 on the GPU with VAAPI (AMD/Intel on Linux)
+    #[arg(long)]
+    pub hw: bool,
+    /// Convert frames to yuv420p on the GPU before readback (mp4 and webm)
+    #[arg(long)]
+    pub gpu_yuv: bool,
 }
 
 /// Options for [`Command::Still`].
@@ -116,12 +122,14 @@ pub fn run_command(
 
 /// Turns a command into what to export, or `None` to preview.
 fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Export>, String> {
-    let (quality, output, range) = match cmd {
+    let (quality, output, range, hw, gpu_yuv) = match cmd {
         None | Some(Command::Preview) => return Ok(None),
         Some(Command::Render(RenderArgs {
             quality,
             output,
             section,
+            hw,
+            gpu_yuv,
         })) => {
             let dur = tl.duration();
             let range = match section {
@@ -138,7 +146,7 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
                     (start, end)
                 }
             };
-            (quality, output, range)
+            (quality, output, range, hw, gpu_yuv)
         }
         Some(Command::Still(StillArgs {
             quality,
@@ -147,13 +155,15 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
             frame,
         })) => {
             let t = frame.map_or(at, |n| n as f32 / quality.fps as f32);
-            (quality, output, (t, t))
+            (quality, output, (t, t), false, false)
         }
     };
     Ok(Some(export::Export {
         quality,
         output,
         range,
+        hw,
+        gpu_yuv,
     }))
 }
 
@@ -473,6 +483,8 @@ mod tests {
         assert_eq!((ex.range, ex.output), ((0.0, 3.0), "x.webm".into()));
         assert_eq!(ex.quality.fps, 30);
         assert_eq!(export("render").output, PathBuf::from("out.mp4"));
+        assert!(export("render --hw").hw && !export("render").hw);
+        assert!(export("render --gpu-yuv").gpu_yuv && !export("render").gpu_yuv);
         assert_eq!(export("render --section a").range, (1.0, 2.0));
         assert_eq!(export("render --section b").range, (2.0, 3.0));
         assert_eq!(export("still --at 1.5s").range, (1.5, 1.5));
@@ -500,7 +512,7 @@ mod tests {
 
     #[test]
     fn gpu_render_is_deterministic() {
-        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
+        let Ok(mut r) = export::FrameRenderer::new(64, 36, false) else {
             eprintln!("skipping: no GPU adapter");
             return;
         };
@@ -509,5 +521,59 @@ mod tests {
         assert_eq!(a.len(), 64 * 36 * 4);
         assert_eq!(a, r.render(&tl.eval(0.5)).unwrap());
         assert_ne!(a, r.render(&tl.eval(0.0)).unwrap());
+    }
+
+    /// The GPU yuv420p planes match a CPU conversion of the RGBA frame, BT.601 limited range.
+    #[test]
+    fn gpu_yuv_matches_cpu() {
+        // Odd size covers the clamped chroma edge.
+        let (w, h) = (65, 37);
+        let (Ok(mut rgba), Ok(mut yuv)) = (
+            export::FrameRenderer::new(w, h, false),
+            export::FrameRenderer::new(w, h, true),
+        ) else {
+            eprintln!("skipping: no GPU adapter");
+            return;
+        };
+        let state = timeline().eval(0.5);
+        let (px, out) = (rgba.render(&state).unwrap(), yuv.render(&state).unwrap());
+        let (w, h, cw, ch) = (
+            w as usize,
+            h as usize,
+            w.div_ceil(2) as usize,
+            h.div_ceil(2) as usize,
+        );
+        assert_eq!(out.len(), w * h + 2 * cw * ch);
+        let rgb = |x: usize, y: usize| {
+            let p = &px[(y.min(h - 1) * w + x.min(w - 1)) * 4..];
+            [0, 1, 2].map(|i| f32::from(p[i]) / 255.0)
+        };
+        let dot = |c: [f32; 3], k: [f32; 3]| c[0] * k[0] + c[1] * k[1] + c[2] * k[2];
+        let near = |got: u8, want: f32| (f32::from(got) - want).abs() <= 1.0;
+        for y in 0..h {
+            for x in 0..w {
+                let want = 16.0 + dot(rgb(x, y), [65.481, 128.553, 24.966]);
+                assert!(near(out[y * w + x], want), "Y at {x},{y}");
+            }
+        }
+        for (plane, k) in [[-37.797, -74.203, 112.0], [112.0, -93.786, -18.214]]
+            .into_iter()
+            .enumerate()
+        {
+            for y in 0..ch {
+                for x in 0..cw {
+                    let (x0, y0) = (x * 2, y * 2);
+                    let c = [
+                        rgb(x0, y0),
+                        rgb(x0 + 1, y0),
+                        rgb(x0, y0 + 1),
+                        rgb(x0 + 1, y0 + 1),
+                    ];
+                    let mean = [0, 1, 2].map(|i| c.iter().map(|c| c[i]).sum::<f32>() / 4.0);
+                    let got = out[w * h + plane * cw * ch + y * cw + x];
+                    assert!(near(got, 128.0 + dot(mean, k)), "chroma {plane} at {x},{y}");
+                }
+            }
+        }
     }
 }
