@@ -137,7 +137,8 @@ impl FrameRenderer {
     }
 
     /// Renders one frame on black and returns tightly packed RGBA rows, top to bottom.
-    // shortcut: one blocking readback per frame; double-buffer if GPU+readback, not eval, limits export.
+    // shortcut: one blocking readback per frame; the RGBA feed to ffmpeg limits export, not this.
+    // See docs/export-performance.md before optimising.
     pub fn render(&mut self, state: &SceneState) -> Result<Vec<u8>, String> {
         let (w, h) = (f64::from(self.width), f64::from(self.height));
         let scale = (w / FRAME_WIDTH).min(h / FRAME_HEIGHT);
