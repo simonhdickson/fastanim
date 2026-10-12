@@ -113,10 +113,32 @@ impl Rt {
         what: &str,
         args: impl FuncArgs,
     ) -> Result<T, String> {
+        let f = unshared(f, 4);
         let d = (f.call::<Dynamic>(&self.engine, &self.ast, args)).map_err(|e| e.to_string())?;
         let ty = d.type_name();
         (d.try_cast::<T>()).ok_or_else(|| format!("closure returned {ty}, not {what}"))
     }
+}
+
+/// `f` with private copies of its captured variables, `depth` closures deep. Captures are shared
+/// cells that Rhai write-locks on every method call, so frames evaluated on several threads would
+/// otherwise serialise on them. The cap stops a closure that captures itself recursing forever;
+/// anything deeper stays shared, which is slower but still correct.
+fn unshared(f: &FnPtr, depth: u32) -> FnPtr {
+    let mut f = f.clone();
+    if depth > 0 {
+        let curry: Vec<_> = (f.iter_curry())
+            .map(|c| {
+                let c = c.flatten_clone();
+                match c.clone().try_cast::<FnPtr>() {
+                    Some(g) => Dynamic::from(unshared(&g, depth - 1)),
+                    None => c,
+                }
+            })
+            .collect();
+        f.set_curry(curry);
+    }
+    f
 }
 
 /// Where closures find the engine and script, set once the script is compiled.

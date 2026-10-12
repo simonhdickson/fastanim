@@ -9,6 +9,8 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 
 use bevy::tasks::futures_lite::future::block_on;
@@ -135,7 +137,7 @@ impl FrameRenderer {
     }
 
     /// Renders one frame on black and returns tightly packed RGBA rows, top to bottom.
-    // ponytail: one blocking readback per frame; double-buffer readbacks if export is too slow.
+    // shortcut: one blocking readback per frame; double-buffer if GPU+readback, not eval, limits export.
     pub fn render(&mut self, state: &SceneState) -> Result<Vec<u8>, String> {
         let (w, h) = (f64::from(self.width), f64::from(self.height));
         let scale = (w / FRAME_WIDTH).min(h / FRAME_HEIGHT);
@@ -187,12 +189,11 @@ impl FrameRenderer {
             .map_err(|e| e.to_string())?
             .map_err(|e| format!("readback: {e}"))?;
         let row = self.width as usize * 4;
-        let pixels = slice
-            .get_mapped_range()
-            .chunks(self.padded_row as usize)
-            .flat_map(|r| &r[..row])
-            .copied()
-            .collect();
+        // Row-wise memcpy: a byte iterator over mapped memory is several ms per 1080p frame.
+        let mut pixels = Vec::with_capacity(row * self.height as usize);
+        for r in slice.get_mapped_range().chunks(self.padded_row as usize) {
+            pixels.extend_from_slice(&r[..row]);
+        }
         self.buffer.unmap();
         Ok(pixels)
     }
@@ -259,14 +260,45 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         .map_err(|e| format!("could not start ffmpeg: {e}"))?;
     let mut stdin = ffmpeg.stdin.take().expect("piped stdin");
     let start = Instant::now();
-    for (i, &t) in times.iter().enumerate() {
-        let pixels = renderer.render(&tl.eval(t))?;
-        stdin
-            .write_all(&pixels)
-            .map_err(|e| format!("ffmpeg: {e}"))?;
-        progress(i + 1, times.len(), start);
-    }
-    drop(stdin);
+    // Pipeline: `eval` (CPU-bound, pure) fans out across cores, the GPU renders on this thread in
+    // frame order, and a writer thread feeds ffmpeg. Bounded channels cap frames in flight.
+    let workers = thread::available_parallelism().map_or(1, |n| n.get());
+    let (times, total) = (&times, times.len());
+    let rendered = thread::scope(|s| {
+        let states: Vec<_> = (0..workers)
+            .map(|k| {
+                let (tx, rx) = mpsc::sync_channel(2);
+                s.spawn(move || {
+                    for &t in times.iter().skip(k).step_by(workers) {
+                        // The receiver hangs up on a render error; stop quietly.
+                        if tx.send(tl.eval(t)).is_err() {
+                            break;
+                        }
+                    }
+                });
+                rx
+            })
+            .collect();
+        let (px_tx, px_rx) = mpsc::sync_channel::<Vec<u8>>(4);
+        let writer = s.spawn(move || {
+            for (i, pixels) in px_rx.into_iter().enumerate() {
+                stdin
+                    .write_all(&pixels)
+                    .map_err(|e| format!("ffmpeg: {e}"))?;
+                progress(i + 1, total, start);
+            }
+            Ok::<_, String>(())
+        });
+        for i in 0..total {
+            let state = states[i % workers].recv().map_err(|e| e.to_string())?;
+            if px_tx.send(renderer.render(&state)?).is_err() {
+                break; // writer failed; its error is reported below
+            }
+        }
+        drop(px_tx);
+        writer.join().expect("writer thread panicked")
+    });
+    rendered?;
     let status = ffmpeg.wait().map_err(|e| e.to_string())?;
     if !status.success() {
         return Err(format!("ffmpeg failed: {status}"));
