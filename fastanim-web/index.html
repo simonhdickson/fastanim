@@ -37,6 +37,7 @@
   <section>
     <div class="bar" style="margin: 0 0 8px">
       <select id="example"><option value="scenes/parity.rhai">parity.rhai</option><option value="scenes/diff.rhai">diff.rhai</option><option value="scenes/sine_curve.rhai">sine_curve.rhai</option><option value="scenes/sin_and_cos.rhai">sin_and_cos.rhai</option><option value="scenes/growing_wave.rhai">growing_wave.rhai</option></select>
+      <button id="share" title="Copy a link holding this script">Share link</button>
       <span id="status"></span>
       <span style="margin-left: auto"><a href="docs/">Docs</a> · <a href="https://github.com/simonhdickson/fastanim">GitHub</a></span>
     </div>
@@ -111,7 +112,63 @@
   $("src").addEventListener("keydown", (e) => {
     if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
   });
-  $("example").onchange = (e) => example(e.target.value);
+  // The URL says what to open: ?scene=diff for scenes/diff.rhai, ?gist=<id> for the first
+  // .rhai file in a public gist, or #code=… for the script itself, deflated and base64url'd.
+  // Picking from the list, or sharing, rewrites it.
+  const sceneUrl = (name) => `scenes/${name}.rhai`;
+  const sceneName = (url) => url.replace(/^scenes\/|\.rhai$/g, "");
+  function setUrl(search, hash = "") {
+    history.replaceState(null, "", location.pathname + search + hash);
+  }
+
+  $("example").onchange = (e) => {
+    setUrl(`?scene=${sceneName(e.target.value)}`);
+    example(e.target.value);
+  };
+
+  function opened(src) {
+    $("example").selectedIndex = -1;
+    $("src").value = src;
+    highlight();
+    load(src);
+  }
+
+  async function gist(id) {
+    $("status").textContent = "fetching gist…";
+    const r = await fetch(`https://api.github.com/gists/${encodeURIComponent(id)}`);
+    if (!r.ok) throw new Error(`gist ${id}: ${r.status} ${r.statusText}`);
+    const files = Object.values((await r.json()).files);
+    const file = files.find((f) => f.filename.endsWith(".rhai")) ?? files[0];
+    if (!file) throw new Error(`gist ${id} has no files`);
+    // The API inlines files up to 1 MB; past that, `content` is cut short.
+    return file.truncated ? (await fetch(file.raw_url)).text() : file.content;
+  }
+
+  const pipe = (bytes, stream) => new Response(new Blob([bytes]).stream().pipeThrough(stream));
+
+  async function encode(src) {
+    const bytes = new Uint8Array(await pipe(new TextEncoder().encode(src),
+      new CompressionStream("deflate-raw")).arrayBuffer());
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  async function decode(code) {
+    const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return pipe(bytes, new DecompressionStream("deflate-raw")).text();
+  }
+
+  $("share").onclick = async () => {
+    setUrl("", `#code=${await encode($("src").value)}`);
+    try {
+      await navigator.clipboard.writeText(location.href);
+      $("status").textContent = "link copied";
+    } catch {
+      $("status").textContent = "link is in the address bar";
+    }
+  };
   $("svg").onclick = () => player.download("svg");
   $("png").onclick = () => player.download("png");
   $("video").onclick = () => {
@@ -120,7 +177,24 @@
   };
   player.addEventListener("recorded", () => { $("status").textContent = ""; });
 
-  example($("example").value);
+  async function start() {
+    const params = new URLSearchParams(location.search);
+    const code = new URLSearchParams(location.hash.slice(1)).get("code");
+    try {
+      if (code) return opened(await decode(code));
+      if (params.has("gist")) return opened(await gist(params.get("gist")));
+    } catch (e) {
+      $("example").selectedIndex = -1;
+      $("status").textContent = `couldn't open link: ${e.message}`;
+      return;
+    }
+    const linked = params.get("scene");
+    if (linked && [...$("example").options].some((o) => o.value === sceneUrl(linked))) {
+      $("example").value = sceneUrl(linked);
+    }
+    example($("example").value);
+  }
+  start();
 </script>
 </body>
 </html>
