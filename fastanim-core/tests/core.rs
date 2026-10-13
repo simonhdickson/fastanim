@@ -434,9 +434,10 @@ fn axes_map_graph_to_scene() {
     assert!(close(ax.c2p(0.0, 0.0), Point::ORIGIN));
     assert!(close(ax.c2p(10.0, 2.0), Point::new(5.0, 1.0)));
     assert!(close(ax.p2c(Point::new(5.0, 1.0)), Point::new(10.0, 2.0)));
+    // No tick at max, under the tip.
     assert_eq!(
         ax.x_ticks(),
-        [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+        [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0]
     );
 
     // Moving the axes moves what they map to.

@@ -3,7 +3,7 @@
 // fastanim preview fastanim-script/scenes/sin_and_cos.rhai
 
 let ax = axes([-10.0, 10.3, 1.0], [-1.5, 1.5, 1.0], 10.0, 6.0);
-scene.add(ax.shape().stroke(GREEN, 0.03));
+scene.add(ax.shape().stroke(GREEN, 0.03).fill(GREEN));
 // manim's `numbers_to_include`: every other x tick. `ax.numbers()` numbers them all.
 for x in range(-10, 11, 2) {
     if x != 0 {

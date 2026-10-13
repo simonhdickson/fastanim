@@ -104,9 +104,9 @@ fn sin_and_cos_bakes() {
 
 #[test]
 fn growing_wave_bakes() {
-    // f(t) = sin(2πt)·t over its first 20 seconds.
+    // f(t) = sin(2πt)·t over its first 20 seconds, after a 2 s draw-in.
     let t = script("growing_wave");
-    assert_eq!(t.duration(), 21.0);
+    assert_eq!(t.duration(), 23.0);
     t.eval(10.0);
     t.eval(t.duration());
 }

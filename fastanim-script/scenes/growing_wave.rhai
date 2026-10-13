@@ -7,11 +7,14 @@
 let run = 20.0;
 let f = |t| (TAU * t).sin() * t;
 
-// The y range comes from f: -20 to 20 in steps of 5.
-let ax = fit_axes(f, [0.0, 20.0, 2.0], 11.0, 6.0);
-scene.add(ax.shape().stroke(GREY, 0.03));
-scene.add(ax.labels("t", "y"));
-scene.add(math_tex("f(t) = sin(2 pi t) dot t").scale(0.8).to_edge(UP));
+// |f(t)| <= t, so y spans ±run. x runs a little past `run` so the tip doesn't cover the
+// last number.
+let ax = axes([0.0, 21.5, 2.0], [-run, run, 5.0], 11.0, 6.0);
+let shape = scene.add(ax.shape().stroke(GREY, 0.03).fill(GREY));
+let numbers = scene.add(ax.numbers());
+let labels = scene.add(ax.labels("t", "y"));
+let title = scene.add(math_tex("f(t) = sin(2 pi t) dot t").scale(0.8).to_edge(UP));
+scene.play([create(shape), write(numbers), write(labels), write(title)]);
 
 let at = |t| ax.c2p(min(t, run), f.call(min(t, run)));
 let curve = scene.add(line(at.call(0.0), at.call(0.0)));

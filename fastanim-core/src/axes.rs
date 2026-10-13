@@ -12,12 +12,16 @@ use crate::position::Position;
 /// Half the length of a tick mark, in scene units (manim's `tick_size`).
 const TICK: f64 = 0.1;
 
+/// Length and width of the arrow tip at each axis's max end (manim's
+/// `DEFAULT_ARROW_TIP_LENGTH`).
+const TIP: f64 = 0.35;
+
 /// x and y axes over `[min, max, step]` ranges, placed in the scene by an affine map from
 /// graph coordinates. Centered on the origin when made; move it with [`Position`] or
 /// [`shift`](Axes::shift), and [`c2p`](Axes::c2p) follows.
 ///
 /// The axes cross at graph `(0, 0)`, or at the nearest end of a range that excludes 0.
-// ponytail: no arrow tips; add with `Arrow`.
+/// Each axis ends in an arrow tip at its max, and like manim gets no tick there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Axes {
     /// `[min, max, step]` along x, in graph units.
@@ -94,7 +98,7 @@ impl Axes {
         Point::new(cross(self.x_range), cross(self.y_range))
     }
 
-    /// Tick values along x: `min`, `min + step`, ... up to `max`.
+    /// Tick values along x: `min`, `min + step`, ... short of `max`, which the tip covers.
     pub fn x_ticks(&self) -> Vec<f64> {
         ticks(self.x_range)
     }
@@ -104,7 +108,8 @@ impl Axes {
         ticks(self.y_range)
     }
 
-    /// The axis lines and tick marks, in manim's default style.
+    /// The axis lines, tick marks and tips, in manim's default style. The tips are fill, so
+    /// recolor with both `stroke` and `fill`.
     pub fn shape(&self) -> VState {
         let o = self.crossing();
         let [x0, x1, _] = self.x_range;
@@ -119,10 +124,20 @@ impl Axes {
             self.c2p(1.0, 0.0) - self.c2p(0.0, 0.0),
             self.c2p(0.0, 1.0) - self.c2p(0.0, 0.0),
         );
-        let mut subpaths = vec![
-            line(self.c2p(x0, o.y), self.c2p(x1, o.y)),
-            line(self.c2p(o.x, y0), self.c2p(o.x, y1)),
-        ];
+        // The line stops at the tip's base so its stroke can't poke past the point.
+        let arrow = |a: Point, b: Point| {
+            let d = (b - a).normalize() * TIP;
+            let n = Vec2::new(-d.y, d.x) / 2.0;
+            let base = b - d;
+            [
+                line(a, base),
+                SubPath::polyline(&[base + n, b, base - n], true),
+            ]
+        };
+        let mut subpaths: Vec<_> = arrow(self.c2p(x0, o.y), self.c2p(x1, o.y))
+            .into_iter()
+            .chain(arrow(self.c2p(o.x, y0), self.c2p(o.x, y1)))
+            .collect();
         subpaths.extend(
             self.x_ticks()
                 .into_iter()
@@ -133,7 +148,9 @@ impl Axes {
                 .into_iter()
                 .map(|y| tick(self.c2p(o.x, y), ey)),
         );
-        VState::new(VPath { subpaths }).stroke(WHITE, 0.03)
+        VState::new(VPath { subpaths })
+            .stroke(WHITE, 0.03)
+            .fill(WHITE)
     }
 
     /// Graph of `y = f(x)` over `x_range` in graph units, manim's `plot`, in 64 segments.
@@ -177,7 +194,8 @@ impl Axes {
 }
 
 fn ticks([lo, hi, step]: [f64; 3]) -> Vec<f64> {
-    let n = ((hi - lo) / step + 1e-9).floor() as usize;
+    // manim's `np.arange(min, max, step)`: max itself is out.
+    let n = ((hi - lo) / step - 1e-9).ceil().max(1.0) as usize - 1;
     (0..=n).map(|i| lo + step * i as f64).collect()
 }
 

@@ -92,7 +92,7 @@ no equivalent.
 | `ax.vertical_line(p)` | Shape: line from the x-axis up to `p` |
 | `ax.numbers()` | Text: tick numbers |
 | `ax.labels(x, y)` | Text: axis labels, as Typst math |
-| `ax.shape()` | Shape: the axes themselves |
+| `ax.shape()` | Shape: the axes themselves, with arrow tips (filled: recolor with `.stroke(c, w).fill(c)`) |
 
 `scene.add(ax)` adds the axes as one shape.
 
