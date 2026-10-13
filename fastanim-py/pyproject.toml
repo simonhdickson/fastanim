@@ -9,6 +9,10 @@ requires-python = ">=3.10"
 license = "MIT"
 dynamic = ["version"]
 
+[project.optional-dependencies]
+# Video, PNG and the preview window; built from `preview/pyproject.toml`.
+preview = ["fastanim-preview"]
+
 [tool.maturin]
 python-source = "python"
 module-name = "fastanim._native"

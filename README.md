@@ -86,6 +86,7 @@ The [scripting docs](https://simonhdickson.github.io/fastanim/docs/) cover the R
 | `fastanim-bevy`   | Bevy plugin: rendering, preview and export                     |
 | `fastanim-script` | Rhai scenes                                                    |
 | `fastanim-cli`    | The `fastanim` command-line tool                               |
+| `fastanim-py`     | The `fastanim` Python package                                  |
 | `fastanim-web`    | Browser player and playground                                  |
 
 ## Try it
@@ -103,6 +104,18 @@ cargo run -p fastanim-bevy --example parity -- still --at 3s -o frame.png
 cargo run -p fastanim-bevy --example diff          # equations, code refactor, bubble sort, morph
 cargo run -p fastanim-cli -- preview fastanim-script/scenes/diff.rhai   # same scene as a script
 just web   # browser playground on http://localhost:8080, rebuilt on change
+```
+
+Scenes can also be written in Python. Build the package into a virtualenv with
+[maturin](https://www.maturin.rs), adding the `preview` wheel for video, PNG and the window:
+
+```sh
+pip install maturin
+maturin develop -m fastanim-py/pyproject.toml           # recording, baking and SVG
+maturin develop -m fastanim-py/preview/pyproject.toml   # + video, PNG and preview
+python -m fastanim preview fastanim-py/scenes/parity.py # reloads on save
+python -m fastanim render fastanim-py/scenes/diff.py -q 720p30 -o diff.mp4
+python -m fastanim still fastanim-py/scenes/parity.py --at 3s -o frame.svg
 ```
 
 Video export needs `ffmpeg` on your `PATH`. The playground needs the
