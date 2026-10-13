@@ -111,7 +111,15 @@
   $("src").addEventListener("keydown", (e) => {
     if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
   });
-  $("example").onchange = (e) => example(e.target.value);
+  // ?scene=diff links straight to scenes/diff.rhai; picking one from the list updates the URL.
+  const sceneUrl = (name) => `scenes/${name}.rhai`;
+  const sceneName = (url) => url.replace(/^scenes\/|\.rhai$/g, "");
+  $("example").onchange = (e) => {
+    const url = new URL(location.href);
+    url.searchParams.set("scene", sceneName(e.target.value));
+    history.replaceState(null, "", url);
+    example(e.target.value);
+  };
   $("svg").onclick = () => player.download("svg");
   $("png").onclick = () => player.download("png");
   $("video").onclick = () => {
@@ -120,6 +128,10 @@
   };
   player.addEventListener("recorded", () => { $("status").textContent = ""; });
 
+  const linked = new URLSearchParams(location.search).get("scene");
+  if (linked && [...$("example").options].some((o) => o.value === sceneUrl(linked))) {
+    $("example").value = sceneUrl(linked);
+  }
   example($("example").value);
 </script>
 </body>

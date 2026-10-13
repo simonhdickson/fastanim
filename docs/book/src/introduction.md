@@ -49,3 +49,4 @@ Video export also needs `ffmpeg` on your `PATH`.
 The [playground](../) runs scripts in the browser with no install. It ships with the example
 scenes from
 [`fastanim-script/scenes`](https://github.com/simonhdickson/fastanim/tree/main/fastanim-script/scenes).
+Link straight to one with `?scene=<name>`, e.g. [`?scene=diff`](../?scene=diff).
