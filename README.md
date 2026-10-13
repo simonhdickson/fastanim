@@ -47,6 +47,7 @@ cargo run -p fastanim-cli -- preview fastanim-script/scenes/parity.rhai
 
 The [scripting docs](https://simonhdickson.github.io/fastanim/docs/) cover the Rhai API
 (source in `docs/book`, `just docs` to serve locally).
+What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Features
 
