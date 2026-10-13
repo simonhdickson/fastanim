@@ -30,7 +30,7 @@ pub use geom::{SubPath, VPath, align};
 pub use mobject::{MobjectId, SceneState, Stroke, VState};
 pub use position::{DEFAULT_BUFF, EDGE_BUFF, Position, arrange};
 pub use svg::to_svg;
-pub use timeline::{BakedTimeline, Scene};
+pub use timeline::{BakeStats, BakedTimeline, Scene, time_baking};
 pub use transform_diff::{DiffStyle, Group, Layout, Phasing, ReplaceStyle, TransformDiff};
 
 /// Values that can be blended; `lerp(a, b, 0) == a` and `lerp(a, b, 1) == b`.

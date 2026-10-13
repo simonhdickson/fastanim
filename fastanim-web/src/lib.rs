@@ -38,6 +38,7 @@ impl Player {
     #[wasm_bindgen(constructor)]
     pub fn new(src: &str) -> Result<Player, JsError> {
         fastanim_text::time_typesetting(js_sys::Date::now);
+        fastanim_core::time_baking(js_sys::Date::now);
         let (t0, typeset0) = (js_sys::Date::now(), fastanim_text::typeset_ms());
         let timeline = fastanim_script::bake(src).map_err(|e| JsError::new(&e.to_string()))?;
         Ok(Player {
@@ -55,6 +56,16 @@ impl Player {
     /// Milliseconds of the bake spent typesetting text not already in the cache (SPEC §14.5).
     pub fn typeset_ms(&self) -> f64 {
         self.typeset_ms
+    }
+
+    /// Milliseconds of the bake spent planning animations (alignment, diffing).
+    pub fn plan_ms(&self) -> f64 {
+        self.timeline.stats().plan_ms
+    }
+
+    /// Milliseconds of the bake spent copying the scene into each clip's keyframe.
+    pub fn snapshot_ms(&self) -> f64 {
+        self.timeline.stats().snapshot_ms
     }
 
     /// Length in seconds.

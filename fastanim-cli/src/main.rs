@@ -3,6 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
@@ -49,6 +51,14 @@ enum Command {
         /// The scene script
         script: PathBuf,
     },
+    /// Bake a Rhai scene repeatedly and print where the time goes
+    Profile {
+        /// The scene script
+        script: PathBuf,
+        /// Warm bakes to average, after the first, cold one
+        #[arg(long, default_value_t = 10)]
+        runs: u32,
+    },
     /// List every function and constant a scene script can use
     ScriptApi,
     /// Print a shell completion script, e.g. `fastanim completions fish | source`
@@ -86,6 +96,7 @@ fn run(command: Command) -> Result<(), String> {
             fs::write(&out, fastanim_text::export_bundle())
                 .map_err(|e| format!("{}: {e}", out.display()))
         }),
+        Command::Profile { script, runs } => profile(&script, runs),
         Command::ScriptApi => {
             fastanim_script::signatures()
                 .iter()
@@ -111,6 +122,49 @@ fn bake(path: &Path) -> Result<BakedTimeline, String> {
         0 => format!("{}: {e}", path.display()),
         _ => format!("{}:{e}", path.display()),
     })
+}
+
+/// Bakes `path` once with an empty text cache, then `runs` times with a warm one, as the
+/// playground does after an edit, and prints where the time went.
+fn profile(path: &Path, runs: u32) -> Result<(), String> {
+    fn now() -> f64 {
+        static EPOCH: OnceLock<Instant> = OnceLock::new();
+        EPOCH.get_or_init(Instant::now).elapsed().as_secs_f64() * 1e3
+    }
+    fastanim_core::time_baking(now);
+    fastanim_text::time_typesetting(now);
+    // total, typeset, plan, keyframes, and the rest: running the script.
+    let once = || -> Result<([f64; 5], fastanim_core::BakeStats), String> {
+        let (t0, typeset0) = (now(), fastanim_text::typeset_ms());
+        let tl = bake(path)?;
+        let total = now() - t0;
+        let typeset = fastanim_text::typeset_ms() - typeset0;
+        let s = tl.stats();
+        let script = total - typeset - s.plan_ms - s.snapshot_ms;
+        Ok(([total, typeset, s.plan_ms, s.snapshot_ms, script], s))
+    };
+    let (cold, stats) = once()?;
+    let mut warm = [0.0; 5];
+    for _ in 0..runs {
+        let (t, _) = once()?;
+        warm.iter_mut()
+            .zip(t)
+            .for_each(|(w, t)| *w += t / runs as f64);
+    }
+    println!(
+        "{} clips, {} mobjects copied into keyframes",
+        stats.clips, stats.snapshot_mobjects
+    );
+    let header = ["total", "typeset", "plan", "keyframes", "script"];
+    println!("{:<8}{}", "ms", header.map(|h| format!("{h:>11}")).concat());
+    let row = |name: &str, t: [f64; 5]| {
+        println!("{name:<8}{}", t.map(|v| format!("{v:>11.2}")).concat());
+    };
+    row("cold", cold);
+    if runs > 0 {
+        row("warm", warm);
+    }
+    Ok(())
 }
 
 /// Re-bakes `path` whenever its modification time changes. A broken script is reported and

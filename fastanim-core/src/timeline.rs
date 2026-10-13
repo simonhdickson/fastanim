@@ -1,6 +1,6 @@
 //! Scene builder and baked, seekable timeline (SPEC §4.5).
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::anim::{Animation, RateFn};
 use crate::mobject::{MobjectId, SceneState, VState};
@@ -11,6 +11,39 @@ struct Clip {
     end: f32,
     before: SceneState,
     anim: Option<(Box<dyn Animation>, RateFn)>,
+}
+
+static CLOCK: OnceLock<fn() -> f64> = OnceLock::new();
+
+/// Starts timing bakes with `now`, a clock in milliseconds (`std::time` has none on
+/// `wasm32-unknown-unknown`). Only the first call takes effect; until then [`BakeStats`] times
+/// are zero.
+pub fn time_baking(now: fn() -> f64) {
+    let _ = CLOCK.set(now);
+}
+
+/// Runs `f`, adding the milliseconds it took to `ms` if a clock is set.
+fn timed<T>(ms: &mut f64, f: impl FnOnce() -> T) -> T {
+    let Some(now) = CLOCK.get() else {
+        return f();
+    };
+    let start = now();
+    let out = f();
+    *ms += now() - start;
+    out
+}
+
+/// Where a bake's time went, outside the script itself (see [`time_baking`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct BakeStats {
+    /// Milliseconds in [`Animation::plan`].
+    pub plan_ms: f64,
+    /// Milliseconds cloning the scene into each clip's keyframe.
+    pub snapshot_ms: f64,
+    /// Clips recorded, the closing keyframe included.
+    pub clips: usize,
+    /// Mobjects summed over every keyframe: how much `snapshot_ms` copied.
+    pub snapshot_mobjects: usize,
 }
 
 type UpdaterFn = Arc<dyn Fn(&SceneState, f32) -> VState + Send + Sync>;
@@ -32,6 +65,7 @@ pub struct Scene {
     next_id: u32,
     markers: Vec<(String, f32)>,
     updaters: Vec<Updater>,
+    stats: BakeStats,
 }
 
 impl Scene {
@@ -65,9 +99,9 @@ impl Scene {
 
     /// Plans `anim` against the current state, records it and advances time past it.
     pub fn play(&mut self, mut anim: impl Animation + 'static) {
-        anim.plan(&self.state);
+        timed(&mut self.stats.plan_ms, || anim.plan(&self.state));
         let rate = anim.rate_fn();
-        let before = self.state.clone();
+        let before = self.snapshot();
         anim.sample(rate.apply(1.0), &mut self.state);
         let start = self.cursor;
         self.cursor += anim.duration().max(0.0);
@@ -85,12 +119,13 @@ impl Scene {
             return;
         }
         // Keyframe now: `add`/`remove` since the last clip must show during the wait.
+        let before = self.snapshot();
         let start = self.cursor;
         self.cursor += secs;
         self.clips.push(Clip {
             start,
             end: self.cursor,
-            before: self.state.clone(),
+            before,
             anim: None,
         });
     }
@@ -116,8 +151,18 @@ impl Scene {
         self.markers.push((name.to_owned(), self.cursor));
     }
 
+    /// A copy of the current state for a clip's keyframe, counted in the bake stats.
+    fn snapshot(&mut self) -> SceneState {
+        self.stats.clips += 1;
+        self.stats.snapshot_mobjects += self.state.len();
+        timed(&mut self.stats.snapshot_ms, || self.state.clone())
+    }
+
     /// Finishes recording.
     pub fn bake(mut self) -> BakedTimeline {
+        // The closing keyframe moves the state rather than cloning it.
+        self.stats.clips += 1;
+        self.stats.snapshot_mobjects += self.state.len();
         let tail = Clip {
             start: self.cursor,
             end: self.cursor,
@@ -130,6 +175,7 @@ impl Scene {
             duration: self.cursor,
             markers: self.markers,
             updaters: self.updaters,
+            stats: self.stats,
         }
     }
 }
@@ -140,12 +186,18 @@ pub struct BakedTimeline {
     duration: f32,
     markers: Vec<(String, f32)>,
     updaters: Vec<Updater>,
+    stats: BakeStats,
 }
 
 impl BakedTimeline {
     /// Total length in seconds.
     pub fn duration(&self) -> f32 {
         self.duration
+    }
+
+    /// Where the bake's time went (see [`time_baking`]).
+    pub fn stats(&self) -> BakeStats {
+        self.stats
     }
 
     /// All markers as `(name, time)`, in recording order.

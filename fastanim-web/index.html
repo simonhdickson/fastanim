@@ -68,7 +68,8 @@
   player.addEventListener("bakeerror", () => { $("status").textContent = ""; });
   player.addEventListener("baked", ({ detail: b }) => {
     $("status").textContent =
-      `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting)`;
+      `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting, ` +
+      `${b.planMs.toFixed(0)} ms planning, ${b.snapshotMs.toFixed(0)} ms keyframes)`;
   });
 
   // Rhai tokens, in priority order: comments, strings, keywords, numbers, CONSTANTS, calls.
