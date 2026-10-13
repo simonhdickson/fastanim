@@ -119,12 +119,13 @@ impl Scene {
             return;
         }
         // Keyframe now: `add`/`remove` since the last clip must show during the wait.
+        let before = self.snapshot();
         let start = self.cursor;
         self.cursor += secs;
         self.clips.push(Clip {
             start,
             end: self.cursor,
-            before: self.snapshot(),
+            before,
             anim: None,
         });
     }
