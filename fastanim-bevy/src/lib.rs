@@ -18,7 +18,7 @@ mod audio;
 pub mod export;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
@@ -27,12 +27,15 @@ use bevy_vello::VelloPlugin;
 use bevy_vello::prelude::*;
 use clap::{Parser, Subcommand};
 use fastanim_core::{
-    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, Scene, SceneEvent, SceneState, VState,
+    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, ImageFill, Scene, SceneEvent, SceneState,
+    VState,
 };
 
 use bevy_vello::vello;
 use bevy_vello::vello::kurbo::{self, Affine, BezPath, Cap, Join, Rect};
-use bevy_vello::vello::peniko::{Color, Fill};
+use bevy_vello::vello::peniko::{
+    Blob, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,
+};
 
 /// Preview or export a fastanim scene.
 #[derive(Debug, Parser)]
@@ -505,6 +508,9 @@ fn encode_one(scene: &mut vello::Scene, m: &VState) {
     if m.opacity <= 0.0 {
         return;
     }
+    if let Some(i) = &m.image {
+        encode_image(scene, i, ImageFill::alpha(m.opacity, &m.draw_range));
+    }
     let path = bez_path(&m.path.trim(m.draw_range.clone()));
     if path.elements().is_empty() {
         return;
@@ -520,6 +526,49 @@ fn encode_one(scene: &mut vello::Scene, m: &VState) {
             .with_caps(Cap::Round);
         scene.stroke(&stroke, flip, color(m.stroke.color), None, &path);
     }
+}
+
+/// Draws `i`'s pixels over the unit square its transform places.
+fn encode_image(scene: &mut vello::Scene, i: &ImageFill, alpha: f32) {
+    if alpha <= 0.0 {
+        return;
+    }
+    let img = &i.image;
+    let data = ImageData {
+        data: blob(img),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: img.width(),
+        height: img.height(),
+    };
+    // Vello's `Low` is nearest-neighbour.
+    let quality = if i.smooth {
+        ImageQuality::Medium
+    } else {
+        ImageQuality::Low
+    };
+    let brush = ImageBrush::new(data)
+        .with_quality(quality)
+        .with_alpha(alpha);
+    let to_unit =
+        Affine::scale_non_uniform(1.0 / f64::from(img.width()), 1.0 / f64::from(img.height()));
+    scene.draw_image(&brush, Affine::FLIP_Y * i.transform * to_unit);
+}
+
+/// One Vello blob per image, so the renderer sees the same image id every frame instead of a
+/// new one to upload.
+fn blob(img: &fastanim_core::Image) -> Blob<u8> {
+    static BLOBS: Mutex<Vec<(Weak<Vec<u8>>, Blob<u8>)>> = Mutex::new(Vec::new());
+    let px = img.shared_pixels();
+    let mut blobs = BLOBS.lock().unwrap();
+    // The blob holds one reference itself; drop it once nothing else does.
+    blobs.retain(|(w, _)| w.strong_count() > 1);
+    if let Some((_, b)) = blobs.iter().find(|(w, _)| w.as_ptr() == Arc::as_ptr(&px)) {
+        return b.clone();
+    }
+    let b = Blob::new(px.clone());
+    blobs.push((Arc::downgrade(&px), b.clone()));
+    b
 }
 
 fn bez_path(p: &fastanim_core::VPath) -> BezPath {

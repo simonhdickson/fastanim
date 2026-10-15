@@ -8,7 +8,7 @@ use fastanim_core::kurbo::{Affine, Point, Vec2};
 use fastanim_core::{
     Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, Position, RateFn, VState,
 };
-use fastanim_text::TextMobject;
+use fastanim_text::{TextMobject, TextStyle};
 use rhai::{
     AST, Array, Dynamic, Engine, EvalAltResult, FnPtr, FuncArgs, Map, NativeCallContext,
     ParseError, Scope,
@@ -237,6 +237,36 @@ fn fit_y(cx: &NativeCallContext, f: &FnPtr, x: [f64; 3]) -> Res<[f64; 3]> {
     )
 }
 
+/// Rows of pixels, each a number (grey) or an array of 3 or 4 numbers; ints allowed.
+fn pixel_rows(rows: Array) -> Res<Vec<Vec<Vec<f64>>>> {
+    let num = |d: &Dynamic| {
+        (d.as_float().or_else(|_| d.as_int().map(|i| i as f64)))
+            .map_err(|ty| format!("pixel values must be numbers, got {ty}"))
+    };
+    (rows.into_iter())
+        .map(|row| -> Res<Vec<Vec<f64>>> {
+            let ty = row.type_name();
+            let row = (row.try_cast::<Array>())
+                .ok_or_else(|| format!("an image is an array of rows, got a {ty} row"))?;
+            (row.iter())
+                .map(|p| match p.read_lock::<Array>() {
+                    Some(c) => c.iter().map(num).collect(),
+                    None => Ok(vec![num(p)?]),
+                })
+                .collect::<Result<_, String>>()
+                .map_err(Into::into)
+        })
+        .collect()
+}
+
+fn text_style(opts: Map) -> Res<TextStyle> {
+    let mut style = TextStyle::default();
+    for (k, v) in opts {
+        crate::text_option(&mut style, &k, v.into_string().ok())?;
+    }
+    Ok(style)
+}
+
 /// `group([...])`: handles make a [`Mob::Group`], values a [`VGroup`].
 fn group(a: Array) -> Res<Dynamic> {
     if a.iter().all(|d| d.is::<Mob>()) && !a.is_empty() {
@@ -306,6 +336,12 @@ macro_rules! positional {
                 m.next_to(&o, d, b)
             })
             .register_fn("align_to", |m: $t, o: VGroup, d: Vec2| m.align_to(&o, d))
+            .register_fn("scale_to_fit_height", |m: $t, h: f64| {
+                m.scale_to_fit_height(h)
+            })
+            .register_fn("scale_to_fit_width", |m: $t, w: f64| {
+                m.scale_to_fit_width(w)
+            })
             .register_fn("center", |m: $t| {
                 m.bbox().map_or(Point::ORIGIN, |b| b.center()).to_vec2()
             })
@@ -375,6 +411,14 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
                 })
             },
         )
+        .register_fn("image", {
+            let dir = dir.clone();
+            move |path: &str| Ok(crate::image(&dir.join(path))?) as Res<_>
+        })
+        .register_fn("image", |rows: Array| {
+            Ok(crate::image_from_rows(&pixel_rows(rows)?)?) as Res<_>
+        })
+        .register_fn("pixelated", VState::pixelated)
         .register_fn("fill", |m: VState, c: Color| m.fill(c))
         .register_fn("stroke", |m: VState, c: Color, w: f64| m.stroke(c, w))
         .register_fn("z_index", |m: VState, z: i64| m.z_index(z as i32))
@@ -394,6 +438,25 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("code", |s: &str, lang: &str| {
             TextMobject::code(s, lang).map_err(Into::into) as Res<_>
+        })
+        .register_fn("text", |s: &str, opts: Map| {
+            Ok(TextMobject::text_styled(s, &text_style(opts)?)?) as Res<_>
+        })
+        .register_fn("math_tex", |s: &str, opts: Map| {
+            Ok(TextMobject::math_styled(s, &text_style(opts)?)?) as Res<_>
+        })
+        .register_fn("latex", |s: &str, opts: Map| {
+            Ok(TextMobject::latex_styled(s, &text_style(opts)?)?) as Res<_>
+        })
+        .register_fn("code", |s: &str, lang: &str, opts: Map| {
+            Ok(TextMobject::code_styled(s, lang, &text_style(opts)?)?) as Res<_>
+        })
+        .register_fn("load_font", {
+            let dir = dir.clone();
+            move |path: &str| -> Res<Array> {
+                let families = crate::load_font(&dir.join(path))?;
+                Ok(families.into_iter().map(Dynamic::from).collect())
+            }
         })
         .register_fn("list", |a: Array| fastanim_text::list(&a))
         .register_fn("fill", |m: TextMobject, c: Color| m.fill(c))

@@ -103,6 +103,52 @@ fn moving_group_matches_rhai() {
     assert_same(&rhai("moving_group"), &script("moving_group"));
 }
 
+#[test]
+fn gradient_image_matches_rhai() {
+    assert_same(&rhai("gradient_image"), &script("gradient_image"));
+}
+
+#[test]
+fn images_and_fonts() {
+    run(r##"
+from fastanim import *
+
+def raises(kind, text, f, *args, **kwargs):
+    try:
+        f(*args, **kwargs)
+    except kind as e:
+        assert text in str(e), e
+    else:
+        raise AssertionError(f"expected {kind.__name__}")
+
+class Array:
+    """Stands in for a NumPy array, which becomes nested lists."""
+    def tolist(self):
+        return [[0, 255], [(255, 0, 0), (0, 0, 255, 128)]]
+
+a = image(Array(), height=2, pixelated=True)
+assert abs(a.center()) < 1e-9
+b = image([[1, 2, 3]]).scale_to_fit_width(3)
+assert b.next_to(a, RIGHT).center().x > 1
+
+@scene
+def s(s):
+    m = s.add(a)
+    s.play(rotate(m, 1))
+assert s.bake().svg(0).count("<image") == 1
+
+raises(TypeError, "expected a path or rows of pixels", image, 42)
+raises(ValueError, "row 1 has 1 pixels", image, [[1, 2], [3]])
+raises(ValueError, "not both", image, [[1]], height=1, width=1)
+raises(SceneError, "missing.png", image, "missing.png")
+
+text("mono", font="DejaVu Sans Mono")
+code("let x = 1;", "rust", font="DejaVu Sans Mono")
+raises(TypesetError, "load_font", text, "x", font="No Such Font")
+raises(SceneError, "no/such/font.ttf", load_font, "no/such/font.ttf")
+"##);
+}
+
 /// The exception `src`'s scene `s` raises, as `Type: message`.
 fn err(src: &str) -> String {
     let src = format!("from fastanim import *\n@scene\ndef s(s):\n{}", indent(src));

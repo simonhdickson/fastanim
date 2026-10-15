@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 hound = "3.5"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 kurbo = "0.13"
 fastanim-diff.workspace = true
 

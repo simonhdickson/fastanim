@@ -8,6 +8,7 @@ pub mod audio;
 pub mod axes;
 pub mod color;
 pub mod geom;
+pub mod image;
 pub mod mobject;
 pub mod position;
 pub mod svg;
@@ -18,6 +19,7 @@ pub use fastanim_diff::Op;
 pub use kurbo;
 pub use kurbo::{Point, Vec2};
 
+pub use self::image::{Image, ImageFill};
 pub use anim::{
     Animation, AnimationExt, Ease, LaggedStart, Named, Overlay, Parallel, RateFn,
     ReplacementTransform, Sequence, Transform, Unwrite, Update, UpdateGroup, apply_function,

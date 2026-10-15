@@ -9,6 +9,7 @@ use kurbo::{Affine, Point, Vec2};
 use crate::Interpolate;
 use crate::color::{Color, WHITE};
 use crate::geom::VPath;
+use crate::image::{Image, ImageFill, lerp_affine};
 
 /// Identifies a mobject within a [`Scene`](crate::Scene).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,6 +44,9 @@ pub struct VState {
     pub z_index: i32,
     /// Fraction `0..1` of arc length that is drawn; driven by `create`.
     pub draw_range: Range<f32>,
+    /// A raster image drawn under the fill and stroke, moving with the shape; boxed, as
+    /// most shapes have none.
+    pub image: Option<Box<ImageFill>>,
 }
 
 impl VState {
@@ -58,7 +62,32 @@ impl VState {
             opacity: 1.0,
             z_index: 0,
             draw_range: 0.0..1.0,
+            image: None,
         }
+    }
+
+    /// `img` on a rectangle of its size centered on the origin, manim's `ImageMobject`: as
+    /// tall as [`Image::default_height`], and with no outline.
+    pub fn image(img: Image) -> Self {
+        let h = img.default_height();
+        let w = h * f64::from(img.width()) / f64::from(img.height());
+        let place = Affine::new([w, 0.0, 0.0, -h, -w / 2.0, h / 2.0]);
+        Self {
+            image: Some(Box::new(ImageFill {
+                image: img,
+                transform: place,
+                smooth: true,
+            })),
+            ..Self::rectangle(w, h).stroke(Color::TRANSPARENT, 0.0)
+        }
+    }
+
+    /// Draws the image with nearest-neighbour resampling, so pixels stay sharp squares.
+    pub fn pixelated(mut self) -> Self {
+        if let Some(i) = &mut self.image {
+            i.smooth = false;
+        }
+        self
     }
 
     /// Circle centered on the origin.
@@ -144,10 +173,16 @@ impl VState {
         Self { z_index, ..self }
     }
 
-    /// Applies an affine transform to the geometry.
+    /// Applies an affine transform to the geometry, and any image with it.
     pub fn transform(self, a: Affine) -> Self {
         Self {
             path: self.path.transform(a),
+            image: self.image.map(|i| {
+                Box::new(ImageFill {
+                    transform: a * i.transform,
+                    ..*i
+                })
+            }),
             ..self
         }
     }
@@ -252,6 +287,24 @@ impl Interpolate for VState {
             z_index: if t < 1.0 { a.z_index } else { b.z_index },
             draw_range: f32::lerp(&a.draw_range.start, &b.draw_range.start, t)
                 ..f32::lerp(&a.draw_range.end, &b.draw_range.end, t),
+            image: lerp_image(&a.image, &b.image, t),
         }
+    }
+}
+
+/// Placements blend when both ends have an image; the pixels (and a lone image) switch at the
+/// end, like `z_index`. Cross-fading two images is left to `fade_out` and `fade_in`.
+fn lerp_image(
+    a: &Option<Box<ImageFill>>,
+    b: &Option<Box<ImageFill>>,
+    t: f32,
+) -> Option<Box<ImageFill>> {
+    let pick = if t < 1.0 { a } else { b };
+    match (a, b) {
+        (Some(x), Some(y)) => Some(Box::new(ImageFill {
+            transform: lerp_affine(x.transform, y.transform, f64::from(t)),
+            ..(**pick.as_ref()?).clone()
+        })),
+        _ => pick.clone(),
     }
 }

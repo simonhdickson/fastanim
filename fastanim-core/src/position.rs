@@ -64,6 +64,27 @@ pub trait Position: Sized {
         self.transform(Affine::translate(v))
     }
 
+    /// Scales about the bounding-box center to be `height` tall, manim's
+    /// `scale_to_fit_height`.
+    fn scale_to_fit_height(self, height: f64) -> Self {
+        match self.bbox() {
+            Some(b) if b.height() > 0.0 => {
+                self.transform(Affine::scale_about(height / b.height(), b.center()))
+            }
+            _ => self,
+        }
+    }
+
+    /// Scales about the bounding-box center to be `width` wide, manim's `scale_to_fit_width`.
+    fn scale_to_fit_width(self, width: f64) -> Self {
+        match self.bbox() {
+            Some(b) if b.width() > 0.0 => {
+                self.transform(Affine::scale_about(width / b.width(), b.center()))
+            }
+            _ => self,
+        }
+    }
+
     /// Moves against the frame edge in direction `dir` (e.g. `UP`, or `UP + LEFT` for a
     /// corner), leaving manim's 0.5-unit gap.
     fn to_edge(self, dir: Vec2) -> Self {

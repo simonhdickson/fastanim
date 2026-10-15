@@ -76,12 +76,15 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   `unwrite`, `shrink_to_center`, `move_to`, `apply_function`, `indicate`, `wiggle`,
   `circumscribe`, `flash`; composed with `Parallel`, `Sequence` and `lagged_start`; eased with
   quad, cubic, expo, back and spring rate functions.
-- **Layout**: `next_to`, `align_to`, `to_edge`, `arrange`.
+- **Layout**: `next_to`, `align_to`, `to_edge`, `arrange`, `scale_to_fit_height`/`width`.
 - **Graphs**: manim-style `axes` (with arrow tips and labels) and `fit_axes`, which picks the
   y range; `plot` graphs a function, `c2p` maps graph to scene coordinates.
 - **Text & math**: [Typst](https://typst.app) (bundled fonts, no LaTeX) laid out into
   per-glyph shapes and diffable tokens via `text`, `math_tex` and `code`. `latex` takes
   LaTeX math instead, converted to Typst by [MiTeX](https://github.com/mitex-rs/mitex).
+  `load_font` adds TTF/OTF fonts from files, chosen per text with a `font` option.
+- **Images**: PNG and JPEG files, or pixel arrays (Rhai arrays, NumPy in Python), as shapes
+  that move, scale, rotate, fade and group like any other; smooth or pixelated.
 - **`TransformDiff`**: token diffs choreographed into slides, arcing moves, morphs and fades,
   with `DiffStyle` phasing, highlights and a debug tint. Code diffs line by line, then token by
   token; `list` cells swap with two arcing moves.

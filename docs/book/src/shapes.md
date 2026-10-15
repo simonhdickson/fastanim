@@ -67,12 +67,41 @@ These methods work on shapes, texts, axes and groups alike.
 | `.next_to(other, dir)` | Place beside `other` (a shape, text, group or point, not a mobject handle), `DEFAULT_BUFF` apart |
 | `.next_to(other, dir, buff)` | The same, `buff` apart |
 | `.align_to(other, dir)` | Line up the `dir` edge with `other`'s |
+| `.scale_to_fit_height(h)` | Scale about the center to be `h` tall |
+| `.scale_to_fit_width(w)` | Scale about the center to be `w` wide |
 | `.center()` | The bounding-box center, as a point |
 
 ```rhai
 let box = square(1.0);
 let label = text("box").next_to(box, DOWN);
 ```
+
+## Images
+
+`image(path)` loads a PNG or JPEG file (relative to the script's directory), and
+`image(rows)` builds one from pixels: an array of rows, top row first, each pixel a grey value
+or `[r, g, b]` or `[r, g, b, a]`, all from 0 to 255. Like manim's `ImageMobject`, an image is
+sized so that one 1080 pixels tall would fill the frame's height; `scale_to_fit_height` sets it
+directly.
+
+An image is a shape: a rectangle with the pixels drawn inside, and no outline. It moves,
+scales, rotates, fades and groups like any other shape, and `.stroke(color, width)` gives it a
+border. `create` fades it in rather than drawing it. `.pixelated()` keeps pixels sharp when
+scaled up, instead of smoothing them.
+
+```rhai
+let photo = scene.add(image("photo.png").scale_to_fit_height(4.0));
+let ramp = [];
+for i in 0..256 { ramp.push(i); }
+let rows = [];
+for _ in 0..16 { rows.push(ramp); }
+let bar = scene.add(image(rows).pixelated().next_to(scene.get(photo), DOWN));
+scene.play(rotate(group([photo, bar]), PI / 8.0));
+```
+
+`transform` between two images moves one onto the other, and switches pixels at the end; use
+`fade_out` and `fade_in` to cross-fade. Image files can't be loaded in the browser playground
+yet, but images built from pixels can.
 
 ## Groups
 
