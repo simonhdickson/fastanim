@@ -24,8 +24,8 @@ cargo install --locked --git https://github.com/simonhdickson/fastanim fastanim-
 ```
 
 On Linux, building needs `libudev-dev`, `libwayland-dev` and `libxkbcommon-dev` (or your
-distro's equivalents). Either way you get a `fastanim` binary; video export also needs `ffmpeg`
-on your `PATH`.
+distro's equivalents), plus `libasound2-dev` for sound in the preview. Either way you get a
+`fastanim` binary; video export also needs `ffmpeg` on your `PATH`.
 
 ## A taste
 
@@ -71,6 +71,8 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   (Space play/pause, ←/→ step, `[`/`]` markers, drag the bar).
 - **Export**: headless rendering piped to ffmpeg as MP4, WebM or GIF, or PNG/SVG frames, with
   quality presets, `--section` and stills.
+- **Sound**: WAV clips played whole or in part, as animations that `play` waits for or in the
+  background with `add_sound`; heard in the preview and mixed into MP4 and WebM exports.
 - **Scripting**: `fastanim preview` plays Rhai scenes, re-baking on save; `fastanim render` and `fastanim still` export them.
   Typeset text is memoized, so a re-bake only typesets what changed.
 - **Browser playground**: `fastanim-web` bakes and draws scripts in a Web Worker onto a

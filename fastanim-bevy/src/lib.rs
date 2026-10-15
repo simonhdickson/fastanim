@@ -13,6 +13,8 @@
 //! fastanim_bevy::preview(s.bake());
 //! ```
 
+#[cfg(feature = "audio")]
+mod audio;
 pub mod export;
 
 use std::path::PathBuf;
@@ -247,6 +249,9 @@ impl Plugin for FastanimPlugin {
             })
             .add_systems(Startup, setup)
             .add_systems(Update, (controls, advance_clock, draw).chain());
+        #[cfg(feature = "audio")]
+        app.init_resource::<audio::AudioOut>()
+            .add_systems(Update, audio::sync_audio.after(advance_clock));
     }
 }
 
@@ -496,6 +501,37 @@ mod tests {
         let t: Vec<f32> = export::frame_times(1.0, 1.1, 30).collect();
         assert_eq!(t, [1.0, 31.0 / 30.0, 32.0 / 30.0, 1.1]);
         assert_eq!(export::frame_times(0.0, 0.0, 60).count(), 1);
+    }
+
+    #[test]
+    fn sounds_are_trimmed_and_delayed_to_the_range() {
+        use fastanim_core::{Sound, SoundEvent};
+        let at = |at: f32, offset: f32, duration: f32| SoundEvent {
+            at,
+            sound: Sound {
+                path: std::path::Path::new("a.wav").into(),
+                offset,
+                duration,
+            },
+        };
+        let sounds = [at(0.0, 0.5, 2.0), at(3.0, 0.0, 4.0), at(9.0, 0.0, 1.0)];
+        let args = |range, ext| export::audio_args(&sounds, range, ext).join(" ");
+
+        assert_eq!(
+            args((0.0, 5.0), "mp4"),
+            "-ss 0.5 -t 2 -i a.wav -ss 0 -t 2 -i a.wav \
+             -filter_complex [1:a]adelay=0:all=1[a1];[2:a]adelay=3000:all=1[a2];\
+             [a1][a2]amix=inputs=2:normalize=0[aout] -map 0:v -map [aout] -c:a aac"
+        );
+        // A section starting mid-sound skips into it.
+        assert_eq!(
+            args((4.0, 9.5), "webm"),
+            "-ss 1 -t 3 -i a.wav -ss 0 -t 0.5 -i a.wav \
+             -filter_complex [1:a]adelay=0:all=1[a1];[2:a]adelay=5000:all=1[a2];\
+             [a1][a2]amix=inputs=2:normalize=0[aout] -map 0:v -map [aout] -c:a libopus"
+        );
+        assert_eq!(args((7.5, 8.5), "mp4"), "");
+        assert_eq!(args((0.0, 5.0), "gif"), "");
     }
 
     #[test]

@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
-    Axes as CoreAxes, BakedTimeline, Color as CoreColor, DEFAULT_BUFF, DiffStyle, Position, RateFn,
-    SceneState, VState,
+    Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, Color as CoreColor, DEFAULT_BUFF,
+    DiffStyle, Position, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Mob, Opt};
 use fastanim_text::TextMobject;
@@ -236,6 +236,28 @@ struct Text(TextMobject);
 #[pyclass(frozen, from_py_object, name = "Axes", module = "fastanim")]
 #[derive(Clone, Copy)]
 struct PyAxes(CoreAxes);
+
+/// A loaded WAV file.
+#[pyclass(frozen, from_py_object, name = "Audio", module = "fastanim")]
+#[derive(Clone)]
+struct PyAudio(CoreAudio);
+
+#[pymethods]
+impl PyAudio {
+    /// Length in seconds.
+    #[getter]
+    fn duration(&self) -> f32 {
+        self.0.duration()
+    }
+}
+
+impl PyAudio {
+    /// Seconds `start..end`, either end defaulting to the file's; `None` for the whole file.
+    fn range(&self, start: Option<f32>, end: Option<f32>) -> Option<(f32, f32)> {
+        (start.is_some() || end.is_some())
+            .then(|| (start.unwrap_or(0.0), end.unwrap_or(self.0.duration())))
+    }
+}
 
 /// What `next_to` and `align_to` place against.
 #[derive(FromPyObject)]
@@ -716,6 +738,19 @@ impl PyScene {
         Ok(())
     }
 
+    /// Starts `audio`, or seconds `start..end` of it, without waiting for it.
+    #[pyo3(signature = (audio, start = None, end = None))]
+    fn add_sound(&self, audio: PyAudio, start: Option<f32>, end: Option<f32>) -> PyResult<()> {
+        let range = audio.range(start, end);
+        self.lock()?.add_sound(&audio.0, range).map_err(scene_err)
+    }
+
+    /// Waits until every sound started so far has finished.
+    fn wait_for_sounds(&self) -> PyResult<()> {
+        self.lock()?.scene.wait_for_sounds();
+        Ok(())
+    }
+
     /// Keeps shape `m` at `f(state, t)` from now on. Without `f`, a decorator.
     #[pyo3(signature = (m, f = None))]
     fn always(slf: &Bound<'_, Self>, m: PyMob, f: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
@@ -1133,6 +1168,23 @@ fn lagged_start(anims: Vec<A>, lag_ratio: f32) -> PyAnim {
     PyAnim(fastanim_script::lagged_start(lag_ratio, self::anims(anims)))
 }
 
+/// Loads the WAV at `path`, relative to the current directory.
+#[pyfunction]
+fn audio(path: std::path::PathBuf) -> PyResult<PyAudio> {
+    (fastanim_script::audio(&path))
+        .map(PyAudio)
+        .map_err(scene_err)
+}
+
+/// Plays `audio`, or seconds `start..end` of it, lasting until it finishes.
+#[pyfunction]
+#[pyo3(signature = (audio, start = None, end = None))]
+fn sound(audio: PyAudio, start: Option<f32>, end: Option<f32>) -> PyResult<PyAnim> {
+    (fastanim_script::sound(&audio.0, audio.range(start, end)))
+        .map(PyAnim)
+        .map_err(scene_err)
+}
+
 fn constant(py: Python<'_>, c: Const) -> PyResult<Py<PyAny>> {
     Ok(match c {
         Const::Point(v) => Py::new(py, PyPoint(v))?.into_any(),
@@ -1154,6 +1206,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Shape>()?;
     m.add_class::<Text>()?;
     m.add_class::<PyAxes>()?;
+    m.add_class::<PyAudio>()?;
     m.add_class::<PyMob>()?;
     m.add_class::<Animate>()?;
     m.add_class::<PyAnim>()?;
@@ -1220,6 +1273,8 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         parallel,
         sequence,
         lagged_start,
+        audio,
+        sound,
     );
     Ok(())
 }

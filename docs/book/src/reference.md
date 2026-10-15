@@ -15,6 +15,8 @@ Rhai's standard library is available too but not listed.
 add(_: &mut Scene, _: Axes) -> Mobject
 add(_: &mut Scene, _: Shape) -> Mobject
 add(_: &mut Scene, _: Text) -> Mobject
+add_sound(_: &mut Scene, _: Audio) -> ()
+add_sound(_: &mut Scene, _: Audio, _: f64, _: f64) -> ()
 align_to(_: Axes, _: Shape, _: Point) -> Axes
 align_to(_: Axes, _: Text, _: Point) -> Axes
 align_to(_: Shape, _: Shape, _: Point) -> Shape
@@ -24,6 +26,7 @@ align_to(_: Text, _: Text, _: Point) -> Text
 always(_: &mut Scene, _: Mobject, _: Fn) -> ()
 apply_function(_: Mobject, _: Fn) -> Animation
 arc(_: f64, _: f64, _: f64) -> Shape
+audio(_: string) -> Audio
 axes(_: array, _: array) -> Axes
 axes(_: array, _: array, _: f64, _: f64) -> Axes
 c2p(_: &mut Axes, _: f64, _: f64) -> Point
@@ -44,6 +47,7 @@ fit_axes(_: Fn, _: array) -> Axes
 fit_axes(_: Fn, _: array, _: f64, _: f64) -> Axes
 flash(_: Point) -> Animation
 function_graph(_: Fn, _: f64, _: f64, _: i64) -> Shape
+get$duration(_: &mut Audio) -> f64
 get$glyphs(_: &mut Text) -> array
 get$time(_: &mut Scene) -> f64
 get$x(_: &mut Point) -> f64
@@ -109,6 +113,8 @@ shift(_: Mobject, _: Point) -> Animation
 shift(_: Shape, _: Point) -> Shape
 shift(_: Text, _: Point) -> Text
 shrink_to_center(_: Mobject) -> Animation
+sound(_: Audio) -> Animation
+sound(_: Audio, _: f64, _: f64) -> Animation
 spin_in(_: Mobject) -> Animation
 spring(_: f64, _: f64) -> Rate
 square(_: f64) -> Shape
@@ -129,6 +135,7 @@ update(_: Mobject, _: Fn) -> Animation
 vertical_line(_: &mut Axes, _: Point) -> Shape
 wait(_: &mut Scene) -> ()
 wait(_: &mut Scene, _: f64) -> ()
+wait_for_sounds(_: &mut Scene) -> ()
 wiggle(_: Mobject) -> Animation
 with_alpha(_: Color, _: f64) -> Color
 write(_: Mobject) -> Animation

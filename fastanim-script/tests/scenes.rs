@@ -123,3 +123,63 @@ fn fit_axes_and_default_plot_range() {
     let e = err("fit_axes(|x| { throw \"boom\" }, [0, 1])");
     assert!(e.message.contains("boom"), "{e}");
 }
+
+/// A directory holding `tone.wav`, two seconds of silence.
+fn wav_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("fastanim-script-sound");
+    std::fs::create_dir_all(&dir).unwrap();
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 8000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(dir.join("tone.wav"), spec).unwrap();
+    (0..16000).for_each(|_| w.write_sample(0i16).unwrap());
+    w.finalize().unwrap();
+    dir
+}
+
+#[test]
+fn sounds_play_and_wait() {
+    let src = r#"
+        let a = audio("tone.wav");
+        if a.duration != 2.0 { throw "duration"; }
+        let c = scene.add(circle(1.0));
+        scene.play(sound(a));
+        scene.play([create(c), sound(a, 0.5, 1.0)]);
+        scene.add_sound(a, 1.0, 2.0);
+        scene.wait(0.25);
+        scene.wait_for_sounds();
+        scene.play(sequence([sound(a, 0.0, 0.5), fade_out(c)]));
+    "#;
+    let tl = fastanim_script::bake_in(src, &wav_dir()).unwrap();
+    // 2 s of sound, 1 s of `create`, waiting on the background sound to 4 s, then 1.5 s more.
+    assert_eq!(tl.duration(), 5.5);
+    let got: Vec<_> = (tl.sounds().iter())
+        .map(|e| (e.at, e.sound.offset, e.sound.duration))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (0.0, 0.0, 2.0),
+            (2.0, 0.5, 0.5),
+            (3.0, 1.0, 1.0),
+            (4.0, 0.0, 0.5),
+        ]
+    );
+}
+
+#[test]
+fn bad_sounds_fail() {
+    let dir = wav_dir();
+    let e = |src: &str| match fastanim_script::bake_in(src, &dir) {
+        Ok(_) => panic!("expected an error from {src:?}"),
+        Err(e) => e.message,
+    };
+    assert!(e(r#"audio("nope.wav")"#).contains("nope.wav"));
+    let m = e(r#"scene.play(sound(audio("tone.wav"), 1.5, 0.5))"#);
+    assert!(m.contains("must lie within 0..2"), "{m}");
+    let m = e(r#"scene.add_sound(audio("tone.wav"), 0.0, 3.0)"#);
+    assert!(m.contains("must lie within"), "{m}");
+}

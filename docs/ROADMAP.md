@@ -144,7 +144,9 @@ These items unblock the most examples, and many later items build on them.
 19. **SVG import:** `svg_mobject(path)` via `usvg`, giving shapes that diff and morph.
 20. **Tables, matrices and bar charts.**
 21. **Zoomed scene.** It needs a second render of the scene inside the frame, so it comes last.
-22. **Sound:** `add_sound` muxed into the export.
+22. ~~**Sound:** `add_sound` muxed into the export.~~ Done: `audio`, `sound`, `add_sound` and
+    `wait_for_sounds`, played in the preview and mixed into MP4 and WebM. Not in the browser
+    player yet.
 
 ## Every item needs
 

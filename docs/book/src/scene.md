@@ -33,6 +33,8 @@ scene; animate the mobject instead.
 | `scene.wait()` | Waits 1 second |
 | `scene.wait(secs)` | Waits `secs` seconds |
 | `scene.time` | The current time, in seconds |
+| `scene.add_sound(a)` | Starts a sound without waiting; see [Sound](audio.md) |
+| `scene.wait_for_sounds()` | Waits until every sound started so far has finished |
 
 ## Markers
 
