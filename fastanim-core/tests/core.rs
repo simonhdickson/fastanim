@@ -471,3 +471,89 @@ fn axes_map_graph_to_scene() {
     );
     assert_eq!(Axes::fit_y_range(|_| 3.0, [0.0, 1.0, 1.0]), [2.0, 4.0, 0.5]);
 }
+
+/// Writes `secs` of silence at 8 kHz to a WAV in the temp dir called `name`.
+fn silent_wav(name: &str, secs: f32) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("fastanim-core-{name}.wav"));
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 8000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(&path, spec).unwrap();
+    for _ in 0..(secs * 8000.0) as u32 {
+        w.write_sample(0i16).unwrap();
+    }
+    w.finalize().unwrap();
+    path
+}
+
+#[test]
+fn audio_loads_and_clips() {
+    let a = Audio::load(silent_wav("clips", 2.5)).unwrap();
+    assert_eq!(a.duration(), 2.5);
+    assert_eq!((a.whole().offset, a.whole().duration), (0.0, 2.5));
+    let c = a.clip(0.5, 2.0);
+    assert_eq!((c.offset, c.duration), (0.5, 1.5));
+    let c = a.clip(-1.0, 9.0);
+    assert_eq!((c.offset, c.duration), (0.0, 2.5));
+    assert_eq!(a.clip(2.0, 1.0).duration, 0.0);
+    assert!(Audio::load("no/such.wav").is_err());
+}
+
+#[test]
+fn sounds_play_and_wait() {
+    let a = Audio::load(silent_wav("plays", 2.0)).unwrap();
+    let mut s = Scene::new();
+    let c = s.add(VState::circle(1.0));
+    // Blocking: play waits for the clip.
+    s.play(a.clip(0.5, 1.5));
+    assert_eq!(s.time(), 1.0);
+    // In parallel with a longer animation, play lasts as long as the animation.
+    s.play(Parallel(vec![
+        Box::new(a.whole()),
+        Box::new(create(c).run_time(3.0)),
+    ]));
+    assert_eq!(s.time(), 4.0);
+    // In sequence, each starts when the previous ends.
+    s.play(Sequence(vec![
+        Box::new(fade_out(c)),
+        Box::new(a.clip(0.0, 0.5)),
+        Box::new(a.clip(1.0, 2.0)),
+    ]));
+    assert_eq!(s.time(), 6.5);
+    s.play(lagged_start(
+        0.5,
+        vec![Box::new(a.whole()), Box::new(a.whole())],
+    ));
+    assert_eq!(s.time(), 9.5);
+    // Non-blocking: time doesn't move until we ask to wait for it.
+    s.add_sound(a.whole());
+    assert_eq!(s.time(), 9.5);
+    s.wait(0.5);
+    s.wait_for_sounds();
+    assert_eq!(s.time(), 11.5);
+    s.wait_for_sounds();
+    assert_eq!(s.time(), 11.5);
+
+    let tl = s.bake();
+    assert_eq!(tl.duration(), 11.5);
+    let got: Vec<_> = (tl.sounds().iter())
+        .map(|e| (e.at, e.sound.offset, e.sound.duration))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (0.0, 0.5, 1.0),
+            (1.0, 0.0, 2.0),
+            (5.0, 0.0, 0.5),
+            (5.5, 1.0, 1.0),
+            (6.5, 0.0, 2.0),
+            (7.5, 0.0, 2.0),
+            (9.5, 0.0, 2.0),
+        ]
+    );
+    // Sounds don't touch the picture.
+    assert_eq!(tl.eval(0.5).len(), 1);
+}

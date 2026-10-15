@@ -12,6 +12,12 @@ fastanim-core.workspace = true
 bevy = { version = "0.19", default-features = false, features = ["2d"] }
 bevy_vello = "0.14"
 clap = { version = "4.6.7", features = ["derive"] }
+rodio = { version = "0.21", default-features = false, features = ["playback", "wav"], optional = true }
+
+[features]
+default = ["audio"]
+# Sound in the preview. On Linux it needs ALSA's headers (`libasound2-dev`).
+audio = ["dep:rodio"]
 
 [dev-dependencies]
 fastanim-text.workspace = true

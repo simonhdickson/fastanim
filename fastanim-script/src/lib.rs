@@ -24,14 +24,15 @@
 //! `transform_diff`, ...); `point(x, y)` for points and vectors; and the [`CONSTANTS`]. In Rhai,
 //! numbers passed as floats must be written as floats (`1.0`, not `1`).
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW};
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
-    Animation, AnimationExt, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH, Group,
-    LEFT, MobjectId, Parallel, RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update, UpdateGroup,
-    VState,
+    Animation, AnimationExt, Audio, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH,
+    Group, LEFT, MobjectId, Parallel, RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update,
+    UpdateGroup, VState,
 };
 use fastanim_text::{TextMobject, TokenKey};
 
@@ -40,7 +41,7 @@ mod rhai;
 #[cfg(all(feature = "rhai", feature = "metadata"))]
 pub use rhai::signatures;
 #[cfg(feature = "rhai")]
-pub use rhai::{Error, bake};
+pub use rhai::{Error, bake, bake_in};
 
 /// The scene being recorded, plus the text groups that scripts hold by index.
 pub struct Ctx {
@@ -74,6 +75,12 @@ impl Ctx {
             texts: Vec::new(),
             err: Arc::default(),
         }
+    }
+
+    /// Starts `a`, or seconds `range` of it, now without waiting for it.
+    pub fn add_sound(&mut self, a: &Audio, range: Option<(f32, f32)>) -> Result<(), String> {
+        self.scene.add_sound(clip(a, range)?);
+        Ok(())
     }
 
     /// The ids of `m`, all of which must still be in the scene.
@@ -429,6 +436,35 @@ pub fn animate(
                 .collect(),
         )))
     })
+}
+
+/// Loads the WAV at `path`.
+pub fn audio(path: &Path) -> Result<Audio, String> {
+    if cfg!(target_arch = "wasm32") {
+        return Err("audio isn't supported in the browser player yet".into());
+    }
+    Audio::load(path)
+}
+
+/// `a`, or seconds `start..end` of it, which must lie within it.
+fn clip(a: &Audio, range: Option<(f32, f32)>) -> Result<fastanim_core::Sound, String> {
+    let Some((start, end)) = range else {
+        return Ok(a.whole());
+    };
+    let len = a.duration();
+    if !(0.0 <= start && start < end && end <= len) {
+        return Err(format!(
+            "sound range {start}..{end} must lie within 0..{len} (`{}`)",
+            a.path().display()
+        ));
+    }
+    Ok(a.clip(start, end))
+}
+
+/// Plays `a`, or seconds `range` of it, lasting until it finishes.
+pub fn sound(a: &Audio, range: Option<(f32, f32)>) -> Result<Anim, String> {
+    let s = clip(a, range)?;
+    Ok(Anim::new(move |_| Ok(Box::new(s.clone()))))
 }
 
 /// Plays `a` together.

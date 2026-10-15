@@ -5,6 +5,7 @@ use std::f64::consts::{FRAC_PI_2, TAU};
 use kurbo::{Affine, CubicBez, Point, Vec2};
 
 use crate::Interpolate;
+use crate::audio::SoundEvent;
 use crate::color::{Color, YELLOW};
 use crate::geom::{VPath, align};
 use crate::mobject::{MobjectId, SceneState, Stroke, VState};
@@ -115,6 +116,11 @@ pub trait Animation: Send + Sync {
     fn rate_fn(&self) -> RateFn {
         RateFn::Smooth
     }
+
+    /// Adds the sounds this animation plays to `out`, as if it started at scene time `at`.
+    fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
+        let _ = (at, out);
+    }
 }
 
 impl Animation for Box<dyn Animation> {
@@ -129,6 +135,9 @@ impl Animation for Box<dyn Animation> {
     }
     fn rate_fn(&self) -> RateFn {
         (**self).rate_fn()
+    }
+    fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
+        (**self).sounds(at, out);
     }
 }
 
@@ -188,6 +197,9 @@ impl<A: Animation> Animation for Timed<A> {
     }
     fn rate_fn(&self) -> RateFn {
         self.rate
+    }
+    fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
+        self.anim.sounds(at, out);
     }
 }
 
@@ -680,6 +692,9 @@ impl Animation for Parallel {
     fn rate_fn(&self) -> RateFn {
         RateFn::Linear
     }
+    fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
+        self.0.iter().for_each(|a| a.sounds(at, out));
+    }
 }
 
 /// Plays animations one after another, manim's `Succession`; each plans against the scene as
@@ -712,6 +727,12 @@ impl Animation for Sequence {
     }
     fn rate_fn(&self) -> RateFn {
         RateFn::Linear
+    }
+    fn sounds(&self, mut at: f32, out: &mut Vec<SoundEvent>) {
+        for a in &self.0 {
+            a.sounds(at, out);
+            at += a.duration();
+        }
     }
 }
 
@@ -757,5 +778,10 @@ impl Animation for LaggedStart {
     }
     fn rate_fn(&self) -> RateFn {
         RateFn::Linear
+    }
+    fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
+        for (a, s) in self.anims.iter().zip(&self.starts) {
+            a.sounds(at + s, out);
+        }
     }
 }

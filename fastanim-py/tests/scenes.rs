@@ -176,3 +176,57 @@ def s(s):
 "##;
     attach(|py| bake_src(py, src, "s")).unwrap_or_else(|e| panic!("{e}"));
 }
+
+#[test]
+fn sounds_match_rhai() {
+    let wav = std::env::temp_dir().join("fastanim-py-tone.wav");
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 8000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(&wav, spec).unwrap();
+    (0..16000).for_each(|_| w.write_sample(0i16).unwrap());
+    w.finalize().unwrap();
+    let wav = wav.display();
+
+    let py = format!(
+        r#"
+from fastanim import *
+
+@scene
+def s(s):
+    a = audio("{wav}")
+    assert a.duration == 2
+    c = s.add(circle(1))
+    s.play(sound(a))
+    s.play(create(c), sound(a, 0.5, 1))
+    s.add_sound(a, start=1)
+    s.wait_for_sounds()
+    s.play(sound(a, end=0.5))
+"#
+    );
+    let rhai = format!(
+        r#"
+        let a = audio("{wav}");
+        let c = scene.add(circle(1.0));
+        scene.play(sound(a));
+        scene.play([create(c), sound(a, 0.5, 1.0)]);
+        scene.add_sound(a, 1.0, 2.0);
+        scene.wait_for_sounds();
+        scene.play(sound(a, 0.0, 0.5));
+    "#
+    );
+    let a = attach(|py_| bake_src(py_, &py, "s")).unwrap_or_else(|e| panic!("{e}"));
+    let b = fastanim_script::bake(&rhai).unwrap();
+    assert_eq!(a.duration(), 4.5);
+    assert_eq!(a.sounds(), b.sounds());
+    assert_same(&a, &b);
+
+    let e = err(&format!("s.play(sound(audio(\"{wav}\"), 1.5, 0.5))"));
+    assert!(
+        e.starts_with("SceneError") && e.contains("must lie within"),
+        "{e}"
+    );
+}

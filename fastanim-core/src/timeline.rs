@@ -3,6 +3,7 @@
 use std::sync::{Arc, OnceLock};
 
 use crate::anim::{Animation, RateFn};
+use crate::audio::{Sound, SoundEvent};
 use crate::mobject::{MobjectId, SceneState, VState};
 
 /// A clip and the scene as it was when the clip started (the keyframe).
@@ -65,6 +66,7 @@ pub struct Scene {
     next_id: u32,
     markers: Vec<(String, f32)>,
     updaters: Vec<Updater>,
+    sounds: Vec<SoundEvent>,
     stats: BakeStats,
 }
 
@@ -104,6 +106,7 @@ impl Scene {
         let before = self.snapshot();
         anim.sample(rate.apply(1.0), &mut self.state);
         let start = self.cursor;
+        anim.sounds(start, &mut self.sounds);
         self.cursor += anim.duration().max(0.0);
         self.clips.push(Clip {
             start,
@@ -128,6 +131,21 @@ impl Scene {
             before,
             anim: None,
         });
+    }
+
+    /// Starts `sound` now without waiting for it: time doesn't advance, so the scene goes on
+    /// underneath. [`wait_for_sounds`](Scene::wait_for_sounds) catches up with it.
+    pub fn add_sound(&mut self, sound: Sound) {
+        self.sounds.push(SoundEvent {
+            at: self.cursor,
+            sound,
+        });
+    }
+
+    /// Holds still until every sound started so far has finished.
+    pub fn wait_for_sounds(&mut self) {
+        let end = self.sounds.iter().map(SoundEvent::end).fold(0.0, f32::max);
+        self.wait(end - self.cursor);
     }
 
     /// From now on, mobject `id` is `f(scene, secs_since_now)` at every frame, until removed.
@@ -175,6 +193,7 @@ impl Scene {
             duration: self.cursor,
             markers: self.markers,
             updaters: self.updaters,
+            sounds: self.sounds,
             stats: self.stats,
         }
     }
@@ -186,6 +205,7 @@ pub struct BakedTimeline {
     duration: f32,
     markers: Vec<(String, f32)>,
     updaters: Vec<Updater>,
+    sounds: Vec<SoundEvent>,
     stats: BakeStats,
 }
 
@@ -203,6 +223,12 @@ impl BakedTimeline {
     /// All markers as `(name, time)`, in recording order.
     pub fn markers(&self) -> &[(String, f32)] {
         &self.markers
+    }
+
+    /// Every sound and when it starts, in recording order. Sounds may run past
+    /// [`duration`](BakedTimeline::duration); players cut them off there.
+    pub fn sounds(&self) -> &[SoundEvent] {
+        &self.sounds
     }
 
     /// Time of the first marker called `name`.

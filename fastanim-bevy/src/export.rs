@@ -18,7 +18,7 @@ use bevy_vello::vello::kurbo::Affine;
 use bevy_vello::vello::peniko::Color;
 use bevy_vello::vello::util::RenderContext;
 use bevy_vello::vello::{self, AaConfig, AaSupport, RenderParams, RendererOptions, wgpu};
-use fastanim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, to_svg};
+use fastanim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, SoundEvent, to_svg};
 
 use crate::encode;
 
@@ -240,6 +240,11 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         ex.output.clone()
     };
 
+    let audio = audio_args(tl.sounds(), ex.range, ext);
+    if audio.is_empty() && !tl.sounds().is_empty() && matches!(ext, "gif" | "png") {
+        eprintln!("note: {ext} has no sound; the scene's sounds are left out");
+    }
+
     let mut renderer = FrameRenderer::new(ex.quality.width, ex.quality.height)?;
     let q = ex.quality;
     let mut ffmpeg = Command::new("ffmpeg")
@@ -254,6 +259,7 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         ])
         .args(["-s", &format!("{}x{}", q.width, q.height)])
         .args(["-r", &q.fps.to_string(), "-i", "-"])
+        .args(&audio)
         .args(codec)
         .arg(&target)
         .stdin(Stdio::piped())
@@ -305,6 +311,59 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         return Err(format!("ffmpeg failed: {status}"));
     }
     Ok(())
+}
+
+/// ffmpeg arguments that mix the sounds heard during `range` into an `mp4` or `webm`, after
+/// the video on input 0: one trimmed input per sound, each delayed to when it starts.
+/// Empty when there is nothing to hear or the format has no sound.
+pub fn audio_args(sounds: &[SoundEvent], range: (f32, f32), ext: &str) -> Vec<String> {
+    let codec = match ext {
+        "mp4" => "aac",
+        "webm" => "libopus",
+        _ => return Vec::new(),
+    };
+    let (from, to) = range;
+    let mut args = Vec::new();
+    let mut filters = Vec::new();
+    for e in sounds {
+        let start = e.at.max(from);
+        let end = e.end().min(to);
+        if end <= start {
+            continue;
+        }
+        let k = filters.len() + 1;
+        args.extend([
+            "-ss".into(),
+            format!("{}", e.sound.offset + (start - e.at)),
+            "-t".into(),
+            format!("{}", end - start),
+            "-i".into(),
+            e.sound.path.display().to_string(),
+        ]);
+        let delay = ((start - from) * 1000.0).round() as u32;
+        filters.push(format!("[{k}:a]adelay={delay}:all=1[a{k}]"));
+    }
+    let n = filters.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let inputs: String = (1..=n).map(|k| format!("[a{k}]")).collect();
+    // `normalize=0`: overlapping sounds add up, as they would played together.
+    filters.push(format!("{inputs}amix=inputs={n}:normalize=0[aout]"));
+    // Every sound is cut off at `to`, so the audio never outlasts the video.
+    let graph = filters.join(";");
+    let tail = [
+        "-filter_complex",
+        graph.as_str(),
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]",
+        "-c:a",
+        codec,
+    ];
+    args.extend(tail.map(String::from));
+    args
 }
 
 fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path, still: bool) -> io::Result<()> {

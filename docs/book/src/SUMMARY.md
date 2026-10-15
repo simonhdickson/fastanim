@@ -9,5 +9,6 @@
 - [Animations](animations.md)
 - [Diff transforms](diffs.md)
 - [Updaters and closures](updaters.md)
+- [Sound](audio.md)
 - [Gotchas](gotchas.md)
 - [API reference](reference.md)

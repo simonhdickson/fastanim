@@ -34,7 +34,8 @@ fastanim render scene.rhai --section intro -o intro.webm
 
 - `-q, --quality`: `480p15`, `720p30`, `1080p60` (default) or `4k60`.
 - `-o, --output`: the extension picks the format: `mp4`, `webm`, `gif`, `png` or `svg`.
-  `png` and `svg` write one file per frame.
+  `png` and `svg` write one file per frame. `mp4` and `webm` include the scene's
+  [sounds](audio.md).
 - `--section <marker>`: render only from that marker to the next one.
 
 ## Still
