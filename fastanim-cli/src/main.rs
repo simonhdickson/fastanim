@@ -115,10 +115,12 @@ fn run(command: Command) -> Result<(), String> {
     }
 }
 
-/// Runs the script at `path`; errors are `path:line:col: message`.
+/// Runs the script at `path`, with relative paths in it relative to its directory; errors are
+/// `path:line:col: message`.
 fn bake(path: &Path) -> Result<BakedTimeline, String> {
     let src = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    fastanim_script::bake(&src).map_err(|e| match e.line {
+    let dir = path.parent().unwrap_or(Path::new(""));
+    fastanim_script::bake_in(&src, dir).map_err(|e| match e.line {
         0 => format!("{}: {e}", path.display()),
         _ => format!("{}:{e}", path.display()),
     })

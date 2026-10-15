@@ -123,3 +123,120 @@ fn fit_axes_and_default_plot_range() {
     let e = err("fit_axes(|x| { throw \"boom\" }, [0, 1])");
     assert!(e.message.contains("boom"), "{e}");
 }
+
+/// A directory holding `tone.wav`, two seconds of silence.
+fn wav_dir() -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join("fastanim-script-sound");
+    std::fs::create_dir_all(&dir).unwrap();
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 8000,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut w = hound::WavWriter::create(dir.join("tone.wav"), spec).unwrap();
+    (0..16000).for_each(|_| w.write_sample(0i16).unwrap());
+    w.finalize().unwrap();
+    dir
+}
+
+#[test]
+fn sounds_play_and_wait() {
+    let src = r#"
+        let a = audio("tone.wav");
+        if a.duration != 2.0 { throw "duration"; }
+        let c = scene.add(circle(1.0));
+        scene.play(sound(a));
+        scene.play([create(c), sound(a, 0.5, 1.0)]);
+        scene.add_sound(a, 1.0, 2.0);
+        scene.wait(0.25);
+        scene.wait_for_sounds();
+        scene.play(sequence([sound(a, 0.0, 0.5), fade_out(c)]));
+    "#;
+    let tl = fastanim_script::bake_in(src, &wav_dir()).unwrap();
+    // 2 s of sound, 1 s of `create`, waiting on the background sound to 4 s, then 1.5 s more.
+    assert_eq!(tl.duration(), 5.5);
+    let got: Vec<_> = (tl.sounds().iter())
+        .map(|e| (e.at, e.sound.offset, e.sound.duration))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (0.0, 0.0, 2.0),
+            (2.0, 0.5, 0.5),
+            (3.0, 1.0, 1.0),
+            (4.0, 0.0, 0.5),
+        ]
+    );
+}
+
+#[test]
+fn bad_sounds_fail() {
+    let dir = wav_dir();
+    let e = |src: &str| match fastanim_script::bake_in(src, &dir) {
+        Ok(_) => panic!("expected an error from {src:?}"),
+        Err(e) => e.message,
+    };
+    assert!(e(r#"audio("nope.wav")"#).contains("nope.wav"));
+    let m = e(r#"scene.play(sound(audio("tone.wav"), 1.5, 0.5))"#);
+    assert!(m.contains("must lie within 0..2"), "{m}");
+    let m = e(r#"scene.add_sound(audio("tone.wav"), 0.0, 3.0)"#);
+    assert!(m.contains("must lie within"), "{m}");
+}
+
+#[test]
+fn moving_group_lands_on_destination() {
+    // A port of manim's MovingGroupToDestination: the group's third dot ends on the yellow one.
+    let t = script("moving_group");
+    let end = t.eval(t.duration());
+    let centers: Vec<_> = (end.values())
+        .map(|m| m.path.center())
+        .filter(|c| (c.x - 4.0).abs() < 1e-9 && (c.y - 3.0).abs() < 1e-9)
+        .collect();
+    assert_eq!(centers.len(), 2);
+}
+
+#[test]
+fn groups_nest_arrange_and_animate() {
+    let src = r#"
+        let row = group([square(1.0), group([circle(0.5), text("a")]), dot(ORIGIN)])
+            .arrange(RIGHT, 0.5)
+            .to_edge(LEFT);
+        let g = scene.add(row);
+        if g.len() != 3 || g[1].len() != 2 { throw "len"; }
+        let all = group([g, scene.add(circle(1.0))]);
+        if scene.get(g[0]).center().x > -5.0 { throw "arranged"; }
+        scene.play(fade_in(all));
+        scene.play([rotate(g, PI), scale(g[1], 2.0)]);
+        scene.play(indicate(all));
+        if scene.get(g[0]).center().x < scene.get(g[2]).center().x { throw "rotated as one"; }
+        scene.play(transform_diff(g[1][1], text("b")));
+        scene.play(fade_out(g[-1]));
+        scene.remove(all);
+        scene.get(g[0]);
+    "#;
+    let e = err(src);
+    assert!(e.message.contains("not in the scene"), "{e}");
+
+    let e = err("let g = scene.add(group([circle(1.0)]));\nscene.play(transform(g, circle(2.0)));");
+    assert!(e.message.contains("got a group"), "{e}");
+    let e = err("let g = scene.add(group([circle(1.0)]));\ng[1];");
+    assert!(e.message.contains("out of range"), "{e}");
+    let e = err("group([scene.add(circle(1.0)), circle(1.0)]);");
+    assert!(e.message.contains("all mobjects"), "{e}");
+}
+
+#[test]
+fn events_are_labelled() {
+    let src = r#"
+        let t = scene.add(text("hi"));
+        let c = scene.add(circle(1.0));
+        scene.play(write(t).named("title"));
+        scene.play([fade_in(c), rotate(t, PI)]);
+        scene.play(create(t).run_time(2.0));
+    "#;
+    let tl = fastanim_script::bake(src).unwrap();
+    let labels: Vec<_> = tl.events().iter().map(|e| e.label.as_str()).collect();
+    assert_eq!(labels, ["title", "FadeIn + Rotate", "Create"]);
+    assert_eq!(tl.events()[2].end, 4.0);
+}

@@ -648,6 +648,7 @@ These double as integration tests (§11) and should all render correctly before 
 | M8 | Polish | Hot reload, more animations, docs site with rendered examples |
 | M9 | Scripting & web | `fastanim-script` (Rhai), `fastanim preview`/`render`, `fastanim-web` browser player and playground; §10 examples as `.rhai` scripts (§14) |
 | M10 | Python and Lua | Language-neutral `fastanim-script` core, the Python package, then the Lua frontend, generated editor types; §10 examples in each (§15) |
+| M11 | Manim parity | Groups, images, style and the 2D shape library, so most of manim's non-3D gallery runs; see [ROADMAP.md](ROADMAP.md) |
 
 ---
 

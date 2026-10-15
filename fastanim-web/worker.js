@@ -1,9 +1,10 @@
 // Bakes and draws off the page's thread (SPEC §14.5). The page sends any of
 //   { canvas }  the OffscreenCanvas to draw on, once
 //   { bundle }  pre-typeset text to fill the cache from, before baking; errors reply { error }
-//   { src }     a script to bake; replies { baked: { duration, markers, bakeMs, typesetMs, planMs, snapshotMs } }
-//               or { error }, and keeps the last good scene on error
+//   { src }     a script to bake; replies { baked: { duration, markers, events, bakeMs, typesetMs, planMs,
+//               snapshotMs } } or { error }, and keeps the last good scene on error
 //   { t }       the time to draw
+//   { select }  index into `events` to box the targets of, or null; a new bake clears it
 //   { svg }     reply { svg } with the frame at the current time
 //   { png }     reply { png: Blob } with the canvas
 //   { video }   reply { video: Blob }, the whole scene as WebM, or { error }
@@ -13,7 +14,7 @@ import init, { Player, load_bundle, save_bundle } from "./fastanim-web.js";
 import { webm } from "./webm.js";
 
 const ready = init().then(restore);
-let player = null, ctx = null, t = 0, next = {}, scheduled = false, queue = Promise.resolve();
+let player = null, ctx = null, t = 0, selected = null, next = {}, scheduled = false, queue = Promise.resolve();
 
 self.onmessage = ({ data }) => {
   Object.assign(next, data);
@@ -28,6 +29,7 @@ async function work() {
   scheduled = false;
   if (job.canvas) ctx = job.canvas.getContext("2d");
   if (job.t !== undefined) t = job.t;
+  if (job.select !== undefined) selected = job.select;
   if (job.bundle !== undefined) {
     try { load_bundle(job.bundle); } catch (e) { postMessage({ error: e.message ?? String(e) }); }
   }
@@ -36,11 +38,13 @@ async function work() {
       const p = new Player(job.src);
       player?.free();
       player = p;
+      selected = null;
       if (p.typeset_ms() > 0) persist();
       const names = p.marker_names(), times = p.marker_times();
       postMessage({ baked: {
         duration: p.duration(),
         markers: names.map((name, i) => ({ name, t: times[i] })),
+        events: p.events(),
         bakeMs: p.bake_ms(),
         typesetMs: p.typeset_ms(),
         planMs: p.plan_ms(),
@@ -52,13 +56,13 @@ async function work() {
   }
   if (!player || !ctx) return;
   t = Math.min(t, player.duration());
-  player.draw(ctx, t);
+  player.draw(ctx, t, selected ?? undefined);
   if (job.svg) postMessage({ svg: player.svg(t) });
   if (job.png) postMessage({ png: await ctx.canvas.convertToBlob() });
   if (job.video) {
     try { postMessage({ video: await record(player, ctx) }); }
     catch (e) { postMessage({ error: e.message ?? String(e) }); }
-    player.draw(ctx, t);
+    player.draw(ctx, t, selected ?? undefined);
   }
 }
 

@@ -31,6 +31,8 @@ preview = ["dep:fastanim-bevy"]
 # For the Rust and Rhai versions of the example scenes, which the Python ones must match.
 fastanim-bevy.workspace = true
 fastanim-script.workspace = true
+# Writes WAVs for the sound tests.
+hound = "3.5"
 
 [lints]
 workspace = true

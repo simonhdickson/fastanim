@@ -13,6 +13,8 @@
 //! fastanim_bevy::preview(s.bake());
 //! ```
 
+#[cfg(feature = "audio")]
+mod audio;
 pub mod export;
 
 use std::path::PathBuf;
@@ -20,10 +22,13 @@ use std::sync::Arc;
 
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use bevy_vello::VelloPlugin;
 use bevy_vello::prelude::*;
 use clap::{Parser, Subcommand};
-use fastanim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, Scene, SceneState, VState};
+use fastanim_core::{
+    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, Scene, SceneEvent, SceneState, VState,
+};
 
 use bevy_vello::vello;
 use bevy_vello::vello::kurbo::{self, Affine, BezPath, Cap, Join, Rect};
@@ -187,15 +192,19 @@ fn reload_timeline(
     mut reload: ResMut<Reloader>,
     mut tl: ResMut<Timeline>,
     mut clock: ResMut<SceneClock>,
+    mut selected: ResMut<Selected>,
 ) {
     if let Some(new) = (reload.0)() {
         clock.t = clock.t.min(new.duration());
+        selected.0 = None;
         tl.0 = Arc::new(new);
     }
 }
 
-/// Plays a [`BakedTimeline`] in a window, with keyboard and mouse controls:
-/// Space play/pause, ←/→ step a frame, `[`/`]` previous/next marker, drag the bar to scrub.
+/// Plays a [`BakedTimeline`] in a window above a timeline of its plays, updaters and sounds, with
+/// keyboard and mouse controls: Space play/pause, ←/→ step a frame, `[`/`]` previous/next marker,
+/// drag along the timeline to scrub, click a block to seek to it and box the shapes it affects,
+/// click it again or Esc to deselect.
 pub struct FastanimPlugin {
     timeline: Arc<BakedTimeline>,
 }
@@ -224,16 +233,28 @@ pub struct SceneClock {
     pub speed: f32,
 }
 
+/// The timeline block whose targets are boxed: an index into [`BakedTimeline::events`].
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct Selected(pub Option<usize>);
+
 /// Marks the entity holding the encoded scene.
 #[derive(Component)]
 struct Canvas;
 
+/// Marks a timeline block's label.
+#[derive(Component)]
+struct BlockLabel;
+
 const STEP: f32 = 1.0 / 60.0;
-const BAR_Y: f64 = -FRAME_HEIGHT / 2.0 + 0.2;
-const BAR_X0: f64 = -FRAME_WIDTH / 2.0 + 0.4;
-const BAR_W: f64 = FRAME_WIDTH - 0.8;
-/// Clicks below this scene-space y scrub.
-const BAR_HIT_Y: f64 = BAR_Y + 0.3;
+// The timeline panel sits in scene units (y up) under the frame.
+const TRACK_X0: f64 = -FRAME_WIDTH / 2.0 + 0.2;
+const TRACK_W: f64 = FRAME_WIDTH - 0.4;
+const PANEL_TOP: f64 = -FRAME_HEIGHT / 2.0;
+const LANE_H: f64 = 0.4;
+const PAD: f64 = 0.1;
+/// Labels are typeset at this many pixels and scaled down to scene units, so they stay sharp.
+const LABEL_PX: f32 = 20.0;
+const LABEL_SCALE: f32 = 0.01;
 
 impl Plugin for FastanimPlugin {
     fn build(&self, app: &mut App) {
@@ -245,8 +266,21 @@ impl Plugin for FastanimPlugin {
                 playing: true,
                 speed: 1.0,
             })
+            .init_resource::<Selected>()
             .add_systems(Startup, setup)
-            .add_systems(Update, (controls, advance_clock, draw).chain());
+            .add_systems(
+                Update,
+                (
+                    (fit_camera, label_blocks).run_if(resource_changed::<Timeline>),
+                    controls,
+                    advance_clock,
+                    draw,
+                )
+                    .chain(),
+            );
+        #[cfg(feature = "audio")]
+        app.init_resource::<audio::AudioOut>()
+            .add_systems(Update, audio::sync_audio.after(advance_clock));
     }
 }
 
@@ -262,19 +296,88 @@ impl ToBevy for Color {
 }
 
 fn setup(mut commands: Commands) {
-    // World units are scene units: the whole 16:9 frame always fits.
-    commands.spawn((
-        Camera2d,
-        VelloView,
-        Projection::Orthographic(OrthographicProjection {
+    commands.spawn((Camera2d, VelloView));
+    commands.spawn((Canvas, VelloScene2d::new()));
+}
+
+/// Height of the timeline panel: one lane per row of blocks, at least one.
+fn panel_height(tl: &BakedTimeline) -> f64 {
+    let lanes = tl.events().iter().map(|e| e.lane + 1).max().unwrap_or(1);
+    lanes as f64 * LANE_H + 2.0 * PAD
+}
+
+/// World units are scene units: the whole 16:9 frame and the panel under it always fit.
+fn fit_camera(tl: Res<Timeline>, mut cams: Query<(&mut Projection, &mut Transform), With<Camera>>) {
+    let h = panel_height(&tl.0);
+    for (mut proj, mut tf) in &mut cams {
+        *proj = Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMin {
                 min_width: FRAME_WIDTH as f32,
-                min_height: FRAME_HEIGHT as f32,
+                min_height: (FRAME_HEIGHT + h) as f32,
             },
             ..OrthographicProjection::default_2d()
-        }),
-    ));
-    commands.spawn((Canvas, VelloScene2d::new()));
+        });
+        tf.translation.y = -(h / 2.0) as f32;
+    }
+}
+
+/// Where event `e` is drawn on the timeline, in scene units.
+fn block_rect(e: &SceneEvent, dur: f32) -> Rect {
+    let top = PANEL_TOP - PAD - e.lane as f64 * LANE_H;
+    let (x0, x1) = (track_x(e.start, dur), track_x(e.end, dur));
+    Rect::new(x0, top - LANE_H + 0.04, x1.max(x0 + 0.03), top - 0.04)
+}
+
+fn track_x(t: f32, dur: f32) -> f64 {
+    TRACK_X0 + TRACK_W * f64::from(t / dur.max(f32::EPSILON)).clamp(0.0, 1.0)
+}
+
+/// What a click at scene point `(x, y)` lands on.
+#[derive(Debug, PartialEq)]
+enum Hit {
+    /// Timeline block `i`.
+    Block(usize),
+    /// The timeline outside any block.
+    Track,
+}
+
+fn hit(tl: &BakedTimeline, x: f64, y: f64) -> Option<Hit> {
+    if y > PANEL_TOP {
+        return None;
+    }
+    let dur = tl.duration();
+    let block =
+        (tl.events().iter()).position(|e| block_rect(e, dur).contains(kurbo::Point::new(x, y)));
+    Some(block.map_or(Hit::Track, Hit::Block))
+}
+
+/// One label per timeline block, rebuilt with the timeline.
+fn label_blocks(mut commands: Commands, tl: Res<Timeline>, old: Query<Entity, With<BlockLabel>>) {
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    let dur = tl.0.duration();
+    for e in tl.0.events() {
+        let r = block_rect(e, dur);
+        let text = fit_label(&e.label, r.width() - 0.1);
+        if text.is_empty() {
+            continue;
+        }
+        let at = Vec3::new((r.x0 + 0.05) as f32, r.center().y as f32, 1.0);
+        commands.spawn((
+            BlockLabel,
+            Text2d::new(text),
+            TextFont::from_font_size(LABEL_PX),
+            Anchor::CENTER_LEFT,
+            Transform::from_translation(at).with_scale(Vec3::splat(LABEL_SCALE)),
+        ));
+    }
+}
+
+/// `label`, cut to fit `width` scene units in Bevy's default font (monospace, 0.6 em wide).
+fn fit_label(label: &str, width: f64) -> String {
+    let n = (width / (0.6 * f64::from(LABEL_PX * LABEL_SCALE))).max(0.0) as usize;
+    label.chars().take(n).collect()
 }
 
 fn advance_clock(time: Res<Time>, tl: Res<Timeline>, mut clock: ResMut<SceneClock>) {
@@ -287,6 +390,7 @@ fn advance_clock(time: Res<Time>, tl: Res<Timeline>, mut clock: ResMut<SceneCloc
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -294,6 +398,9 @@ fn controls(
     camera: Query<(&Camera, &GlobalTransform)>,
     tl: Res<Timeline>,
     mut clock: ResMut<SceneClock>,
+    mut selected: ResMut<Selected>,
+    // Whether the current drag started on the track, so it scrubs even over blocks.
+    mut scrubbing: Local<bool>,
 ) {
     let dur = tl.0.duration();
     if keys.just_pressed(KeyCode::Space) {
@@ -323,14 +430,32 @@ fn controls(
         let prev = markers.filter(|&m| m < now - STEP / 2.0).reduce(f32::max);
         target = Some(prev.unwrap_or(0.0));
     }
-    if mouse.pressed(MouseButton::Left)
-        && let (Ok(window), Ok((cam, cam_tf))) = (windows.single(), camera.single())
+    if keys.just_pressed(KeyCode::Escape) {
+        selected.0 = None;
+    }
+    if !mouse.pressed(MouseButton::Left) {
+        *scrubbing = false;
+    }
+    if let (Ok(window), Ok((cam, cam_tf))) = (windows.single(), camera.single())
         && let Some(p) = window
             .cursor_position()
             .and_then(|c| cam.viewport_to_world_2d(cam_tf, c).ok())
-        && f64::from(p.y) < BAR_HIT_Y
     {
-        target = Some(((f64::from(p.x) - BAR_X0) / BAR_W) as f32 * dur);
+        let (x, y) = (f64::from(p.x), f64::from(p.y));
+        if mouse.just_pressed(MouseButton::Left) {
+            match hit(&tl.0, x, y) {
+                Some(Hit::Block(i)) if selected.0 == Some(i) => selected.0 = None,
+                Some(Hit::Block(i)) => {
+                    selected.0 = Some(i);
+                    target = Some(tl.0.events()[i].start);
+                }
+                Some(Hit::Track) => *scrubbing = true,
+                None => {}
+            }
+        }
+        if *scrubbing {
+            target = Some(((x - TRACK_X0) / TRACK_W) as f32 * dur);
+        }
     }
     if let Some(t) = target {
         clock.t = t.clamp(0.0, dur);
@@ -341,14 +466,28 @@ fn controls(
 fn draw(
     tl: Res<Timeline>,
     clock: Res<SceneClock>,
+    selected: Res<Selected>,
     mut canvas: Query<&mut VelloScene2d, With<Canvas>>,
 ) {
     let Ok(mut scene) = canvas.single_mut() else {
         return;
     };
+    let tl = &tl.0;
     scene.reset();
-    encode(&mut scene, &tl.0.eval(clock.t));
-    draw_bar(&mut scene, &tl.0, clock.t);
+    encode(&mut scene, &tl.eval(clock.t));
+    let event = selected.0.and_then(|i| tl.events().get(i));
+    if let Some(r) = event.and_then(|e| tl.highlight_box(e, clock.t)) {
+        let dashed = kurbo::Stroke::new(0.04).with_dashes(0.0, [0.15, 0.1]);
+        let yellow = Color::from_rgb8(255, 255, 0);
+        scene.stroke(
+            &dashed,
+            Affine::FLIP_Y,
+            yellow,
+            None,
+            &r.inflate(0.15, 0.15),
+        );
+    }
+    draw_timeline(&mut scene, tl, clock.t, selected.0);
 }
 
 /// Encodes one frame in scene units (y up) into a Vello scene, in draw order.
@@ -400,39 +539,52 @@ fn bez_path(p: &fastanim_core::VPath) -> BezPath {
     out
 }
 
-/// Progress bar along the bottom of the frame, with a tick per marker.
-fn draw_bar(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32) {
-    const H: f64 = 0.06;
-    let dur = f64::from(tl.duration()).max(f64::EPSILON);
-    let x_at = |t: f32| BAR_X0 + BAR_W * (f64::from(t) / dur).clamp(0.0, 1.0);
-    let rect = |x0: f64, x1: f64, h: f64| Rect::new(x0, -(BAR_Y + h), x1, -(BAR_Y - h));
-    let grey = Color::new([1.0, 1.0, 1.0, 0.25]);
-    let accent = Color::new([0.345, 0.769, 0.867, 0.9]);
-    let id = Affine::IDENTITY;
+/// The timeline panel under the frame: a block per event, a tick per marker and the playhead.
+fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, selected: Option<usize>) {
+    let flip = Affine::FLIP_Y;
+    let dur = tl.duration();
+    let bottom = PANEL_TOP - panel_height(tl);
+    // Opaque and wider than any window, so shapes past the frame's bottom edge stay hidden.
+    let panel = Rect::new(-1e3, -1e3, 1e3, PANEL_TOP);
     scene.fill(
         Fill::NonZero,
-        id,
-        grey,
+        flip,
+        Color::from_rgb8(17, 17, 17),
         None,
-        &rect(BAR_X0, BAR_X0 + BAR_W, H / 2.0),
+        &panel,
     );
-    scene.fill(
-        Fill::NonZero,
-        id,
-        accent,
-        None,
-        &rect(BAR_X0, x_at(t), H / 2.0),
-    );
+    let edge = kurbo::Stroke::new(0.015);
+    for (i, e) in tl.events().iter().enumerate() {
+        let (fill, line) = match (selected == Some(i), e.kind) {
+            (true, _) => ((92, 84, 0), (255, 255, 0)),
+            (_, EventKind::Play) => ((30, 61, 74), (58, 121, 144)),
+            (_, EventKind::Updater) => ((36, 64, 42), (76, 138, 88)),
+            (_, EventKind::Sound) => ((59, 42, 74), (122, 90, 150)),
+        };
+        let rgb = |(r, g, b)| Color::from_rgb8(r, g, b);
+        let r = block_rect(e, dur).to_rounded_rect(0.04);
+        scene.fill(Fill::NonZero, flip, rgb(fill), None, &r);
+        scene.stroke(&edge, flip, rgb(line), None, &r);
+    }
+    let line = |x: f64, w: f64| Rect::new(x - w, bottom, x + w, PANEL_TOP);
     for &(_, m) in tl.markers() {
-        let x = x_at(m);
+        let tick = Color::new([1.0, 1.0, 1.0, 0.4]);
         scene.fill(
             Fill::NonZero,
-            id,
-            Color::WHITE,
+            flip,
+            tick,
             None,
-            &rect(x - 0.01, x + 0.01, H * 1.5),
+            &line(track_x(m, dur), 0.005),
         );
     }
+    let accent = Color::new([0.345, 0.769, 0.867, 1.0]);
+    scene.fill(
+        Fill::NonZero,
+        flip,
+        accent,
+        None,
+        &line(track_x(t, dur), 0.012),
+    );
 }
 
 #[cfg(test)]
@@ -496,6 +648,51 @@ mod tests {
         let t: Vec<f32> = export::frame_times(1.0, 1.1, 30).collect();
         assert_eq!(t, [1.0, 31.0 / 30.0, 32.0 / 30.0, 1.1]);
         assert_eq!(export::frame_times(0.0, 0.0, 60).count(), 1);
+    }
+
+    #[test]
+    fn sounds_are_trimmed_and_delayed_to_the_range() {
+        use fastanim_core::{Sound, SoundEvent};
+        let at = |at: f32, offset: f32, duration: f32| SoundEvent {
+            at,
+            sound: Sound {
+                path: std::path::Path::new("a.wav").into(),
+                offset,
+                duration,
+            },
+        };
+        let sounds = [at(0.0, 0.5, 2.0), at(3.0, 0.0, 4.0), at(9.0, 0.0, 1.0)];
+        let args = |range, ext| export::audio_args(&sounds, range, ext).join(" ");
+
+        assert_eq!(
+            args((0.0, 5.0), "mp4"),
+            "-ss 0.5 -t 2 -i a.wav -ss 0 -t 2 -i a.wav \
+             -filter_complex [1:a]adelay=0:all=1[a1];[2:a]adelay=3000:all=1[a2];\
+             [a1][a2]amix=inputs=2:normalize=0[aout] -map 0:v -map [aout] -c:a aac"
+        );
+        // A section starting mid-sound skips into it.
+        assert_eq!(
+            args((4.0, 9.5), "webm"),
+            "-ss 1 -t 3 -i a.wav -ss 0 -t 0.5 -i a.wav \
+             -filter_complex [1:a]adelay=0:all=1[a1];[2:a]adelay=5000:all=1[a2];\
+             [a1][a2]amix=inputs=2:normalize=0[aout] -map 0:v -map [aout] -c:a libopus"
+        );
+        assert_eq!(args((7.5, 8.5), "mp4"), "");
+        assert_eq!(args((0.0, 5.0), "gif"), "");
+    }
+
+    #[test]
+    fn clicks_hit_blocks_then_track() {
+        let tl = timeline();
+        let block = block_rect(&tl.events()[0], tl.duration());
+        let c = block.center();
+        assert_eq!(hit(&tl, c.x, c.y), Some(Hit::Block(0)));
+        // Past the create, on the same lane: just the track.
+        assert_eq!(hit(&tl, block.x1 + 0.5, c.y), Some(Hit::Track));
+        assert_eq!(hit(&tl, c.x, PANEL_TOP + 0.1), None);
+        assert_eq!(fit_label("Create", 10.0), "Create");
+        assert_eq!(fit_label("Create", 0.5), "Crea");
+        assert_eq!(fit_label("Create", 0.1), "");
     }
 
     #[test]

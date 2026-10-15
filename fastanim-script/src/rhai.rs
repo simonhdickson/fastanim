@@ -1,11 +1,12 @@
 //! The Rhai frontend: the core API registered on a Rhai [`Engine`].
 
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use fastanim_core::kurbo::{Affine, Point, Vec2};
 use fastanim_core::{
-    Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, Position, RateFn, VState,
+    Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, Position, RateFn, VState,
 };
 use fastanim_text::TextMobject;
 use rhai::{
@@ -13,7 +14,7 @@ use rhai::{
     ParseError, Scope,
 };
 
-use crate::{Anim, Const, Ctx, Mob, Opt};
+use crate::{Anim, Const, Ctx, Item, Mob, Opt, VGroup};
 
 type Res<T> = Result<T, Box<EvalAltResult>>;
 
@@ -60,9 +61,15 @@ impl From<Box<EvalAltResult>> for Error {
     }
 }
 
-/// Runs a Rhai scene script and bakes what it recorded.
+/// Runs a Rhai scene script and bakes what it recorded. Relative file paths, such as
+/// `audio`'s, are relative to the current directory.
 pub fn bake(src: &str) -> Result<BakedTimeline, Error> {
-    let (engine, slot) = engine();
+    bake_in(src, Path::new(""))
+}
+
+/// [`bake`], with relative file paths relative to `dir`, usually the script's directory.
+pub fn bake_in(src: &str, dir: &Path) -> Result<BakedTimeline, Error> {
+    let (engine, slot) = engine(dir.to_path_buf());
     let ast = Arc::new(engine.compile(src)?);
     let engine = Arc::new(engine);
     // Weak, or the engine would keep itself alive through the closures it registers.
@@ -80,7 +87,7 @@ pub fn bake(src: &str) -> Result<BakedTimeline, Error> {
 /// standard library (`min`, `sin`, `to_float`, ...) is left out.
 #[cfg(feature = "metadata")]
 pub fn signatures() -> Vec<String> {
-    let (e, _) = engine();
+    let (e, _) = engine(PathBuf::new());
     // Rhai leaves fallible return types as raw Rust paths; show the script-facing name.
     let mut out: Vec<String> = (e.gen_fn_signatures(false).into_iter())
         .map(|sig| {
@@ -230,6 +237,33 @@ fn fit_y(cx: &NativeCallContext, f: &FnPtr, x: [f64; 3]) -> Res<[f64; 3]> {
     )
 }
 
+/// `group([...])`: handles make a [`Mob::Group`], values a [`VGroup`].
+fn group(a: Array) -> Res<Dynamic> {
+    if a.iter().all(|d| d.is::<Mob>()) && !a.is_empty() {
+        let ms = a.into_iter().map(|d| d.cast::<Mob>()).collect();
+        return Ok(Dynamic::from(crate::group(ms)));
+    }
+    let items = (a.into_iter())
+        .map(|d| {
+            let ty = d.type_name();
+            Ok(if d.is::<VState>() {
+                Item::Shape(d.cast())
+            } else if d.is::<TextMobject>() {
+                Item::Text(d.cast())
+            } else if d.is::<Axes>() {
+                Item::Shape(d.cast::<Axes>().shape())
+            } else if d.is::<VGroup>() {
+                Item::Group(d.cast())
+            } else if d.is::<Mob>() {
+                return Err("a group is all mobjects (added) or all shapes, texts and groups (not added yet)".into());
+            } else {
+                return Err(format!("expected a shape, text, axes or group, got {ty}").into());
+            })
+        })
+        .collect::<Res<_>>()?;
+    Ok(Dynamic::from(VGroup(items)))
+}
+
 fn constant(name: &str) -> Option<Dynamic> {
     Some(match crate::constant(name)? {
         Const::Point(v) => Dynamic::from(v),
@@ -265,12 +299,22 @@ macro_rules! positional {
             .register_fn("align_to", |m: $t, o: TextMobject, d: Vec2| {
                 m.align_to(&o, d)
             })
+            .register_fn("next_to", |m: $t, o: VGroup, d: Vec2| {
+                m.next_to(&o, d, DEFAULT_BUFF)
+            })
+            .register_fn("next_to", |m: $t, o: VGroup, d: Vec2, b: f64| {
+                m.next_to(&o, d, b)
+            })
+            .register_fn("align_to", |m: $t, o: VGroup, d: Vec2| m.align_to(&o, d))
+            .register_fn("center", |m: $t| {
+                m.bbox().map_or(Point::ORIGIN, |b| b.center()).to_vec2()
+            })
     };
 }
 
 /// The engine with the whole scene API registered, and limits so a runaway script fails
 /// instead of hanging (SPEC §14.2).
-fn engine() -> (Engine, Slot) {
+fn engine(dir: PathBuf) -> (Engine, Slot) {
     let mut e = Engine::new();
     let slot = Slot::default();
     // `on_var` is marked deprecated only as "volatile"; constants this way are visible inside
@@ -366,6 +410,15 @@ fn engine() -> (Engine, Slot) {
         });
     positional!(e, TextMobject);
 
+    // Groups.
+    e.register_type_with_name::<VGroup>("Group")
+        .register_fn("group", group)
+        .register_fn("rotate", VGroup::rotate)
+        .register_fn("arrange", |g: VGroup, d: Vec2| g.arrange(d, DEFAULT_BUFF))
+        .register_fn("arrange", VGroup::arrange)
+        .register_fn("len", |g: &mut VGroup| g.0.len() as i64);
+    positional!(e, VGroup);
+
     // Axes.
     e.register_type_with_name::<Axes>("Axes")
         .register_fn("axes", |x: Array, y: Array| {
@@ -432,9 +485,11 @@ fn engine() -> (Engine, Slot) {
     positional!(e, Axes);
 
     // The scene.
-    e.register_type_with_name::<Mob>("Mobject");
+    e.register_type_with_name::<Mob>("Mobject")
+        .register_indexer_get(|m: &mut Mob, i: i64| Ok(m.member(i)?) as Res<_>)
+        .register_fn("len", |m: &mut Mob| m.len() as i64);
     e.register_type_with_name::<State>("State")
-        .register_indexer_get(|s: &mut State, m: Mob| Ok(crate::get(&s.0, m)?) as Res<_>);
+        .register_indexer_get(|s: &mut State, m: Mob| Ok(crate::get(&s.0, &m)?) as Res<_>);
     e.register_type_with_name::<SceneHandle>("Scene")
         .register_fn("add", |s: &mut SceneHandle, m: VState| {
             Ok(s.lock()?.add_shape(m)) as Res<_>
@@ -445,11 +500,14 @@ fn engine() -> (Engine, Slot) {
         .register_fn("add", |s: &mut SceneHandle, t: TextMobject| {
             Ok(s.lock()?.add_text(t)) as Res<_>
         })
+        .register_fn("add", |s: &mut SceneHandle, g: VGroup| {
+            Ok(s.lock()?.add_group(g)) as Res<_>
+        })
         .register_fn("remove", |s: &mut SceneHandle, m: Mob| {
-            Ok(s.lock()?.remove(m)?) as Res<()>
+            Ok(s.lock()?.remove(&m)?) as Res<()>
         })
         .register_fn("get", |s: &mut SceneHandle, m: Mob| {
-            Ok(crate::get(s.lock()?.scene.state(), m)?) as Res<_>
+            Ok(crate::get(s.lock()?.scene.state(), &m)?) as Res<_>
         })
         .register_get("time", |s: &mut SceneHandle| {
             Ok(f64::from(s.lock()?.scene.time())) as Res<_>
@@ -470,16 +528,40 @@ fn engine() -> (Engine, Slot) {
             s.lock()?.scene.marker(name);
             Ok(()) as Res<_>
         })
+        .register_fn("add_sound", |s: &mut SceneHandle, a: Audio| {
+            Ok(s.lock()?.add_sound(&a, None)?) as Res<()>
+        })
+        .register_fn(
+            "add_sound",
+            |s: &mut SceneHandle, a: Audio, start: f64, end: f64| {
+                Ok(s.lock()?.add_sound(&a, Some((start as f32, end as f32)))?) as Res<()>
+            },
+        )
+        .register_fn("wait_for_sounds", |s: &mut SceneHandle| {
+            s.lock()?.scene.wait_for_sounds();
+            Ok(()) as Res<_>
+        })
         .register_fn("always", {
             let slot = slot.clone();
             move |s: &mut SceneHandle, m: Mob, f: FnPtr| -> Res<()> {
                 let rt = rt(&slot);
-                Ok(s.lock()?.always(m, move |st, t| {
+                Ok(s.lock()?.always(&m, move |st, t| {
                     // shortcut: clones the scene per updater per frame; pass a shared handle
                     // if scenes with many updaters get slow.
                     rt.call(&f, "a shape", (State(st.clone()), f64::from(t)))
                 })?)
             }
+        });
+
+    // Sound.
+    e.register_type_with_name::<Audio>("Audio")
+        .register_fn("audio", move |path: &str| {
+            Ok(crate::audio(&dir.join(path))?) as Res<_>
+        })
+        .register_get("duration", |a: &mut Audio| f64::from(a.duration()))
+        .register_fn("sound", |a: Audio| Ok(crate::sound(&a, None)?) as Res<_>)
+        .register_fn("sound", |a: Audio, start: f64, end: f64| {
+            Ok(crate::sound(&a, Some((start as f32, end as f32)))?) as Res<_>
         });
 
     // Animations.
@@ -488,7 +570,11 @@ fn engine() -> (Engine, Slot) {
             run_time: Some(t as f32),
             ..a
         })
-        .register_fn("rate", |a: Anim, r: RateFn| Anim { rate: Some(r), ..a });
+        .register_fn("rate", |a: Anim, r: RateFn| Anim { rate: Some(r), ..a })
+        .register_fn("named", |a: Anim, name: &str| Anim {
+            name: Some(name.into()),
+            ..a
+        });
     e.register_type_with_name::<RateFn>("Rate")
         .register_fn("ease_in", |n: &str| {
             Ok(RateFn::EaseIn(crate::ease(n)?)) as Res<_>

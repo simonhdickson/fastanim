@@ -21,6 +21,8 @@ metadata = ["rhai?/metadata"]
 [dev-dependencies]
 # For the Rust versions of the example scenes, which the scripts must match.
 fastanim-bevy.workspace = true
+# Writes WAVs for the sound tests.
+hound = "3.5"
 
 [lints]
 workspace = true

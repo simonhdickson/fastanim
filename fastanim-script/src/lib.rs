@@ -24,14 +24,15 @@
 //! `transform_diff`, ...); `point(x, y)` for points and vectors; and the [`CONSTANTS`]. In Rhai,
 //! numbers passed as floats must be written as floats (`1.0`, not `1`).
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW};
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
-    Animation, AnimationExt, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH, Group,
-    LEFT, MobjectId, Parallel, RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update, UpdateGroup,
-    VState,
+    Animation, AnimationExt, Audio, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH,
+    Group, LEFT, MobjectId, Parallel, Position, RIGHT, RateFn, Scene, SceneState, Sequence, UP,
+    Update, UpdateGroup, VState, arrange,
 };
 use fastanim_text::{TextMobject, TokenKey};
 
@@ -40,7 +41,7 @@ mod rhai;
 #[cfg(all(feature = "rhai", feature = "metadata"))]
 pub use rhai::signatures;
 #[cfg(feature = "rhai")]
-pub use rhai::{Error, bake};
+pub use rhai::{Error, bake, bake_in};
 
 /// The scene being recorded, plus the text groups that scripts hold by index.
 pub struct Ctx {
@@ -51,13 +52,122 @@ pub struct Ctx {
     err: Arc<Mutex<Option<String>>>,
 }
 
-/// A mobject added to the scene: a shape, or a text's glyphs.
-#[derive(Debug, Clone, Copy)]
+/// A mobject added to the scene: a shape, a text's glyphs, or a group of mobjects.
+#[derive(Debug, Clone)]
 pub enum Mob {
     /// One shape.
     Shape(MobjectId),
     /// A text added with [`Ctx::add_text`].
     Text(usize),
+    /// Mobjects animated and read as one: an added [`VGroup`], or [`group`] of handles.
+    Group(Arc<[Mob]>),
+}
+
+impl Mob {
+    /// Member `i` of a group; negative counts from the end.
+    pub fn member(&self, i: i64) -> Result<Mob, String> {
+        let Mob::Group(ms) = self else {
+            return Err("only groups can be indexed".into());
+        };
+        let n = ms.len() as i64;
+        let j = if i < 0 { n + i } else { i };
+        (0..n)
+            .contains(&j)
+            .then(|| ms[j as usize].clone())
+            .ok_or_else(|| format!("group index {i} out of range for a group of {n}"))
+    }
+
+    /// How many members a group has; 1 for anything else.
+    #[allow(clippy::len_without_is_empty)] // a mobject handle is never "empty"
+    pub fn len(&self) -> usize {
+        match self {
+            Mob::Group(ms) => ms.len(),
+            _ => 1,
+        }
+    }
+}
+
+/// A group of mobjects already added, e.g. to fade several out at once.
+pub fn group(ms: Vec<Mob>) -> Mob {
+    Mob::Group(ms.into())
+}
+
+/// Something that can go in a [`VGroup`].
+#[derive(Clone)]
+pub enum Item {
+    /// A shape.
+    Shape(VState),
+    /// A text.
+    Text(TextMobject),
+    /// A nested group.
+    Group(VGroup),
+}
+
+impl Position for Item {
+    fn bbox(&self) -> Option<Rect> {
+        match self {
+            Item::Shape(m) => m.bbox(),
+            Item::Text(m) => m.bbox(),
+            Item::Group(m) => m.bbox(),
+        }
+    }
+
+    fn transform(self, a: Affine) -> Self {
+        match self {
+            Item::Shape(m) => Item::Shape(m.transform(a)),
+            Item::Text(m) => Item::Text(m.transform(a)),
+            Item::Group(m) => Item::Group(m.transform(a)),
+        }
+    }
+}
+
+/// Shapes, texts and groups not yet in a scene, positioned as one (manim's `VGroup`). Adding it
+/// gives a [`Mob::Group`] with a member per item.
+#[derive(Clone, Default)]
+pub struct VGroup(pub Vec<Item>);
+
+impl Position for VGroup {
+    fn bbox(&self) -> Option<Rect> {
+        (self.0.iter().filter_map(Position::bbox)).reduce(|a, b| a.union(b))
+    }
+
+    fn transform(self, a: Affine) -> Self {
+        Self(self.0.into_iter().map(|m| m.transform(a)).collect())
+    }
+}
+
+impl VGroup {
+    fn center(&self) -> Point {
+        self.bbox().map_or(Point::ORIGIN, |b| b.center())
+    }
+
+    /// Translates by `v`.
+    pub fn shift(self, v: Vec2) -> Self {
+        self.transform(Affine::translate(v))
+    }
+
+    /// Moves so the bounding-box center is at `p`.
+    pub fn move_to(self, p: Point) -> Self {
+        let c = self.center();
+        self.shift(p - c)
+    }
+
+    /// Scales about the bounding-box center.
+    pub fn scale(self, k: f64) -> Self {
+        let c = self.center();
+        self.transform(Affine::scale_about(k, c))
+    }
+
+    /// Rotates counter-clockwise by `angle` radians about the bounding-box center.
+    pub fn rotate(self, angle: f64) -> Self {
+        let c = self.center();
+        self.transform(Affine::rotate_about(angle, c))
+    }
+
+    /// Lays the items out in a row in direction `dir`, `buff` apart; see [`arrange`].
+    pub fn arrange(self, dir: Vec2, buff: f64) -> Self {
+        Self(arrange(self.0, dir, buff))
+    }
 }
 
 impl Default for Ctx {
@@ -76,12 +186,16 @@ impl Ctx {
         }
     }
 
+    /// Starts `a`, or seconds `range` of it, now without waiting for it.
+    pub fn add_sound(&mut self, a: &Audio, range: Option<(f32, f32)>) -> Result<(), String> {
+        self.scene.add_sound(clip(a, range)?);
+        Ok(())
+    }
+
     /// The ids of `m`, all of which must still be in the scene.
-    pub fn ids(&self, m: Mob) -> Result<Vec<MobjectId>, String> {
-        let ids = match m {
-            Mob::Shape(id) => vec![id],
-            Mob::Text(i) => self.texts[i].ids.clone(),
-        };
+    pub fn ids(&self, m: &Mob) -> Result<Vec<MobjectId>, String> {
+        let mut ids = Vec::new();
+        self.collect(m, &mut ids);
         if ids.iter().all(|id| self.scene.state().contains_key(id)) {
             Ok(ids)
         } else {
@@ -89,11 +203,20 @@ impl Ctx {
         }
     }
 
+    fn collect(&self, m: &Mob, ids: &mut Vec<MobjectId>) {
+        match m {
+            Mob::Shape(id) => ids.push(*id),
+            Mob::Text(i) => ids.extend(&self.texts[*i].ids),
+            Mob::Group(ms) => ms.iter().for_each(|m| self.collect(m, ids)),
+        }
+    }
+
     /// The id of `m`, which must be a shape in the scene.
-    pub fn shape(&self, m: Mob) -> Result<MobjectId, String> {
+    pub fn shape(&self, m: &Mob) -> Result<MobjectId, String> {
         match m {
             Mob::Shape(_) => Ok(self.ids(m)?[0]),
             Mob::Text(_) => Err("expected a shape, got a text".into()),
+            Mob::Group(_) => Err("expected a shape, got a group".into()),
         }
     }
 
@@ -108,8 +231,20 @@ impl Ctx {
         Mob::Text(self.texts.len() - 1)
     }
 
+    /// Adds a group's items, in order, as one group.
+    pub fn add_group(&mut self, g: VGroup) -> Mob {
+        let ms: Vec<Mob> = (g.0.into_iter())
+            .map(|m| match m {
+                Item::Shape(m) => self.add_shape(m),
+                Item::Text(m) => self.add_text(m),
+                Item::Group(m) => self.add_group(m),
+            })
+            .collect();
+        group(ms)
+    }
+
     /// Removes `m` from the scene.
-    pub fn remove(&mut self, m: Mob) -> Result<(), String> {
+    pub fn remove(&mut self, m: &Mob) -> Result<(), String> {
         for id in self.ids(m)? {
             self.scene.remove(id);
         }
@@ -131,7 +266,7 @@ impl Ctx {
     /// updater fails here rather than silently on every frame.
     pub fn always(
         &mut self,
-        m: Mob,
+        m: &Mob,
         f: impl Fn(&SceneState, f32) -> Result<VState, String> + Send + Sync + 'static,
     ) -> Result<(), String> {
         let id = self.shape(m)?;
@@ -152,10 +287,11 @@ fn record(err: &Mutex<Option<String>>, e: String) {
 }
 
 /// Shape `m` in `state`.
-pub fn get(state: &SceneState, m: Mob) -> Result<VState, String> {
+pub fn get(state: &SceneState, m: &Mob) -> Result<VState, String> {
     match m {
-        Mob::Shape(id) => (state.get(&id).cloned()).ok_or_else(|| "not in the scene".into()),
+        Mob::Shape(id) => (state.get(id).cloned()).ok_or_else(|| "not in the scene".into()),
         Mob::Text(_) => Err("only shapes can be read back; texts are many glyphs".into()),
+        Mob::Group(_) => Err("only shapes can be read back; index the group".into()),
     }
 }
 
@@ -170,6 +306,8 @@ pub struct Anim {
     pub run_time: Option<f32>,
     /// Overrides the animation's own rate.
     pub rate: Option<RateFn>,
+    /// Overrides the animation's own label in the preview timeline.
+    pub name: Option<String>,
 }
 
 impl Anim {
@@ -180,6 +318,7 @@ impl Anim {
             build: Arc::new(f),
             run_time: None,
             rate: None,
+            name: None,
         }
     }
 
@@ -191,6 +330,9 @@ impl Anim {
         if let Some(r) = self.rate {
             a = Box::new(a.rate(r));
         }
+        if let Some(n) = &self.name {
+            a = Box::new(a.named(n.clone()));
+        }
         Ok(a)
     }
 }
@@ -201,10 +343,10 @@ fn each<A: Animation + 'static>(
     f: impl Fn(MobjectId) -> A + Send + Sync + 'static,
 ) -> Anim {
     Anim::new(move |cx| {
-        let ids = cx.ids(m)?;
+        let ids = cx.ids(&m)?;
         Ok(match m {
             Mob::Shape(_) => Box::new(f(ids[0])),
-            Mob::Text(_) => Box::new(Parallel(
+            Mob::Text(_) | Mob::Group(_) => Box::new(Parallel(
                 (ids.into_iter())
                     .map(|id| Box::new(f(id)) as Box<dyn Animation>)
                     .collect(),
@@ -213,18 +355,21 @@ fn each<A: Animation + 'static>(
     })
 }
 
-/// `shape` on a shape; on a text, `group(glyph, text_center, alpha)` on every glyph, so the
-/// text moves as a whole.
+/// `shape` on a shape; on a text or group, `group(shape, center, alpha)` on every shape in
+/// it, so it moves as a whole.
 fn whole(
     m: Mob,
     shape: impl Fn(MobjectId) -> Update + Send + Sync + 'static,
     group: impl Fn(&VState, Point, f32) -> VState + Clone + Send + Sync + 'static,
 ) -> Anim {
     Anim::new(move |cx| {
-        let ids = cx.ids(m)?;
+        let ids = cx.ids(&m)?;
         Ok(match m {
             Mob::Shape(_) => Box::new(shape(ids[0])),
-            Mob::Text(_) => Box::new(UpdateGroup::new(&ids, group.clone())),
+            Mob::Text(_) | Mob::Group(_) => {
+                let name = shape(ids[0]).label();
+                Box::new(UpdateGroup::new(&ids, group.clone()).named(name))
+            }
         })
     })
 }
@@ -233,7 +378,7 @@ fn by_ids<A: Animation + 'static>(
     m: Mob,
     f: impl Fn(&[MobjectId]) -> A + Send + Sync + 'static,
 ) -> Anim {
-    Anim::new(move |cx| Ok(Box::new(f(&cx.ids(m)?))))
+    Anim::new(move |cx| Ok(Box::new(f(&cx.ids(&m)?))))
 }
 
 fn build_all(anims: &[Anim], cx: &mut Ctx) -> Result<Vec<Box<dyn Animation>>, String> {
@@ -314,7 +459,7 @@ pub fn move_to(m: Mob, p: Point) -> Anim {
 /// Draws a rectangle around `m`, then removes it.
 pub fn circumscribe(m: Mob) -> Anim {
     Anim::new(move |cx| {
-        let ids = cx.ids(m)?;
+        let ids = cx.ids(&m)?;
         Ok(Box::new(fastanim_core::circumscribe(&mut cx.scene, &ids)))
     })
 }
@@ -328,7 +473,7 @@ pub fn flash(p: Point) -> Anim {
 pub fn transform(m: Mob, target: VState) -> Anim {
     Anim::new(move |cx| {
         Ok(Box::new(fastanim_core::transform(
-            cx.shape(m)?,
+            cx.shape(&m)?,
             target.clone(),
         )))
     })
@@ -337,7 +482,7 @@ pub fn transform(m: Mob, target: VState) -> Anim {
 /// Morphs shape `m` into shape `target`, which replaces it.
 pub fn replacement_transform(m: Mob, target: Mob) -> Anim {
     Anim::new(move |cx| {
-        let (a, b) = (cx.shape(m)?, cx.shape(target)?);
+        let (a, b) = (cx.shape(&m)?, cx.shape(&target)?);
         Ok(Box::new(fastanim_core::replacement_transform(a, b)))
     })
 }
@@ -351,7 +496,7 @@ pub fn apply_function(
     Anim::new(move |cx| {
         let (err, f) = (cx.err.clone(), f.clone());
         Ok(Box::new(fastanim_core::apply_function(
-            cx.shape(m)?,
+            cx.shape(&m)?,
             move |p| {
                 f(p).unwrap_or_else(|e| {
                     record(&err, e);
@@ -370,7 +515,7 @@ pub fn update(
     let f = Arc::new(f);
     Anim::new(move |cx| {
         let (err, f) = (cx.err.clone(), f.clone());
-        Ok(Box::new(Update::new(cx.shape(m)?, move |s, a| {
+        Ok(Box::new(Update::new(cx.shape(&m)?, move |s, a| {
             f(s, a).unwrap_or_else(|e| {
                 record(&err, e);
                 s.clone()
@@ -383,9 +528,9 @@ pub fn update(
 pub fn transform_diff(m: Mob, to: TextMobject, style: DiffStyle, list: bool) -> Anim {
     Anim::new(move |cx| {
         let Mob::Text(i) = m else {
-            return Err("expected a text, got a shape".into());
+            return Err("expected a text".into());
         };
-        cx.ids(m)?;
+        cx.ids(&m)?;
         let (s, from) = (&mut cx.scene, &mut cx.texts[i]);
         let d = if list {
             fastanim_text::transform_list(s, from, &to)
@@ -400,7 +545,7 @@ pub fn transform_diff(m: Mob, to: TextMobject, style: DiffStyle, list: bool) -> 
 #[derive(Clone)]
 pub struct Glyphs(pub Vec<VState>);
 
-impl fastanim_core::Position for Glyphs {
+impl Position for Glyphs {
     fn bbox(&self) -> Option<Rect> {
         (self.0.iter().filter_map(|g| g.path.bbox())).reduce(|a, b| a.union(b))
     }
@@ -417,7 +562,7 @@ pub fn animate(
     f: impl Fn(Glyphs) -> Result<Glyphs, String> + Send + Sync + 'static,
 ) -> Anim {
     Anim::new(move |cx| {
-        let ids = cx.ids(m)?;
+        let ids = cx.ids(&m)?;
         let state = cx.scene.state();
         let to = f(Glyphs(ids.iter().map(|id| state[id].clone()).collect()))?.0;
         if to.len() != ids.len() {
@@ -429,6 +574,35 @@ pub fn animate(
                 .collect(),
         )))
     })
+}
+
+/// Loads the WAV at `path`.
+pub fn audio(path: &Path) -> Result<Audio, String> {
+    if cfg!(target_arch = "wasm32") {
+        return Err("audio isn't supported in the browser player yet".into());
+    }
+    Audio::load(path)
+}
+
+/// `a`, or seconds `start..end` of it, which must lie within it.
+fn clip(a: &Audio, range: Option<(f32, f32)>) -> Result<fastanim_core::Sound, String> {
+    let Some((start, end)) = range else {
+        return Ok(a.whole());
+    };
+    let len = a.duration();
+    if !(0.0 <= start && start < end && end <= len) {
+        return Err(format!(
+            "sound range {start}..{end} must lie within 0..{len} (`{}`)",
+            a.path().display()
+        ));
+    }
+    Ok(a.clip(start, end))
+}
+
+/// Plays `a`, or seconds `range` of it, lasting until it finishes.
+pub fn sound(a: &Audio, range: Option<(f32, f32)>) -> Result<Anim, String> {
+    let s = clip(a, range)?;
+    Ok(Anim::new(move |_| Ok(Box::new(s.clone()))))
 }
 
 /// Plays `a` together.

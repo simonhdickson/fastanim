@@ -71,6 +71,15 @@ For texts, see [diff transforms](diffs.md).
 | `ease_in(name)`, `ease_out(name)`, `ease_in_out(name)` | `name` is `"quad"`, `"cubic"`, `"expo"` or `"back"` |
 | `spring(stiffness, damping)` | Overshoot and settle |
 
+## Names
+
+The preview's timeline shows a block per animation, labelled with its kind (`FadeIn`,
+`Write + Create`). `.named(title)` labels it yourself:
+
+```rhai
+scene.play(write(title).named("title"));
+```
+
 ## Composition
 
 | Function | Plays |

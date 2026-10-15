@@ -1,126 +1,354 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>fastanim playground</title>
-  <!-- Built and copied by Trunk (Trunk.toml). The wasm is loaded by worker.js, not the page. -->
-  <link data-trunk rel="rust" href="Cargo.toml" data-type="worker" data-bindgen-target="web">
-  <link data-trunk rel="copy-file" href="worker.js">
-  <link data-trunk rel="copy-file" href="player.js">
-  <link data-trunk rel="copy-file" href="webm.js">
-  <link data-trunk rel="copy-dir" href="../fastanim-script/scenes">
-  <style>
-    body { margin: 0; font: 14px system-ui, sans-serif; background: #111; color: #ddd; }
-    main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; padding: 12px; }
-    @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
-    /* The textarea is transparent over a highlighted copy of its text; neither wraps, so the
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>fastanim playground</title>
+        <!-- Built and copied by Trunk (Trunk.toml). The wasm is loaded by worker.js, not the page. -->
+        <link
+            data-trunk
+            rel="rust"
+            href="Cargo.toml"
+            data-type="worker"
+            data-bindgen-target="web"
+        />
+        <link data-trunk rel="copy-file" href="worker.js" />
+        <link data-trunk rel="copy-file" href="player.js" />
+        <link data-trunk rel="copy-file" href="webm.js" />
+        <link data-trunk rel="copy-dir" href="../fastanim-script/scenes" />
+        <style>
+            body {
+                margin: 0;
+                font:
+                    14px system-ui,
+                    sans-serif;
+                background: #111;
+                color: #ddd;
+            }
+            main {
+                display: grid;
+                grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+                gap: 12px;
+                padding: 12px;
+            }
+            @media (max-width: 800px) {
+                main {
+                    grid-template-columns: 1fr;
+                }
+            }
+            /* The textarea is transparent over a highlighted copy of its text; neither wraps, so the
        two line up as long as they share font, padding and scroll position. */
-    .editor { position: relative; height: 70vh; background: #1b1b1b; border: 1px solid #333;
-              color-scheme: dark; }
-    .editor textarea, .editor pre { position: absolute; inset: 0; margin: 0; padding: 8px; border: 0;
-               box-sizing: border-box; font: 13px/1.5 ui-monospace, monospace; tab-size: 4;
-               white-space: pre; overflow: auto; }
-    .editor textarea { width: 100%; height: 100%; resize: none; background: transparent;
-               color: transparent; caret-color: #eee; outline: none; }
-    .editor pre { color: #eee; overflow: hidden; pointer-events: none; }
-    .editor textarea::selection { background: #3a4a6a; color: transparent; }
-    .com { color: #6a737d; font-style: italic; } .str { color: #9ece6a; } .kw { color: #c678dd; }
-    .num { color: #e5a05b; } .const { color: #61afef; } .fn { color: #e5c07b; }
-    .bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-    button, select { background: #222; color: #ddd; border: 1px solid #444; padding: 4px 10px; }
-    a { color: #61afef; }
-  </style>
-</head>
-<body>
-<main>
-  <section>
-    <div class="bar" style="margin: 0 0 8px">
-      <select id="example"><option value="scenes/parity.rhai">parity.rhai</option><option value="scenes/diff.rhai">diff.rhai</option><option value="scenes/sine_curve.rhai">sine_curve.rhai</option><option value="scenes/sin_and_cos.rhai">sin_and_cos.rhai</option><option value="scenes/growing_wave.rhai">growing_wave.rhai</option></select>
-      <span id="status"></span>
-      <span style="margin-left: auto"><a href="docs/">Docs</a> · <a href="https://github.com/simonhdickson/fastanim">GitHub</a></span>
-    </div>
-    <div class="editor">
-      <pre id="hl" aria-hidden="true"></pre>
-      <textarea id="src" spellcheck="false" aria-label="Scene script"></textarea>
-    </div>
-  </section>
-  <section>
-    <fastanim-player id="player"></fastanim-player>
-    <div class="bar">
-      <button id="svg">Download SVG</button>
-      <button id="png">Download PNG</button>
-      <button id="video">Record video</button>
-    </div>
-  </section>
-</main>
-<script type="module">
-  import "./player.js";
-  const $ = (id) => document.getElementById(id);
-  const player = $("player");
+            .editor {
+                position: relative;
+                height: 70vh;
+                background: #1b1b1b;
+                border: 1px solid #333;
+                color-scheme: dark;
+            }
+            .editor textarea,
+            .editor pre {
+                position: absolute;
+                inset: 0;
+                margin: 0;
+                padding: 8px;
+                border: 0;
+                box-sizing: border-box;
+                font:
+                    13px/1.5 ui-monospace,
+                    monospace;
+                tab-size: 4;
+                white-space: pre;
+                overflow: auto;
+            }
+            .editor textarea {
+                width: 100%;
+                height: 100%;
+                resize: none;
+                background: transparent;
+                color: transparent;
+                caret-color: #eee;
+                outline: none;
+            }
+            .editor pre {
+                color: #eee;
+                overflow: hidden;
+                pointer-events: none;
+            }
+            .editor textarea::selection {
+                background: #3a4a6a;
+                color: transparent;
+            }
+            .com {
+                color: #6a737d;
+                font-style: italic;
+            }
+            .str {
+                color: #9ece6a;
+            }
+            .kw {
+                color: #c678dd;
+            }
+            .num {
+                color: #e5a05b;
+            }
+            .const {
+                color: #61afef;
+            }
+            .fn {
+                color: #e5c07b;
+            }
+            .bar {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                margin-top: 8px;
+                flex-wrap: wrap;
+            }
+            button,
+            select {
+                background: #222;
+                color: #ddd;
+                border: 1px solid #444;
+                padding: 4px 10px;
+            }
+            a {
+                color: #61afef;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <section>
+                <div class="bar" style="margin: 0 0 8px">
+                    <select id="example">
+                        <option value="scenes/parity.rhai">parity.rhai</option>
+                        <option value="scenes/diff.rhai">diff.rhai</option>
+                        <option value="scenes/sine_curve.rhai">
+                            sine_curve.rhai
+                        </option>
+                        <option value="scenes/sin_and_cos.rhai">
+                            sin_and_cos.rhai
+                        </option>
+                        <option value="scenes/growing_wave.rhai">
+                            growing_wave.rhai
+                        </option>
+                        <option value="scenes/moving_group.rhai">
+                            moving_group.rhai
+                        </option>
+                    </select>
+                    <button id="share" title="Copy a link holding this script">
+                        Share link
+                    </button>
+                    <span id="status"></span>
+                    <span style="margin-left: auto"
+                        ><a href="docs/">Docs</a> ·
+                        <a href="https://github.com/simonhdickson/fastanim"
+                            >GitHub</a
+                        ></span
+                    >
+                </div>
+                <div class="editor">
+                    <pre id="hl" aria-hidden="true"></pre>
+                    <textarea
+                        id="src"
+                        spellcheck="false"
+                        aria-label="Scene script"
+                    ></textarea>
+                </div>
+            </section>
+            <section>
+                <fastanim-player id="player"></fastanim-player>
+                <div class="bar">
+                    <button id="svg">Download SVG</button>
+                    <button id="png">Download PNG</button>
+                    <button id="video">Record video</button>
+                </div>
+            </section>
+        </main>
+        <script type="module">
+            import "./player.js";
+            const $ = (id) => document.getElementById(id);
+            const player = $("player");
 
-  function load(src) {
-    $("status").textContent = "baking…";
-    player.load(src);
-  }
+            function load(src) {
+                $("status").textContent = "baking…";
+                player.load(src);
+            }
 
-  // The player shows errors itself, and keeps playing the last good scene.
-  player.addEventListener("bakeerror", () => { $("status").textContent = ""; });
-  player.addEventListener("baked", ({ detail: b }) => {
-    $("status").textContent =
-      `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting, ` +
-      `${b.planMs.toFixed(0)} ms planning, ${b.snapshotMs.toFixed(0)} ms keyframes)`;
-  });
+            // The player shows errors itself, and keeps playing the last good scene.
+            player.addEventListener("bakeerror", () => {
+                $("status").textContent = "";
+            });
+            player.addEventListener("baked", ({ detail: b }) => {
+                $("status").textContent =
+                    `baked in ${b.bakeMs.toFixed(0)} ms (${b.typesetMs.toFixed(0)} ms typesetting, ` +
+                    `${b.planMs.toFixed(0)} ms planning, ${b.snapshotMs.toFixed(0)} ms keyframes)`;
+            });
 
-  // Rhai tokens, in priority order: comments, strings, keywords, numbers, CONSTANTS, calls.
-  const TOKENS = /(\/\/.*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|`[^`]*`?|'(?:\\.|[^'\\])')|\b(let|const|fn|if|else|while|loop|for|in|do|until|break|continue|return|throw|try|catch|switch|import|export|as|private|true|false|this|global)\b|\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b|\b([A-Z][A-Z0-9_]+)\b|\b([a-z_]\w*)(?=\s*\()/g;
-  const CLASSES = [, "com", "str", "kw", "num", "const", "fn"];
-  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+            // Rhai tokens, in priority order: comments, strings, keywords, numbers, CONSTANTS, calls.
+            const TOKENS =
+                /(\/\/.*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|`[^`]*`?|'(?:\\.|[^'\\])')|\b(let|const|fn|if|else|while|loop|for|in|do|until|break|continue|return|throw|try|catch|switch|import|export|as|private|true|false|this|global)\b|\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b|\b([A-Z][A-Z0-9_]+)\b|\b([a-z_]\w*)(?=\s*\()/g;
+            const CLASSES = [, "com", "str", "kw", "num", "const", "fn"];
+            const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-  function highlight() {
-    const src = $("src").value;
-    let out = "", at = 0;
-    for (const m of src.matchAll(TOKENS)) {
-      const cls = CLASSES[m.findIndex((g, i) => i > 0 && g !== undefined)];
-      out += esc(src.slice(at, m.index)) + `<span class="${cls}">${esc(m[0])}</span>`;
-      at = m.index + m[0].length;
-    }
-    // A trailing newline needs a character after it to take up a line in the <pre>.
-    $("hl").innerHTML = out + esc(src.slice(at)) + " ";
-    syncScroll();
-  }
+            function highlight() {
+                const src = $("src").value;
+                let out = "",
+                    at = 0;
+                for (const m of src.matchAll(TOKENS)) {
+                    const cls =
+                        CLASSES[
+                            m.findIndex((g, i) => i > 0 && g !== undefined)
+                        ];
+                    out +=
+                        esc(src.slice(at, m.index)) +
+                        `<span class="${cls}">${esc(m[0])}</span>`;
+                    at = m.index + m[0].length;
+                }
+                // A trailing newline needs a character after it to take up a line in the <pre>.
+                $("hl").innerHTML = out + esc(src.slice(at)) + " ";
+                syncScroll();
+            }
 
-  function syncScroll() {
-    $("hl").scrollTop = $("src").scrollTop;
-    $("hl").scrollLeft = $("src").scrollLeft;
-  }
+            function syncScroll() {
+                $("hl").scrollTop = $("src").scrollTop;
+                $("hl").scrollLeft = $("src").scrollLeft;
+            }
 
-  async function example(name) {
-    $("status").textContent = "baking…";
-    $("src").value = await player.open(name);
-    highlight();
-  }
+            async function example(name) {
+                $("status").textContent = "baking…";
+                $("src").value = await player.open(name);
+                highlight();
+            }
 
-  let debounce;
-  $("src").addEventListener("scroll", syncScroll);
-  $("src").addEventListener("input", () => {
-    highlight();
-    clearTimeout(debounce);
-    debounce = setTimeout(() => load($("src").value), 400);
-  });
-  $("src").addEventListener("keydown", (e) => {
-    if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
-  });
-  $("example").onchange = (e) => example(e.target.value);
-  $("svg").onclick = () => player.download("svg");
-  $("png").onclick = () => player.download("png");
-  $("video").onclick = () => {
-    $("status").textContent = "recording…";
-    player.download("video");
-  };
-  player.addEventListener("recorded", () => { $("status").textContent = ""; });
+            let debounce;
+            $("src").addEventListener("scroll", syncScroll);
+            $("src").addEventListener("input", () => {
+                highlight();
+                clearTimeout(debounce);
+                debounce = setTimeout(() => load($("src").value), 400);
+            });
+            $("src").addEventListener("keydown", (e) => {
+                if (e.key === "Tab") {
+                    e.preventDefault();
+                    document.execCommand("insertText", false, "    ");
+                }
+            });
+            // The URL says what to open: ?scene=diff for scenes/diff.rhai, ?gist=<id> for the first
+            // .rhai file in a public gist, or #code=… for the script itself, deflated and base64url'd.
+            // Picking from the list, or sharing, rewrites it.
+            const sceneUrl = (name) => `scenes/${name}.rhai`;
+            const sceneName = (url) => url.replace(/^scenes\/|\.rhai$/g, "");
+            function setUrl(search, hash = "") {
+                history.replaceState(
+                    null,
+                    "",
+                    location.pathname + search + hash,
+                );
+            }
 
-  example($("example").value);
-</script>
-</body>
+            $("example").onchange = (e) => {
+                setUrl(`?scene=${sceneName(e.target.value)}`);
+                example(e.target.value);
+            };
+
+            function opened(src) {
+                $("example").selectedIndex = -1;
+                $("src").value = src;
+                highlight();
+                load(src);
+            }
+
+            async function gist(id) {
+                $("status").textContent = "fetching gist…";
+                const r = await fetch(
+                    `https://api.github.com/gists/${encodeURIComponent(id)}`,
+                );
+                if (!r.ok)
+                    throw new Error(`gist ${id}: ${r.status} ${r.statusText}`);
+                const files = Object.values((await r.json()).files);
+                const file =
+                    files.find((f) => f.filename.endsWith(".rhai")) ?? files[0];
+                if (!file) throw new Error(`gist ${id} has no files`);
+                // The API inlines files up to 1 MB; past that, `content` is cut short.
+                return file.truncated
+                    ? (await fetch(file.raw_url)).text()
+                    : file.content;
+            }
+
+            const pipe = (bytes, stream) =>
+                new Response(new Blob([bytes]).stream().pipeThrough(stream));
+
+            async function encode(src) {
+                const bytes = new Uint8Array(
+                    await pipe(
+                        new TextEncoder().encode(src),
+                        new CompressionStream("deflate-raw"),
+                    ).arrayBuffer(),
+                );
+                let bin = "";
+                for (const b of bytes) bin += String.fromCharCode(b);
+                return btoa(bin)
+                    .replace(/\+/g, "-")
+                    .replace(/\//g, "_")
+                    .replace(/=+$/, "");
+            }
+
+            async function decode(code) {
+                const bin = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+                const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+                return pipe(
+                    bytes,
+                    new DecompressionStream("deflate-raw"),
+                ).text();
+            }
+
+            $("share").onclick = async () => {
+                setUrl("", `#code=${await encode($("src").value)}`);
+                try {
+                    await navigator.clipboard.writeText(location.href);
+                    $("status").textContent = "link copied";
+                } catch {
+                    $("status").textContent = "link is in the address bar";
+                }
+            };
+            $("svg").onclick = () => player.download("svg");
+            $("png").onclick = () => player.download("png");
+            $("video").onclick = () => {
+                $("status").textContent = "recording…";
+                player.download("video");
+            };
+            player.addEventListener("recorded", () => {
+                $("status").textContent = "";
+            });
+
+            async function start() {
+                const params = new URLSearchParams(location.search);
+                const code = new URLSearchParams(location.hash.slice(1)).get(
+                    "code",
+                );
+                try {
+                    if (code) return opened(await decode(code));
+                    if (params.has("gist"))
+                        return opened(await gist(params.get("gist")));
+                } catch (e) {
+                    $("example").selectedIndex = -1;
+                    $("status").textContent =
+                        `couldn't open link: ${e.message}`;
+                    return;
+                }
+                const linked = params.get("scene");
+                if (
+                    linked &&
+                    [...$("example").options].some(
+                        (o) => o.value === sceneUrl(linked),
+                    )
+                ) {
+                    $("example").value = sceneUrl(linked);
+                }
+                example($("example").value);
+            }
+            start();
+        </script>
+    </body>
 </html>
