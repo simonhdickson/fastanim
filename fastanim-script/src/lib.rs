@@ -306,6 +306,8 @@ pub struct Anim {
     pub run_time: Option<f32>,
     /// Overrides the animation's own rate.
     pub rate: Option<RateFn>,
+    /// Overrides the animation's own label in the preview timeline.
+    pub name: Option<String>,
 }
 
 impl Anim {
@@ -316,6 +318,7 @@ impl Anim {
             build: Arc::new(f),
             run_time: None,
             rate: None,
+            name: None,
         }
     }
 
@@ -326,6 +329,9 @@ impl Anim {
         }
         if let Some(r) = self.rate {
             a = Box::new(a.rate(r));
+        }
+        if let Some(n) = &self.name {
+            a = Box::new(a.named(n.clone()));
         }
         Ok(a)
     }
@@ -360,7 +366,10 @@ fn whole(
         let ids = cx.ids(&m)?;
         Ok(match m {
             Mob::Shape(_) => Box::new(shape(ids[0])),
-            Mob::Text(_) | Mob::Group(_) => Box::new(UpdateGroup::new(&ids, group.clone())),
+            Mob::Text(_) | Mob::Group(_) => {
+                let name = shape(ids[0]).label();
+                Box::new(UpdateGroup::new(&ids, group.clone()).named(name))
+            }
         })
     })
 }

@@ -1,5 +1,6 @@
 //! Animations (SPEC §4.4): planned once at bake time, then sampled as a pure function of progress.
 
+use std::borrow::Cow;
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 use kurbo::{Affine, CubicBez, Point, Vec2};
@@ -121,6 +122,11 @@ pub trait Animation: Send + Sync {
     fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
         let _ = (at, out);
     }
+
+    /// What the preview timeline calls it, e.g. `"FadeIn"`; see [`AnimationExt::named`].
+    fn label(&self) -> Cow<'static, str> {
+        "Animation".into()
+    }
 }
 
 impl Animation for Box<dyn Animation> {
@@ -138,6 +144,9 @@ impl Animation for Box<dyn Animation> {
     }
     fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
         (**self).sounds(at, out);
+    }
+    fn label(&self) -> Cow<'static, str> {
+        (**self).label()
     }
 }
 
@@ -162,9 +171,44 @@ pub trait AnimationExt: Animation + Sized {
             rate,
         }
     }
+
+    /// Overrides the [label](Animation::label) shown in the preview timeline.
+    fn named(self, name: impl Into<Cow<'static, str>>) -> Named<Self> {
+        Named {
+            anim: self,
+            name: name.into(),
+        }
+    }
 }
 
 impl<A: Animation> AnimationExt for A {}
+
+/// An animation with an overridden label; see [`AnimationExt::named`].
+pub struct Named<A> {
+    anim: A,
+    name: Cow<'static, str>,
+}
+
+impl<A: Animation> Animation for Named<A> {
+    fn plan(&mut self, state: &SceneState) {
+        self.anim.plan(state);
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        self.anim.sample(alpha, state);
+    }
+    fn duration(&self) -> f32 {
+        self.anim.duration()
+    }
+    fn rate_fn(&self) -> RateFn {
+        self.anim.rate_fn()
+    }
+    fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
+        self.anim.sounds(at, out);
+    }
+    fn label(&self) -> Cow<'static, str> {
+        self.name.clone()
+    }
+}
 
 /// An animation with overridden timing; see [`AnimationExt`].
 pub struct Timed<A> {
@@ -201,6 +245,9 @@ impl<A: Animation> Animation for Timed<A> {
     fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
         self.anim.sounds(at, out);
     }
+    fn label(&self) -> Cow<'static, str> {
+        self.anim.label()
+    }
 }
 
 fn get(state: &SceneState, id: MobjectId) -> &VState {
@@ -214,6 +261,7 @@ type UpdateFn = Box<dyn Fn(&VState, f32) -> VState + Send + Sync>;
 /// Rewrites one mobject from its start-of-clip state and progress: the building block for the
 /// simple animations below.
 pub struct Update {
+    name: &'static str,
     id: MobjectId,
     start: Option<VState>,
     f: UpdateFn,
@@ -223,10 +271,23 @@ impl Update {
     /// `f(start_state, alpha)` gives the mobject's state at `alpha`.
     pub fn new(id: MobjectId, f: impl Fn(&VState, f32) -> VState + Send + Sync + 'static) -> Self {
         Self {
+            name: "Update",
             id,
             start: None,
             f: Box::new(f),
         }
+    }
+}
+
+/// An [`Update`] labelled `name`.
+fn update(
+    name: &'static str,
+    id: MobjectId,
+    f: impl Fn(&VState, f32) -> VState + Send + Sync + 'static,
+) -> Update {
+    Update {
+        name,
+        ..Update::new(id, f)
     }
 }
 
@@ -238,11 +299,14 @@ impl Animation for Update {
         let start = self.start.as_ref().expect("sample before plan");
         state.insert(self.id, (self.f)(start, alpha));
     }
+    fn label(&self) -> Cow<'static, str> {
+        self.name.into()
+    }
 }
 
 /// Draws the outline in along its arc length.
 pub fn create(id: MobjectId) -> Update {
-    Update::new(id, |s, a| VState {
+    update("Create", id, |s, a| VState {
         draw_range: 0.0..a,
         ..s.clone()
     })
@@ -250,7 +314,7 @@ pub fn create(id: MobjectId) -> Update {
 
 /// Fades from transparent to the current opacity.
 pub fn fade_in(id: MobjectId) -> Update {
-    Update::new(id, |s, a| VState {
+    update("FadeIn", id, |s, a| VState {
         opacity: s.opacity * a,
         ..s.clone()
     })
@@ -258,7 +322,7 @@ pub fn fade_in(id: MobjectId) -> Update {
 
 /// Fades to transparent. The mobject stays in the scene until removed.
 pub fn fade_out(id: MobjectId) -> Update {
-    Update::new(id, |s, a| VState {
+    update("FadeOut", id, |s, a| VState {
         opacity: s.opacity * (1.0 - a),
         ..s.clone()
     })
@@ -266,14 +330,14 @@ pub fn fade_out(id: MobjectId) -> Update {
 
 /// Translates by `v`.
 pub fn shift(id: MobjectId, v: Vec2) -> Update {
-    Update::new(id, move |s, a| {
+    update("Shift", id, move |s, a| {
         s.clone().transform(Affine::translate(v * f64::from(a)))
     })
 }
 
 /// Rotates counter-clockwise by `angle` radians about the start bounding-box center.
 pub fn rotate(id: MobjectId, angle: f64) -> Update {
-    Update::new(id, move |s, a| {
+    update("Rotate", id, move |s, a| {
         let c = s.path.center();
         s.clone()
             .transform(Affine::rotate_about(angle * f64::from(a), c))
@@ -282,7 +346,7 @@ pub fn rotate(id: MobjectId, angle: f64) -> Update {
 
 /// Scales by `factor` about the start bounding-box center.
 pub fn scale(id: MobjectId, factor: f64) -> Update {
-    Update::new(id, move |s, a| {
+    update("Scale", id, move |s, a| {
         let c = s.path.center();
         s.clone()
             .transform(Affine::scale_about(1.0 + (factor - 1.0) * f64::from(a), c))
@@ -291,12 +355,12 @@ pub fn scale(id: MobjectId, factor: f64) -> Update {
 
 /// Grows from a point at its center, manim's `GrowFromCenter`.
 pub fn grow_from_center(id: MobjectId) -> Update {
-    Update::new(id, |s, a| s.clone().scale(f64::from(a)))
+    update("GrowFromCenter", id, |s, a| s.clone().scale(f64::from(a)))
 }
 
 /// Grows from a point while turning a quarter turn into place, manim's `SpinInFromNothing`.
 pub fn spin_in(id: MobjectId) -> Update {
-    Update::new(id, |s, a| {
+    update("SpinInFromNothing", id, |s, a| {
         let c = s.path.center();
         let a = f64::from(a);
         s.clone()
@@ -306,13 +370,15 @@ pub fn spin_in(id: MobjectId) -> Update {
 
 /// Shrinks to a point at its center. The mobject stays in the scene until removed.
 pub fn shrink_to_center(id: MobjectId) -> Update {
-    Update::new(id, |s, a| s.clone().scale(f64::from(1.0 - a)))
+    update("ShrinkToCenter", id, |s, a| {
+        s.clone().scale(f64::from(1.0 - a))
+    })
 }
 
 /// Erases the outline backwards along its arc length; the reverse of [`create`]. The mobject
 /// stays in the scene until removed.
 pub fn uncreate(id: MobjectId) -> Update {
-    Update::new(id, |s, a| VState {
+    update("Uncreate", id, |s, a| VState {
         draw_range: 0.0..1.0 - a,
         ..s.clone()
     })
@@ -320,14 +386,14 @@ pub fn uncreate(id: MobjectId) -> Update {
 
 /// Moves so the bounding-box center ends at `p`.
 pub fn move_to(id: MobjectId, p: Point) -> Update {
-    Update::new(id, move |s, a| {
+    update("MoveTo", id, move |s, a| {
         s.clone().shift((p - s.path.center()) * f64::from(a))
     })
 }
 
 /// Morphs every control point `q` towards `f(q)`, manim's `ApplyFunction` / `ApplyPointwise`.
 pub fn apply_function(id: MobjectId, f: impl Fn(Point) -> Point + Send + Sync + 'static) -> Update {
-    Update::new(id, move |s, a| {
+    update("ApplyFunction", id, move |s, a| {
         let t = f64::from(a);
         let mut m = s.clone();
         for seg in m.path.subpaths.iter_mut().flat_map(|sp| &mut sp.segments) {
@@ -343,6 +409,7 @@ type GroupFn = Box<dyn Fn(&VState, Point, f32) -> VState + Send + Sync>;
 /// Rewrites several mobjects together from each one's start state, their joint bounding-box
 /// center and progress: the building block for the emphasis animations below.
 pub struct UpdateGroup {
+    name: &'static str,
     ids: Vec<MobjectId>,
     starts: Vec<VState>,
     center: Point,
@@ -356,6 +423,7 @@ impl UpdateGroup {
         f: impl Fn(&VState, Point, f32) -> VState + Send + Sync + 'static,
     ) -> Self {
         Self {
+            name: "UpdateGroup",
             ids: ids.to_vec(),
             starts: Vec::new(),
             center: Point::ORIGIN,
@@ -374,11 +442,14 @@ impl Animation for UpdateGroup {
             state.insert(id, (self.f)(s, self.center, alpha));
         }
     }
+    fn label(&self) -> Cow<'static, str> {
+        self.name.into()
+    }
 }
 
 /// Briefly scales up by 1.2 and tints yellow, then settles back, manim's `Indicate`.
 pub fn indicate(ids: &[MobjectId]) -> Timed<UpdateGroup> {
-    UpdateGroup::new(ids, |s, c, a| {
+    let g = UpdateGroup::new(ids, |s, c, a| {
         if a <= 0.0 {
             return s.clone();
         }
@@ -392,13 +463,17 @@ pub fn indicate(ids: &[MobjectId]) -> Timed<UpdateGroup> {
             ..s.clone()
         }
         .transform(Affine::scale_about(1.0 + 0.2 * f64::from(a), c))
-    })
+    });
+    UpdateGroup {
+        name: "Indicate",
+        ..g
+    }
     .rate(RateFn::ThereAndBack)
 }
 
 /// Wobbles in place while swelling slightly, manim's `Wiggle`; lasts 2 s.
 pub fn wiggle(ids: &[MobjectId]) -> Timed<UpdateGroup> {
-    UpdateGroup::new(ids, |s, c, a| {
+    let g = UpdateGroup::new(ids, |s, c, a| {
         if a <= 0.0 || a >= 1.0 {
             return s.clone();
         }
@@ -407,7 +482,11 @@ pub fn wiggle(ids: &[MobjectId]) -> Timed<UpdateGroup> {
         let angle = 0.1 * swell * (3.0 * TAU * a).sin();
         s.clone()
             .transform(Affine::rotate_about(angle, c) * Affine::scale_about(1.0 + 0.1 * swell, c))
-    })
+    });
+    UpdateGroup {
+        name: "Wiggle",
+        ..g
+    }
     .run_time(2.0)
     .rate(RateFn::Linear)
 }
@@ -415,6 +494,7 @@ pub fn wiggle(ids: &[MobjectId]) -> Timed<UpdateGroup> {
 /// Helper shapes added to the scene now, invisible, animated by `f` from their added state, and
 /// removed when the clip ends: e.g. [`circumscribe`] and [`flash`].
 pub struct Overlay {
+    name: &'static str,
     ids: Vec<MobjectId>,
     starts: Vec<VState>,
     f: UpdateFn,
@@ -437,6 +517,7 @@ impl Overlay {
             })
             .collect();
         Self {
+            name: "Overlay",
             ids,
             starts: shapes,
             f: Box::new(f),
@@ -455,6 +536,9 @@ impl Animation for Overlay {
             }
         }
     }
+    fn label(&self) -> Cow<'static, str> {
+        self.name.into()
+    }
 }
 
 /// Draws a yellow rectangle around `ids` and erases it again, manim's `Circumscribe`.
@@ -469,11 +553,15 @@ pub fn circumscribe(s: &mut Scene, ids: &[MobjectId]) -> Overlay {
     let rect = VState::rectangle(bbox.width(), bbox.height())
         .move_to(bbox.center())
         .stroke(YELLOW, 0.06);
-    Overlay::new(s, vec![rect], |m, a| VState {
+    let o = Overlay::new(s, vec![rect], |m, a| VState {
         // Traces in over the first half and out over the second.
         draw_range: (2.0 * a - 1.0).max(0.0)..(2.0 * a).min(1.0),
         ..m.clone()
-    })
+    });
+    Overlay {
+        name: "Circumscribe",
+        ..o
+    }
 }
 
 /// Twelve short yellow rays burst outwards from `p`, manim's `Flash`.
@@ -484,10 +572,11 @@ pub fn flash(s: &mut Scene, p: Point) -> Overlay {
             VState::line(p + d * 0.3, p + d * 0.8).stroke(YELLOW, 0.04)
         })
         .collect();
-    Overlay::new(s, rays, |m, a| VState {
+    let o = Overlay::new(s, rays, |m, a| VState {
         draw_range: (2.0 * a - 1.0).max(0.0)..(2.0 * a).min(1.0),
         ..m.clone()
-    })
+    });
+    Overlay { name: "Flash", ..o }
 }
 
 /// `s` part drawn at progress `p`: over the first half its outline traces in (in its fill color
@@ -527,7 +616,7 @@ fn border_then_fill(s: &VState, p: f32) -> VState {
 /// Traces the outline in, then fills it, manim's `DrawBorderThenFill`; lasts 2 s. Like one
 /// mobject of [`write`].
 pub fn draw_border_then_fill(id: MobjectId) -> Timed<Update> {
-    Update::new(id, border_then_fill).run_time(2.0)
+    update("DrawBorderThenFill", id, border_then_fill).run_time(2.0)
 }
 
 /// Draws mobjects in one after another, manim's `Write`: each outline traces in, then its fill
@@ -568,6 +657,9 @@ impl Animation for Write {
         // manim: 1 s for short texts, up to 2 s for long ones.
         (self.ids.len() as f32 / 15.0).clamp(1.0, 2.0)
     }
+    fn label(&self) -> Cow<'static, str> {
+        "Write".into()
+    }
 }
 
 /// Erases mobjects last to first, manim's `Unwrite`: [`write`] played backwards. The mobjects
@@ -588,6 +680,9 @@ impl Animation for Unwrite {
     }
     fn duration(&self) -> f32 {
         self.0.duration()
+    }
+    fn label(&self) -> Cow<'static, str> {
+        "Unwrite".into()
     }
 }
 
@@ -631,6 +726,9 @@ impl Animation for Transform {
             state.insert(self.id, VState::lerp(a, b, alpha));
         }
     }
+    fn label(&self) -> Cow<'static, str> {
+        "Transform".into()
+    }
 }
 
 /// Morphs one mobject into another already in the scene, then swaps them, manim's
@@ -665,6 +763,9 @@ impl Animation for ReplacementTransform {
             self.morph.sample(alpha, state);
         }
     }
+    fn label(&self) -> Cow<'static, str> {
+        "ReplacementTransform".into()
+    }
 }
 
 /// Runs animations together; lasts as long as the longest. Each child keeps its own easing.
@@ -695,6 +796,20 @@ impl Animation for Parallel {
     fn sounds(&self, at: f32, out: &mut Vec<SoundEvent>) {
         self.0.iter().for_each(|a| a.sounds(at, out));
     }
+    fn label(&self) -> Cow<'static, str> {
+        join(&self.0, " + ", "Parallel")
+    }
+}
+
+/// The children's labels joined with `sep`, runs of one label once (a text's glyphs), or
+/// `empty` if there are none.
+fn join(anims: &[Box<dyn Animation>], sep: &str, empty: &'static str) -> Cow<'static, str> {
+    if anims.is_empty() {
+        return empty.into();
+    }
+    let mut labels: Vec<_> = anims.iter().map(|a| a.label()).collect();
+    labels.dedup();
+    labels.join(sep).into()
 }
 
 /// Plays animations one after another, manim's `Succession`; each plans against the scene as
@@ -733,6 +848,9 @@ impl Animation for Sequence {
             a.sounds(at, out);
             at += a.duration();
         }
+    }
+    fn label(&self) -> Cow<'static, str> {
+        join(&self.0, " then ", "Sequence")
     }
 }
 
@@ -783,5 +901,8 @@ impl Animation for LaggedStart {
         for (a, s) in self.anims.iter().zip(&self.starts) {
             a.sounds(at + s, out);
         }
+    }
+    fn label(&self) -> Cow<'static, str> {
+        join(&self.anims, " + ", "LaggedStart")
     }
 }

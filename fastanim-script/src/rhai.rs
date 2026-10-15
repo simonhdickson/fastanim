@@ -570,7 +570,11 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
             run_time: Some(t as f32),
             ..a
         })
-        .register_fn("rate", |a: Anim, r: RateFn| Anim { rate: Some(r), ..a });
+        .register_fn("rate", |a: Anim, r: RateFn| Anim { rate: Some(r), ..a })
+        .register_fn("named", |a: Anim, name: &str| Anim {
+            name: Some(name.into()),
+            ..a
+        });
     e.register_type_with_name::<RateFn>("Rate")
         .register_fn("ease_in", |n: &str| {
             Ok(RateFn::EaseIn(crate::ease(n)?)) as Res<_>

@@ -557,3 +557,52 @@ fn sounds_play_and_wait() {
     // Sounds don't touch the picture.
     assert_eq!(tl.eval(0.5).len(), 1);
 }
+
+#[test]
+fn events_record_what_each_clip_touches() {
+    let a_wav = Audio::load(silent_wav("events", 1.5)).unwrap();
+    let mut s = Scene::new();
+    let a = s.add(VState::circle(1.0));
+    let b = s.add(VState::square(1.0).shift(Vec2::new(3.0, 0.0)));
+    s.play(create(a));
+    s.add_sound(a_wav.whole());
+    s.play(fade_in(b).named("hello"));
+    s.always(b, |st, _| st[&MobjectId(1)].clone());
+    s.wait(1.0);
+    s.play(indicate(&[a]));
+    s.play(Parallel(vec![
+        Box::new(fade_out(a)),
+        Box::new(fade_out(b)),
+        Box::new(shift(a, RIGHT)),
+    ]));
+    let tl = s.bake();
+    let ev = tl.events();
+    let summary: Vec<_> = ev
+        .iter()
+        .map(|e| {
+            (
+                e.label.as_str(),
+                e.kind,
+                e.start,
+                e.end,
+                e.lane,
+                e.targets.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("Create", EventKind::Play, 0.0, 1.0, 0, vec![a]),
+            ("Sound", EventKind::Sound, 1.0, 2.5, 1, vec![]),
+            ("hello", EventKind::Play, 1.0, 2.0, 0, vec![b]),
+            ("Updater", EventKind::Updater, 2.0, 5.0, 2, vec![b]),
+            ("Indicate", EventKind::Play, 3.0, 4.0, 0, vec![a]),
+            ("FadeOut + Shift", EventKind::Play, 4.0, 5.0, 0, vec![a, b]),
+        ]
+    );
+    // Before the create has drawn anything, the box is where the circle ends up.
+    let r = tl.highlight_box(&ev[0], 0.0).unwrap();
+    assert!((r.width() - 2.0).abs() < 1e-6 && r.center().distance(Point::ORIGIN) < 1e-6);
+    assert_eq!(tl.highlight_box(&ev[1], 1.0), None);
+}

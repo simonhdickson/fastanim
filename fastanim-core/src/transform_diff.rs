@@ -416,4 +416,8 @@ impl Animation for TransformDiff {
         // Each mobject eases within its own phase.
         RateFn::Linear
     }
+
+    fn label(&self) -> std::borrow::Cow<'static, str> {
+        "TransformDiff".into()
+    }
 }

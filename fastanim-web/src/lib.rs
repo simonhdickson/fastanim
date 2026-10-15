@@ -4,9 +4,9 @@
 //! page. `player.js` wraps that as a `<fastanim-player>` element, `index.html` is the playground
 //! around it, and Trunk (`Trunk.toml`) builds it all into `dist/`.
 
-use fastanim_core::color::BLACK;
+use fastanim_core::color::{BLACK, YELLOW};
 use fastanim_core::svg::path_data;
-use fastanim_core::{BakedTimeline, Color, FRAME_WIDTH, to_svg};
+use fastanim_core::{BakedTimeline, Color, EventKind, FRAME_WIDTH, to_svg};
 use wasm_bindgen::prelude::*;
 use web_sys::{OffscreenCanvasRenderingContext2d, Path2d};
 
@@ -87,13 +87,41 @@ impl Player {
         self.timeline.markers().iter().map(|&(_, t)| t).collect()
     }
 
+    /// Every play, updater and sound, in start order, as
+    /// `{ start, end, label, kind: "play" | "updater" | "sound", lane }` objects.
+    pub fn events(&self) -> Result<js_sys::Array, JsValue> {
+        let out = js_sys::Array::new();
+        for e in self.timeline.events() {
+            let kind = match e.kind {
+                EventKind::Play => "play",
+                EventKind::Updater => "updater",
+                EventKind::Sound => "sound",
+            };
+            let o = js_sys::Object::new();
+            let set = |k: &str, v: JsValue| js_sys::Reflect::set(&o, &k.into(), &v);
+            set("start", e.start.into())?;
+            set("end", e.end.into())?;
+            set("label", e.label.as_str().into())?;
+            set("kind", kind.into())?;
+            set("lane", (e.lane as u32).into())?;
+            out.push(&o);
+        }
+        Ok(out)
+    }
+
     /// The frame at `t` as an SVG document.
     pub fn svg(&self, t: f32) -> String {
         to_svg(&self.timeline.eval(t), BLACK)
     }
 
-    /// Draws the frame at `t`, filling the canvas width with the 16:9 frame.
-    pub fn draw(&self, ctx: &OffscreenCanvasRenderingContext2d, t: f32) -> Result<(), JsValue> {
+    /// Draws the frame at `t`, filling the canvas width with the 16:9 frame, with a dashed box
+    /// around the targets of event `selected` (an index into [`Player::events`]).
+    pub fn draw(
+        &self,
+        ctx: &OffscreenCanvasRenderingContext2d,
+        t: f32,
+        selected: Option<u32>,
+    ) -> Result<(), JsValue> {
         let canvas = ctx.canvas();
         let (w, h) = (f64::from(canvas.width()), f64::from(canvas.height()));
         ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)?;
@@ -125,6 +153,17 @@ impl Player {
                 ctx.set_line_width(m.stroke.width);
                 ctx.stroke_with_path(&p);
             }
+        }
+        let event = selected.and_then(|i| self.timeline.events().get(i as usize));
+        if let Some(r) = event.and_then(|e| self.timeline.highlight_box(e, t)) {
+            let r = r.inflate(0.15, 0.15);
+            let dash = js_sys::Array::of2(&0.15.into(), &0.1.into());
+            ctx.set_global_alpha(1.0);
+            ctx.set_line_dash(&dash)?;
+            ctx.set_stroke_style_str(&css(YELLOW));
+            ctx.set_line_width(0.04);
+            ctx.stroke_rect(r.x0, r.y0, r.width(), r.height());
+            ctx.set_line_dash(&js_sys::Array::new())?;
         }
         Ok(())
     }

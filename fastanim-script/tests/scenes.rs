@@ -225,3 +225,18 @@ fn groups_nest_arrange_and_animate() {
     let e = err("group([scene.add(circle(1.0)), circle(1.0)]);");
     assert!(e.message.contains("all mobjects"), "{e}");
 }
+
+#[test]
+fn events_are_labelled() {
+    let src = r#"
+        let t = scene.add(text("hi"));
+        let c = scene.add(circle(1.0));
+        scene.play(write(t).named("title"));
+        scene.play([fade_in(c), rotate(t, PI)]);
+        scene.play(create(t).run_time(2.0));
+    "#;
+    let tl = fastanim_script::bake(src).unwrap();
+    let labels: Vec<_> = tl.events().iter().map(|e| e.label.as_str()).collect();
+    assert_eq!(labels, ["title", "FadeIn + Rotate", "Create"]);
+    assert_eq!(tl.events()[2].end, 4.0);
+}

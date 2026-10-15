@@ -4,7 +4,7 @@ The `fastanim` CLI runs scripts in five ways.
 
 | Command | What it does |
 | --- | --- |
-| `fastanim preview <script>` | Opens a window with a scrubber, re-baking on save |
+| `fastanim preview <script>` | Opens a window with a timeline, re-baking on save |
 | `fastanim render <script>` | Exports video or frames |
 | `fastanim still <script>` | Exports one frame |
 | `fastanim bundle <script>` | Writes the scene's typeset text to a `.bundle` for the web player |
@@ -21,7 +21,13 @@ fastanim preview scene.rhai
 | Space | Play / pause |
 | ← / → | Step a frame |
 | `[` / `]` | Jump to the previous / next [marker](scene.md#markers) |
-| Drag the bar | Scrub |
+| Drag along the timeline | Scrub |
+| Click a block | Jump to its start and box the shapes it affects |
+| Click it again / Esc | Deselect |
+
+The timeline under the scene has a block per `play`, labelled with the animation's kind or
+its [`.named`](animations.md#names) title, and rows below for updaters and sounds. The web
+player has the same timeline.
 
 Typeset text is cached, so a re-bake only typesets text that changed.
 

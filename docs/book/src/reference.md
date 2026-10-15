@@ -86,6 +86,7 @@ move_to(_: Group, _: Point) -> Group
 move_to(_: Mobject, _: Point) -> Animation
 move_to(_: Shape, _: Point) -> Shape
 move_to(_: Text, _: Point) -> Text
+named(_: Animation, _: string) -> Animation
 next_to(_: Axes, _: Group, _: Point) -> Axes
 next_to(_: Axes, _: Group, _: Point, _: f64) -> Axes
 next_to(_: Axes, _: Point, _: Point) -> Axes

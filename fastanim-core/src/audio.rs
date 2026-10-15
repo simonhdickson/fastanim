@@ -84,6 +84,9 @@ impl Animation for Sound {
             sound: self.clone(),
         });
     }
+    fn label(&self) -> std::borrow::Cow<'static, str> {
+        "Sound".into()
+    }
 }
 
 /// A sound starting at scene time `at`.
