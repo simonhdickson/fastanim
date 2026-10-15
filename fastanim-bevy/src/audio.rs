@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::Duration;
@@ -125,12 +126,14 @@ fn spawn_output() -> Option<Sender<Cmd>> {
         stream.log_on_drop(false);
         let _ = ready_tx.send(Ok(()));
         let mut files: HashMap<Arc<Path>, Option<Arc<[u8]>>> = HashMap::new();
-        let mut sinks: Vec<rodio::Sink> = Vec::new();
+        // Set to stop everything started since the last `Stop`. Sources go straight into the
+        // mixer: rodio 0.21's `Sink` skips resampling at the start of a sound, which blips.
+        let mut stop = Arc::new(AtomicBool::new(false));
         for cmd in rx {
-            sinks.retain(|s| !s.empty());
             let (path, skip, take) = match cmd {
                 Cmd::Stop => {
-                    sinks.clear(); // dropping a sink stops it
+                    stop.store(true, Ordering::Relaxed);
+                    stop = Arc::new(AtomicBool::new(false));
                     continue;
                 }
                 Cmd::Play { path, skip, take } => (path, skip, take),
@@ -147,12 +150,17 @@ fn spawn_output() -> Option<Sender<Cmd>> {
             match rodio::Decoder::new(Cursor::new(bytes)) {
                 Ok(d) => {
                     use rodio::Source;
-                    let sink = rodio::Sink::connect_new(stream.mixer());
-                    sink.append(
+                    let stop = stop.clone();
+                    stream.mixer().add(
                         d.skip_duration(Duration::from_secs_f32(skip))
-                            .take_duration(Duration::from_secs_f32(take)),
+                            .take_duration(Duration::from_secs_f32(take))
+                            .stoppable()
+                            .periodic_access(Duration::from_millis(5), move |s| {
+                                if stop.load(Ordering::Relaxed) {
+                                    s.stop();
+                                }
+                            }),
                     );
-                    sinks.push(sink);
                 }
                 Err(e) => eprintln!("error: {}: {e}", path.display()),
             }
