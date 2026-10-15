@@ -2,6 +2,9 @@
 //! with pyo3, as the native module `fastanim._native`. The pure-Python half of the package
 //! lives in `python/fastanim`.
 
+mod render;
+
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
@@ -893,6 +896,45 @@ impl Timeline {
         let bg = background.map_or(fastanim_core::color::BLACK, |c| c.0);
         fastanim_core::to_svg(&self.0.eval(t), bg)
     }
+
+    /// Exports the scene, or from marker `section` to the next one, to `path`; its extension
+    /// picks the format: `mp4`, `webm`, `gif`, `png` or `svg` (one file per frame, in the
+    /// directory `path`). Only `svg` works without the `preview` extra.
+    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None))]
+    fn render(
+        &self,
+        py: Python<'_>,
+        path: PathBuf,
+        quality: &str,
+        section: Option<&str>,
+    ) -> PyResult<()> {
+        let q = render::Quality::parse(quality)?;
+        let range = render::section(&self.0, section)?;
+        render::export(py, &self.0, path, q, range)
+    }
+
+    /// Writes the frame at `at` seconds, or frame number `frame` at `quality`, to `path` as
+    /// `png` or `svg`. Only `svg` works without the `preview` extra.
+    #[pyo3(signature = (path = PathBuf::from("frame.png"), *, at = 0.0, frame = None, quality = "1080p60"))]
+    fn still(
+        &self,
+        py: Python<'_>,
+        path: PathBuf,
+        at: f32,
+        frame: Option<u32>,
+        quality: &str,
+    ) -> PyResult<()> {
+        let ext = (path.extension().and_then(|e| e.to_str())).unwrap_or_default();
+        if !["png", "svg"].contains(&ext) {
+            return Err(PyValueError::new_err(format!(
+                "unsupported still `{}`: use png or svg",
+                path.display()
+            )));
+        }
+        let q = render::Quality::parse(quality)?;
+        let t = frame.map_or(at, |n| q.frame_time(n));
+        render::export(py, &self.0, path, q, (t, t))
+    }
 }
 
 /// A scene function, made with `@scene`.
@@ -908,30 +950,38 @@ impl SceneFn {
         bake(py, &self.f)
     }
 
-    /// Writes the frame at `at` seconds to `path` as SVG.
-    #[pyo3(signature = (path, at = 0.0))]
-    fn still(&self, py: Python<'_>, path: std::path::PathBuf, at: f32) -> PyResult<()> {
-        let svg = bake(py, &self.f)?.svg(at, None);
-        std::fs::write(path, svg)?;
-        Ok(())
-    }
-
-    #[pyo3(signature = (*_args, **_kwargs))]
+    /// Bakes the scene and exports it; see `Timeline.render`.
+    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None))]
     fn render(
         &self,
-        _args: &Bound<'_, PyTuple>,
-        _kwargs: Option<&Bound<'_, PyDict>>,
+        py: Python<'_>,
+        path: PathBuf,
+        quality: &str,
+        section: Option<&str>,
     ) -> PyResult<()> {
-        Err(needs_preview())
+        bake(py, &self.f)?.render(py, path, quality, section)
     }
 
-    #[pyo3(signature = (*_args, **_kwargs))]
-    fn preview(
+    /// Bakes the scene and writes one frame; see `Timeline.still`.
+    #[pyo3(signature = (path = PathBuf::from("frame.png"), *, at = 0.0, frame = None, quality = "1080p60"))]
+    fn still(
         &self,
-        _args: &Bound<'_, PyTuple>,
-        _kwargs: Option<&Bound<'_, PyDict>>,
+        py: Python<'_>,
+        path: PathBuf,
+        at: f32,
+        frame: Option<u32>,
+        quality: &str,
     ) -> PyResult<()> {
-        Err(needs_preview())
+        bake(py, &self.f)?.still(py, path, at, frame, quality)
+    }
+
+    /// Opens a window that plays the scene with a scrubber, and blocks until it closes. With
+    /// `watch`, saving the scene's file runs it again. Needs the `preview` extra.
+    #[pyo3(signature = (*, watch = true))]
+    fn preview(&self, py: Python<'_>, watch: bool) -> PyResult<()> {
+        let f = self.f.bind(py);
+        let tl = bake_scene(f)?;
+        render::preview(py, tl, watch.then(|| render::source(f)).flatten())
     }
 
     #[getter]
@@ -943,12 +993,6 @@ impl SceneFn {
     fn __wrapped__(&self, py: Python<'_>) -> Py<PyAny> {
         self.f.clone_ref(py)
     }
-}
-
-fn needs_preview() -> PyErr {
-    pyo3::exceptions::PyRuntimeError::new_err(
-        "rendering and preview need the extra: pip install fastanim[preview]",
-    )
 }
 
 /// Runs scene function `f` with a fresh scene and bakes it.
@@ -969,7 +1013,8 @@ pub fn bake_scene(f: &Bound<'_, PyAny>) -> PyResult<BakedTimeline> {
     Ok(scene.bake())
 }
 
-/// Marks `f(scene)` as a scene: `f.bake()`, `f.still(path, at=t)`.
+/// Marks `f(scene)` as a scene: `f.bake()`, `f.still(path, at=t)`, `f.render(path)`,
+/// `f.preview()`.
 #[pyfunction]
 fn scene(f: Py<PyAny>) -> SceneFn {
     SceneFn { f }

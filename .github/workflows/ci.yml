@@ -40,6 +40,10 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets
 
+      # The `fastanim-preview` wheel's build of the Python module, with rendering.
+      - name: Clippy (fastanim-py preview)
+        run: cargo clippy -p fastanim-py --all-targets --features preview
+
       - name: Build & run tests
         run: cargo test --workspace
 

@@ -19,6 +19,13 @@ fastanim-core.workspace = true
 fastanim-script = { path = "../fastanim-script", version = "0.1.0", default-features = false }
 fastanim-text.workspace = true
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
+# Rendering and the preview window, for the `fastanim-preview` wheel.
+fastanim-bevy = { workspace = true, optional = true }
+
+[features]
+# Builds the native module of `fastanim-preview` (`pip install fastanim[preview]`), with video,
+# PNG and the preview window.
+preview = ["dep:fastanim-bevy"]
 
 [dev-dependencies]
 # For the Rust and Rhai versions of the example scenes, which the Python ones must match.

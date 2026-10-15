@@ -111,7 +111,7 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 | `fastanim-bevy`   | Bevy plugin: rendering, preview and export                     |
 | `fastanim-script` | Rhai scenes                                                    |
 | `fastanim-cli`    | The `fastanim` command-line tool                               |
-| `fastanim-py`     | Python package                                                 |
+| `fastanim-py`     | The `fastanim` Python package                                  |
 | `fastanim-web`    | Browser player and playground                                  |
 
 ## Try it
@@ -133,6 +133,18 @@ cargo run -p fastanim-cli -- profile fastanim-script/scenes/diff.rhai   # bake t
 (cd fastanim-py && maturin develop)   # Python package, into the active virtualenv
 (cd fastanim-py/scenes && python -c "import parity; parity.parity.still('parity.svg', at=3)")
 just web   # browser playground on http://localhost:8080, rebuilt on change
+```
+
+Scenes can also be written in Python. Build the package into a virtualenv with
+[maturin](https://www.maturin.rs), adding the `preview` wheel for video, PNG and the window:
+
+```sh
+pip install maturin
+maturin develop -m fastanim-py/pyproject.toml           # recording, baking and SVG
+maturin develop -m fastanim-py/preview/pyproject.toml   # + video, PNG and preview
+python -m fastanim preview fastanim-py/scenes/parity.py # reloads on save
+python -m fastanim render fastanim-py/scenes/diff.py -q 720p30 -o diff.mp4
+python -m fastanim still fastanim-py/scenes/parity.py --at 3s -o frame.svg
 ```
 
 Video export needs `ffmpeg` on your `PATH`. The playground needs the

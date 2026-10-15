@@ -3,6 +3,7 @@
 [Introduction](introduction.md)
 
 - [Running scenes](running.md)
+- [Python scenes](python.md)
 - [The scene](scene.md)
 - [Shapes, points and colors](shapes.md)
 - [Text, math and code](text.md)

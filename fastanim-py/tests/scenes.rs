@@ -195,6 +195,98 @@ def s(s):
     attach(|py| bake_src(py, src, "s")).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// Runs `src` with the package imported.
+fn run(src: &str) {
+    attach(|py| {
+        init(py)?;
+        let globals = PyDict::new(py);
+        py.run(&std::ffi::CString::new(src).unwrap(), Some(&globals), None)
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn exports_svg() {
+    // Without the `preview` extra, SVG is the one format; with it, Bevy writes the same files.
+    run(r##"
+import os, tempfile
+from fastanim import *
+
+@scene
+def s(s):
+    c = s.add(circle(1))
+    s.play(create(c), run_time=1)
+    s.marker("fade")
+    s.play(fade_out(c), run_time=0.6)
+
+out = tempfile.mkdtemp()
+s.still(os.path.join(out, "a.svg"), at=0.4)
+s.still(os.path.join(out, "b.svg"), frame=6, quality="480p15")
+a, b = (open(os.path.join(out, f)).read() for f in ("a.svg", "b.svg"))
+assert a == b == s.bake().svg(0.4), "a still is the frame at `at`, or frame / fps"
+
+# 1 s to 1.6 s at 15 fps: frames 15 to 24.
+s.render(os.path.join(out, "frames.svg"), quality="480p15", section="fade")
+frames = sorted(os.listdir(os.path.join(out, "frames.svg")))
+assert frames == [f"{i:04}.svg" for i in range(10)], frames
+
+def raises(kind, text, f, *args, **kwargs):
+    try:
+        f(*args, **kwargs)
+    except kind as e:
+        assert text in str(e), e
+    else:
+        raise AssertionError(f"expected {kind.__name__}")
+
+raises(ValueError, "unknown quality", s.render, os.path.join(out, "x.svg"), quality="2k")
+raises(SceneError, "no marker `nope`", s.render, os.path.join(out, "x.svg"), section="nope")
+raises(ValueError, "unsupported output", s.render, os.path.join(out, "x.avi"))
+raises(ValueError, "unsupported still", s.still, os.path.join(out, "x.mp4"))
+"##);
+}
+
+#[cfg(not(feature = "preview"))]
+#[test]
+fn rendering_needs_the_preview_extra() {
+    run(r##"
+from fastanim import *
+
+@scene
+def s(s):
+    s.add(circle(1))
+
+for f in (lambda: s.render("out.mp4"), lambda: s.still("frame.png"), s.preview):
+    try:
+        f()
+    except RuntimeError as e:
+        assert "pip install fastanim[preview]" in str(e), e
+    else:
+        raise AssertionError("expected RuntimeError")
+"##);
+}
+
+#[test]
+fn command_line() {
+    run(&format!(
+        r##"
+import contextlib, io, os, tempfile
+from fastanim.__main__ import main
+
+scenes = "{dir}/scenes"
+out = os.path.join(tempfile.mkdtemp(), "f.svg")
+assert main(["still", f"{{scenes}}/parity.py", "--at", "2s", "-o", out]) == 0
+assert os.path.isfile(out)
+assert main(["still", f"{{scenes}}/diff.py:diff", "--frame", "3", "-o", out]) == 0
+
+err = io.StringIO()
+with contextlib.redirect_stderr(err):
+    assert main(["still", f"{{scenes}}/parity.py:nope", "-o", out]) == 1
+assert "no scene `nope` (scenes: parity)" in err.getvalue(), err.getvalue()
+"##,
+        dir = env!("CARGO_MANIFEST_DIR")
+    ));
+}
+
 #[test]
 fn sounds_match_rhai() {
     let wav = std::env::temp_dir().join("fastanim-py-tone.wav");
