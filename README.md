@@ -29,7 +29,7 @@ distro's equivalents), plus `libasound2-dev` for sound in the preview. Either wa
 
 ## A taste
 
-Scenes can be written in Rust or as [Rhai](https://rhai.rs) scripts with the same API:
+Scenes can be written in Rust, as [Rhai](https://rhai.rs) scripts or in Python, with the same API:
 
 ```rhai
 let title = scene.add(text("Classic manim parity").to_edge(UP));
@@ -43,6 +43,22 @@ scene.play(write(formula));
 
 ```sh
 cargo run -p fastanim-cli -- preview fastanim-script/scenes/parity.rhai
+```
+
+The same scene in Python (`fastanim-py/scenes/parity.py`):
+
+```python
+from fastanim import *
+
+
+@scene
+def parity(s: Scene) -> None:
+    title = s.add(text("Classic manim parity").to_edge(UP))
+    s.play(write(title))
+    ...
+
+
+parity.still("parity.svg", at=3)  # or parity.bake().svg(t)
 ```
 
 The [scripting docs](https://simonhdickson.github.io/fastanim/docs/) cover the Rhai API
@@ -61,6 +77,8 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   `circumscribe`, `flash`; composed with `Parallel`, `Sequence` and `lagged_start`; eased with
   quad, cubic, expo, back and spring rate functions.
 - **Layout**: `next_to`, `align_to`, `to_edge`, `arrange`.
+- **Graphs**: manim-style `axes` (with arrow tips and labels) and `fit_axes`, which picks the
+  y range; `plot` graphs a function, `c2p` maps graph to scene coordinates.
 - **Text & math**: [Typst](https://typst.app) (bundled fonts, no LaTeX) laid out into
   per-glyph shapes and diffable tokens via `text`, `math_tex` and `code`. `latex` takes
   LaTeX math instead, converted to Typst by [MiTeX](https://github.com/mitex-rs/mitex).
@@ -70,11 +88,15 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - **Preview**: `FastanimPlugin` renders with Vello, with a scene clock and scrubber
   (Space play/pause, ←/→ step, `[`/`]` markers, drag the bar).
 - **Export**: headless rendering piped to ffmpeg as MP4, WebM or GIF, or PNG/SVG frames, with
-  quality presets, `--section` and stills.
+  quality presets, `--section` and stills. Frames are evaluated in parallel across cores.
 - **Sound**: WAV clips played whole or in part, as animations that `play` waits for or in the
   background with `add_sound`; heard in the preview and mixed into MP4 and WebM exports.
 - **Scripting**: `fastanim preview` plays Rhai scenes, re-baking on save; `fastanim render` and `fastanim still` export them.
-  Typeset text is memoized, so a re-bake only typesets what changed.
+  Typeset text is memoized, so a re-bake only typesets what changed. `fastanim profile` shows
+  where bake time goes; `fastanim script-api` lists every script function.
+- **Python**: `fastanim-py` (built with [maturin](https://www.maturin.rs)) records `@scene`
+  functions and bakes them to the same timelines as Rust and Rhai, with SVG stills. Preview and
+  video from Python are not available yet.
 - **Browser playground**: `fastanim-web` bakes and draws scripts in a Web Worker onto a
   Canvas 2D, reporting time spent typesetting vs. baking.
 
@@ -89,6 +111,7 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 | `fastanim-bevy`   | Bevy plugin: rendering, preview and export                     |
 | `fastanim-script` | Rhai scenes                                                    |
 | `fastanim-cli`    | The `fastanim` command-line tool                               |
+| `fastanim-py`     | Python package                                                 |
 | `fastanim-web`    | Browser player and playground                                  |
 
 ## Try it
@@ -105,6 +128,10 @@ cargo run -p fastanim-bevy --example parity -- render -q 720p30 -o parity.mp4
 cargo run -p fastanim-bevy --example parity -- still --at 3s -o frame.png
 cargo run -p fastanim-bevy --example diff          # equations, code refactor, bubble sort, morph
 cargo run -p fastanim-cli -- preview fastanim-script/scenes/diff.rhai   # same scene as a script
+cargo run -p fastanim-cli -- preview fastanim-script/scenes/sin_and_cos.rhai  # axes and plots
+cargo run -p fastanim-cli -- profile fastanim-script/scenes/diff.rhai   # bake timings
+(cd fastanim-py && maturin develop)   # Python package, into the active virtualenv
+(cd fastanim-py/scenes && python -c "import parity; parity.parity.still('parity.svg', at=3)")
 just web   # browser playground on http://localhost:8080, rebuilt on change
 ```
 

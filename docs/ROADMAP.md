@@ -12,6 +12,8 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
   `function_graph`, and `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`, `labels`,
   arrow tips).
 - **Text:** `text`, `math_tex`, `latex`, `code`, `list` (Typst, per-glyph shapes).
+- **Groups:** `group([...])` of values (with `arrange`) or of added mobjects; indexable,
+  accepted by every animation that does not need a single shape or text.
 - **Animations:** creation/removal, fades, `transform`, `replacement_transform`,
   `transform_diff`, grow/shrink, `shift`/`rotate`/`scale`/`move_to`, `apply_function`,
   `indicate`, `wiggle`, `circumscribe`, `flash`, `update`, `parallel`, `sequence`,
@@ -44,7 +46,7 @@ The number after each example is the roadmap item it waits on.
 | PointMovingOnShapes | ⬜ | `move_along_path`, rotate about a point (12) |
 | MovingAngle | ⬜ | value trackers, `always_redraw` (5), `angle` (7) |
 | MovingDots | ⬜ | value trackers (5), groups (1) |
-| MovingGroupToDestination | ⬜ | groups (1) |
+| MovingGroupToDestination | ✅ `scenes/moving_group.rhai` | |
 | MovingFrameBox | ⬜ | math_tex substring selection (11), `surrounding_rectangle` (8) |
 | RotationUpdater | ⬜ | rotation over time (16), or write it in `t` |
 | PointWithTrace | ⬜ | `traced_path` (16) |
@@ -63,7 +65,7 @@ as that feature's acceptance test, as in SPEC §10.
 
 These items unblock the most examples, and many later items build on them.
 
-1. **Groups.** A handle for any set of mobjects: shapes, texts and other groups.
+1. ✅ **Groups.** A handle for any set of mobjects: shapes, texts and other groups.
    - Every animation and layout function accepts a group: `arrange`, `next_to`, `to_edge`,
      `shift`, `scale`, `rotate`, `fade_in` and the rest.
    - Build on `UpdateGroup` (`fastanim-core/src/anim.rs`) and `Group<K>`

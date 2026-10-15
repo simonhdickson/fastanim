@@ -2947,6 +2947,7 @@ dependencies = [
  "fastanim-core",
  "fastanim-script",
  "fastanim-text",
+ "hound",
  "pyo3",
 ]
 
@@ -2957,6 +2958,7 @@ dependencies = [
  "fastanim-bevy",
  "fastanim-core",
  "fastanim-text",
+ "hound",
  "rhai",
 ]
 

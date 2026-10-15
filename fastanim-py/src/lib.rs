@@ -9,7 +9,7 @@ use fastanim_core::{
     Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, Color as CoreColor, DEFAULT_BUFF,
     DiffStyle, Position, RateFn, SceneState, VState,
 };
-use fastanim_script::{Anim, Const, Ctx, Glyphs, Mob, Opt};
+use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
 use fastanim_text::TextMobject;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -259,12 +259,63 @@ impl PyAudio {
     }
 }
 
+/// Shapes, texts and groups positioned as one, before they are added to a scene.
+#[pyclass(frozen, from_py_object, name = "Group", module = "fastanim")]
+#[derive(Clone)]
+struct PyGroup(VGroup);
+
+/// What a `Group` holds.
+#[derive(FromPyObject)]
+enum GroupItem {
+    Shape(Shape),
+    Text(Text),
+    Axes(PyAxes),
+    Group(PyGroup),
+}
+
+impl GroupItem {
+    fn item(self) -> Item {
+        match self {
+            GroupItem::Shape(s) => Item::Shape(s.0),
+            GroupItem::Text(t) => Item::Text(t.0),
+            GroupItem::Axes(a) => Item::Shape(a.0.shape()),
+            GroupItem::Group(g) => Item::Group(g.0),
+        }
+    }
+}
+
+/// `group(*items)`: mobjects make a group mobject; shapes, texts and groups a `Group`.
+#[pyfunction]
+#[pyo3(signature = (*items))]
+fn group(py: Python<'_>, items: Vec<Bound<'_, PyAny>>) -> PyResult<Py<PyAny>> {
+    if !items.is_empty() && items.iter().all(|o| o.is_instance_of::<PyMob>()) {
+        let ms = (items.iter())
+            .map(|o| Ok(o.extract::<PyMob>()?.0))
+            .collect::<PyResult<_>>()?;
+        return Ok(Py::new(py, PyMob(fastanim_script::group(ms)))?.into_any());
+    }
+    let items = (items.iter())
+        .map(|o| match o.extract::<GroupItem>() {
+            Ok(m) => Ok(m.item()),
+            Err(_) if o.is_instance_of::<PyMob>() => Err(PyTypeError::new_err(
+                "a group is all mobjects (added) or all shapes, texts and groups (not added yet)",
+            )),
+            Err(_) => Err(PyTypeError::new_err(format!(
+                "expected a shape, text, axes or group, got {}",
+                type_name(o)
+            ))),
+        })
+        .collect::<PyResult<_>>()?;
+    Ok(Py::new(py, PyGroup(VGroup(items)))?.into_any())
+}
+
 /// What `next_to` and `align_to` place against.
 #[derive(FromPyObject)]
 enum Other {
     Shape(Shape),
     Text(Text),
     Axes(PyAxes),
+    Group(PyGroup),
     Point(P),
 }
 
@@ -274,6 +325,7 @@ impl Other {
             Other::Shape(s) => s.0.bbox(),
             Other::Text(t) => t.0.bbox(),
             Other::Axes(a) => a.0.bbox(),
+            Other::Group(g) => g.0.bbox(),
             Other::Point(p) => p.pt().bbox(),
         }
     }
@@ -322,6 +374,11 @@ macro_rules! positioned {
 
             fn align_to(&self, other: Other, direction: P) -> Self {
                 Self(align_to(self.0.clone(), &other, direction.0))
+            }
+
+            /// The bounding-box center.
+            fn center(&self) -> PyPoint {
+                PyPoint(self.0.bbox().map_or(Point::ORIGIN, |b| b.center()).to_vec2())
             }
 
             $($extra)*
@@ -437,6 +494,26 @@ positioned!(PyAxes {
     }
 });
 
+positioned!(PyGroup {
+    fn rotate(&self, angle: f64) -> Self {
+        Self(self.0.clone().rotate(angle))
+    }
+
+    /// Lays the items out in a row in `direction`, `buff` apart.
+    #[pyo3(signature = (direction, buff = DEFAULT_BUFF))]
+    fn arrange(&self, direction: P, buff: f64) -> Self {
+        Self(self.0.clone().arrange(direction.0, buff))
+    }
+
+    fn __len__(&self) -> usize {
+        self.0.0.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Group(<{} items>)", self.0.0.len())
+    }
+});
+
 /// `build` with Python function `f`; the first exception `f` raises fails it.
 fn graph(
     py: Python<'_>,
@@ -469,17 +546,27 @@ fn fit_axes(
 
 /// A mobject in the scene: what `Scene.add` returns.
 #[pyclass(frozen, from_py_object, name = "Mobject", module = "fastanim")]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct PyMob(Mob);
 
 #[pymethods]
 impl PyMob {
+    /// Member `i` of a group; negative counts from the end.
+    fn __getitem__(&self, i: i64) -> PyResult<Self> {
+        self.0.member(i).map(Self).map_err(scene_err)
+    }
+
+    /// How many members a group has; 1 for anything else.
+    fn __len__(&self) -> usize {
+        self.0.len()
+    }
+
     /// Chain methods on this to get an animation to their result, e.g.
     /// `scene.play(eq.animate.shift(UP).scale(0.8))`.
     #[getter]
     fn animate(&self) -> Animate {
         Animate {
-            m: self.0,
+            m: self.0.clone(),
             ops: Vec::new(),
         }
     }
@@ -499,12 +586,17 @@ impl Animate {
     fn then(&self, op: impl Fn(Glyphs) -> Glyphs + Send + Sync + 'static) -> Self {
         let mut ops = self.ops.clone();
         ops.push(Arc::new(op));
-        Self { m: self.m, ops }
+        Self {
+            m: self.m.clone(),
+            ops,
+        }
     }
 
     fn anim(&self) -> Anim {
         let ops = self.ops.clone();
-        fastanim_script::animate(self.m, move |g| Ok(ops.iter().fold(g, |g, op| op(g))))
+        fastanim_script::animate(self.m.clone(), move |g| {
+            Ok(ops.iter().fold(g, |g, op| op(g)))
+        })
     }
 }
 
@@ -631,7 +723,7 @@ struct State(SceneState);
 #[pymethods]
 impl State {
     fn __getitem__(&self, m: PyMob) -> PyResult<Shape> {
-        fastanim_script::get(&self.0, m.0)
+        fastanim_script::get(&self.0, &m.0)
             .map(Shape)
             .map_err(scene_err)
     }
@@ -647,6 +739,7 @@ enum Addable {
     Shape(Shape),
     Text(Text),
     Axes(PyAxes),
+    Group(PyGroup),
 }
 
 impl PyScene {
@@ -667,14 +760,14 @@ struct Always {
 #[pymethods]
 impl Always {
     fn __call__(&self, py: Python<'_>, f: Py<PyAny>) -> PyResult<Py<PyAny>> {
-        always(self.scene.get(), self.m, f.clone_ref(py))?;
+        always(self.scene.get(), self.m.clone(), f.clone_ref(py))?;
         Ok(f)
     }
 }
 
 fn always(s: &PyScene, m: PyMob, f: Py<PyAny>) -> PyResult<()> {
     s.lock()?
-        .always(m.0, move |st, t| {
+        .always(&m.0, move |st, t| {
             Python::attach(|py| {
                 let r = (f.call1(py, (State(st.clone()), t))).map_err(|e| closure_err(py, e))?;
                 returned::<Shape>(r.bind(py), "a shape").map(|s| s.0)
@@ -685,24 +778,25 @@ fn always(s: &PyScene, m: PyMob, f: Py<PyAny>) -> PyResult<()> {
 
 #[pymethods]
 impl PyScene {
-    /// Adds a shape, text or axes, returning its handle.
+    /// Adds a shape, text, axes or group, returning its handle.
     fn add(&self, m: Addable) -> PyResult<PyMob> {
         let mut cx = self.lock()?;
         Ok(PyMob(match m {
             Addable::Shape(s) => cx.add_shape(s.0),
             Addable::Text(t) => cx.add_text(t.0),
             Addable::Axes(a) => cx.add_shape(a.0.shape()),
+            Addable::Group(g) => cx.add_group(g.0),
         }))
     }
 
     fn remove(&self, m: PyMob) -> PyResult<()> {
-        self.lock()?.remove(m.0).map_err(scene_err)
+        self.lock()?.remove(&m.0).map_err(scene_err)
     }
 
     /// A shape's state now.
     fn get(&self, m: PyMob) -> PyResult<Shape> {
         let cx = self.lock()?;
-        (fastanim_script::get(cx.scene.state(), m.0))
+        (fastanim_script::get(cx.scene.state(), &m.0))
             .map(Shape)
             .map_err(scene_err)
     }
@@ -1207,6 +1301,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Text>()?;
     m.add_class::<PyAxes>()?;
     m.add_class::<PyAudio>()?;
+    m.add_class::<PyGroup>()?;
     m.add_class::<PyMob>()?;
     m.add_class::<Animate>()?;
     m.add_class::<PyAnim>()?;
@@ -1240,6 +1335,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         latex,
         code,
         list,
+        group,
         axes,
         fit_axes,
         ease_in,

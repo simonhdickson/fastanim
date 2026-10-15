@@ -183,3 +183,45 @@ fn bad_sounds_fail() {
     let m = e(r#"scene.add_sound(audio("tone.wav"), 0.0, 3.0)"#);
     assert!(m.contains("must lie within"), "{m}");
 }
+
+#[test]
+fn moving_group_lands_on_destination() {
+    // A port of manim's MovingGroupToDestination: the group's third dot ends on the yellow one.
+    let t = script("moving_group");
+    let end = t.eval(t.duration());
+    let centers: Vec<_> = (end.values())
+        .map(|m| m.path.center())
+        .filter(|c| (c.x - 4.0).abs() < 1e-9 && (c.y - 3.0).abs() < 1e-9)
+        .collect();
+    assert_eq!(centers.len(), 2);
+}
+
+#[test]
+fn groups_nest_arrange_and_animate() {
+    let src = r#"
+        let row = group([square(1.0), group([circle(0.5), text("a")]), dot(ORIGIN)])
+            .arrange(RIGHT, 0.5)
+            .to_edge(LEFT);
+        let g = scene.add(row);
+        if g.len() != 3 || g[1].len() != 2 { throw "len"; }
+        let all = group([g, scene.add(circle(1.0))]);
+        if scene.get(g[0]).center().x > -5.0 { throw "arranged"; }
+        scene.play(fade_in(all));
+        scene.play([rotate(g, PI), scale(g[1], 2.0)]);
+        scene.play(indicate(all));
+        if scene.get(g[0]).center().x < scene.get(g[2]).center().x { throw "rotated as one"; }
+        scene.play(transform_diff(g[1][1], text("b")));
+        scene.play(fade_out(g[-1]));
+        scene.remove(all);
+        scene.get(g[0]);
+    "#;
+    let e = err(src);
+    assert!(e.message.contains("not in the scene"), "{e}");
+
+    let e = err("let g = scene.add(group([circle(1.0)]));\nscene.play(transform(g, circle(2.0)));");
+    assert!(e.message.contains("got a group"), "{e}");
+    let e = err("let g = scene.add(group([circle(1.0)]));\ng[1];");
+    assert!(e.message.contains("out of range"), "{e}");
+    let e = err("group([scene.add(circle(1.0)), circle(1.0)]);");
+    assert!(e.message.contains("all mobjects"), "{e}");
+}

@@ -98,6 +98,11 @@ fn sine_curve_matches_rhai() {
     assert_same(&rhai("sine_curve"), &script("sine_curve"));
 }
 
+#[test]
+fn moving_group_matches_rhai() {
+    assert_same(&rhai("moving_group"), &script("moving_group"));
+}
+
 /// The exception `src`'s scene `s` raises, as `Type: message`.
 fn err(src: &str) -> String {
     let src = format!("from fastanim import *\n@scene\ndef s(s):\n{}", indent(src));
@@ -133,6 +138,19 @@ fn errors_are_python_exceptions() {
     assert!(e.contains("AttributeError") && e.contains("line 5"), "{e}");
     let e = err("c = s.add(circle(1))\ns.play(update(c, lambda m, a: s.get(c)))");
     assert!(e.contains("inside a closure"), "{e}");
+
+    let e = err("g = s.add(group(circle(1), text('a')))\ns.play(transform(g, circle(2)))");
+    assert!(e.contains("got a group"), "{e}");
+    let e = err("g = s.add(group(circle(1)))\ng[1]");
+    assert!(
+        e.starts_with("SceneError") && e.contains("out of range"),
+        "{e}"
+    );
+    let e = err("group(s.add(circle(1)), circle(1))");
+    assert!(
+        e.starts_with("TypeError") && e.contains("all mobjects"),
+        "{e}"
+    );
 
     let e = err("s.play(transform_diff(s.add(text('a')), text('b'), nope=1))");
     assert!(e.contains("unknown option `nope`"), "{e}");

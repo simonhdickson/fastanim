@@ -56,7 +56,7 @@ let s = scene.add(square(2.0).fill(BLUE.with_alpha(0.5)).stroke(WHITE, 0.04).rot
 
 ## Positioning
 
-These methods work on shapes, texts and axes alike.
+These methods work on shapes, texts, axes and groups alike.
 
 | Method | Effect |
 | --- | --- |
@@ -64,13 +64,40 @@ These methods work on shapes, texts and axes alike.
 | `.move_to(p)` | Move the center to `p` |
 | `.scale(k)` | Scale about the center |
 | `.to_edge(dir)` | Move against a frame edge, e.g. `UP` |
-| `.next_to(other, dir)` | Place beside `other` (a shape, text or point, not a mobject handle), `DEFAULT_BUFF` apart |
+| `.next_to(other, dir)` | Place beside `other` (a shape, text, group or point, not a mobject handle), `DEFAULT_BUFF` apart |
 | `.next_to(other, dir, buff)` | The same, `buff` apart |
 | `.align_to(other, dir)` | Line up the `dir` edge with `other`'s |
+| `.center()` | The bounding-box center, as a point |
 
 ```rhai
 let box = square(1.0);
 let label = text("box").next_to(box, DOWN);
+```
+
+## Groups
+
+`group([...])` puts shapes, texts, axes and other groups together, like manim's `VGroup`.
+A group positions as one, and `.arrange(dir)` (or `.arrange(dir, buff)`) lays its items out in
+a row, keeping the group's center.
+
+```rhai
+let row = group([square(1.0), circle(0.5), text("x")]).arrange(RIGHT).to_edge(UP);
+let g = scene.add(row);
+scene.play(fade_in(g));
+scene.play(rotate(g, PI));      // turns about the group's center
+scene.play(indicate(g[1]));     // members by index; g[-1] is the last
+```
+
+`scene.add(group)` returns a group mobject with one member per item, in order. Every
+animation that takes a mobject takes a group too, except those that need one shape
+(`transform`, `update`, `apply_function`, `always`, `scene.get`) or one text
+(`transform_diff`). `g.len()` is the number of members.
+
+`group([a, b])` of mobjects already added makes a group mobject from them, to play one
+animation on all of them:
+
+```rhai
+scene.play(fade_out(group([title, g])));
 ```
 
 ## Axes
