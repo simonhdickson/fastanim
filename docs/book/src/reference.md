@@ -46,6 +46,7 @@ center(_: Text) -> Point
 circle(_: f64) -> Shape
 circumscribe(_: Mobject) -> Animation
 code(_: string, _: string) -> Text
+code(_: string, _: string, _: map) -> Text
 create(_: Mobject) -> Animation
 dot(_: Point) -> Shape
 draw_border_then_fill(_: Mobject) -> Animation
@@ -69,18 +70,23 @@ get(_: &mut Scene, _: Mobject) -> Shape
 group(_: array) -> types::dynamic::Dynamic
 grow_from_center(_: Mobject) -> Animation
 hex(_: i64) -> Color
+image(_: array) -> Shape
+image(_: string) -> Shape
 index$get$(_: &mut Mobject, _: i64) -> Mobject
 index$get$(_: &mut State, _: Mobject) -> Shape
 indicate(_: Mobject) -> Animation
 labels(_: &mut Axes, _: string, _: string) -> Text
 lagged_start(_: f64, _: array) -> Animation
 latex(_: string) -> Text
+latex(_: string, _: map) -> Text
 len(_: &mut Group) -> i64
 len(_: &mut Mobject) -> i64
 line(_: Point, _: Point) -> Shape
 list(_: array) -> Text
+load_font(_: string) -> array
 marker(_: &mut Scene, _: string) -> ()
 math_tex(_: string) -> Text
+math_tex(_: string, _: map) -> Text
 move_to(_: Axes, _: Point) -> Axes
 move_to(_: Group, _: Point) -> Group
 move_to(_: Mobject, _: Point) -> Animation
@@ -118,6 +124,7 @@ next_to(_: Text, _: Text, _: Point, _: f64) -> Text
 numbers(_: &mut Axes) -> Text
 p2c(_: &mut Axes, _: Point) -> Point
 parallel(_: array) -> Animation
+pixelated(_: Shape) -> Shape
 play(_: &mut Scene, _: Animation) -> ()
 play(_: &mut Scene, _: array) -> ()
 plot(_: &mut Axes, _: Fn) -> Shape
@@ -140,6 +147,14 @@ scale(_: Group, _: f64) -> Group
 scale(_: Mobject, _: f64) -> Animation
 scale(_: Shape, _: f64) -> Shape
 scale(_: Text, _: f64) -> Text
+scale_to_fit_height(_: Axes, _: f64) -> Axes
+scale_to_fit_height(_: Group, _: f64) -> Group
+scale_to_fit_height(_: Shape, _: f64) -> Shape
+scale_to_fit_height(_: Text, _: f64) -> Text
+scale_to_fit_width(_: Axes, _: f64) -> Axes
+scale_to_fit_width(_: Group, _: f64) -> Group
+scale_to_fit_width(_: Shape, _: f64) -> Shape
+scale_to_fit_width(_: Text, _: f64) -> Text
 sequence(_: array) -> Animation
 shape(_: &mut Axes) -> Shape
 shift(_: Axes, _: Point) -> Axes
@@ -155,6 +170,7 @@ spring(_: f64, _: f64) -> Rate
 square(_: f64) -> Shape
 stroke(_: Shape, _: Color, _: f64) -> Shape
 text(_: string) -> Text
+text(_: string, _: map) -> Text
 to_debug(_: &mut Point) -> string
 to_edge(_: Axes, _: Point) -> Axes
 to_edge(_: Group, _: Point) -> Group

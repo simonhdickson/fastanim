@@ -31,10 +31,10 @@ use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW}
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Animation, AnimationExt, Audio, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH,
-    Group, LEFT, MobjectId, Parallel, Position, RIGHT, RateFn, Scene, SceneState, Sequence, UP,
-    Update, UpdateGroup, VState, arrange,
+    Group, Image, LEFT, MobjectId, Parallel, Position, RIGHT, RateFn, Scene, SceneState, Sequence,
+    UP, Update, UpdateGroup, VState, arrange,
 };
-use fastanim_text::{TextMobject, TokenKey};
+use fastanim_text::{TextMobject, TextStyle, TokenKey};
 
 #[cfg(feature = "rhai")]
 mod rhai;
@@ -574,6 +574,60 @@ pub fn animate(
                 .collect(),
         )))
     })
+}
+
+/// The PNG or JPEG at `path`, as a shape (see [`VState::image`]).
+pub fn image(path: &Path) -> Result<VState, String> {
+    if cfg!(target_arch = "wasm32") {
+        return Err(
+            "image files can't be loaded in the browser player yet; build one from pixels".into(),
+        );
+    }
+    Ok(VState::image(Image::load(path)?))
+}
+
+/// An image from rows of pixels, top row first, as a shape. Each pixel is 1 (grey), 3 (RGB) or
+/// 4 (RGBA) channel values from 0 to 255, like a NumPy `uint8` array.
+pub fn image_from_rows(rows: &[Vec<Vec<f64>>]) -> Result<VState, String> {
+    let w = rows.first().map_or(0, Vec::len);
+    let mut px = Vec::with_capacity(w * rows.len() * 4);
+    let c = |v: f64| v.clamp(0.0, 255.0).round() as u8;
+    for (y, row) in rows.iter().enumerate() {
+        if row.len() != w {
+            return Err(format!("row {y} has {} pixels, row 0 has {w}", row.len()));
+        }
+        for p in row {
+            match p[..] {
+                [g] => px.extend([c(g), c(g), c(g), 255]),
+                [r, g, b] => px.extend([c(r), c(g), c(b), 255]),
+                [r, g, b, a] => px.extend([c(r), c(g), c(b), c(a)]),
+                _ => return Err(format!("a pixel is 1, 3 or 4 values, got {}", p.len())),
+            }
+        }
+    }
+    Ok(VState::image(Image::from_rgba(
+        w as u32,
+        rows.len() as u32,
+        px,
+    )?))
+}
+
+/// Loads the fonts in the font file at `path` for `text`'s `font` option; returns their
+/// family names.
+pub fn load_font(path: &Path) -> Result<Vec<String>, String> {
+    if cfg!(target_arch = "wasm32") {
+        return Err("fonts can't be loaded in the browser player yet".into());
+    }
+    fastanim_text::load_font(path)
+}
+
+/// Sets option `k` of a text's style.
+pub fn text_option(style: &mut TextStyle, k: &str, v: Option<String>) -> Result<(), String> {
+    match k {
+        "font" => style.font = Some(v.ok_or("`font` must be a string")?),
+        _ => return Err(format!("unknown text option `{k}`: font")),
+    }
+    Ok(())
 }
 
 /// Loads the WAV at `path`.

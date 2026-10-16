@@ -606,3 +606,61 @@ fn events_record_what_each_clip_touches() {
     assert!((r.width() - 2.0).abs() < 1e-6 && r.center().distance(Point::ORIGIN) < 1e-6);
     assert_eq!(tl.highlight_box(&ev[1], 1.0), None);
 }
+
+fn red_blue() -> Image {
+    Image::from_rgba(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 255]).unwrap()
+}
+
+/// How far the image's unit-square corners are from the rectangle's: top-left, top-right and
+/// bottom-left are the rectangle's second, first and third points.
+fn corner_error(m: &VState) -> f64 {
+    let s = &m.path.subpaths[0].segments;
+    let a = m.image.as_ref().unwrap().transform;
+    [(0.0, 0.0, 1), (1.0, 0.0, 0), (0.0, 1.0, 2)]
+        .into_iter()
+        .map(|(u, v, k)| (a * Point::new(u, v)).distance(s[k].p0))
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn images_follow_their_shape() {
+    let m = VState::image(red_blue());
+    // manim's size: 1080 pixels fill the frame's height.
+    let b = m.path.bbox().unwrap();
+    let h = FRAME_HEIGHT / 1080.0;
+    assert!((b.height() - h).abs() < 1e-12 && (b.width() - 2.0 * h).abs() < 1e-12);
+    assert!(corner_error(&m) < 1e-12);
+
+    let moved = (m.clone().scale(100.0).rotate(1.0)).shift(Vec2::new(1.0, 2.0));
+    assert!(corner_error(&moved) < 1e-9);
+
+    let mut s = Scene::new();
+    let id = s.add(m.scale_to_fit_height(3.0));
+    s.play(rotate(id, 2.0));
+    s.play(scale(id, 0.5));
+    let tl = s.bake();
+    for t in [0.25, 0.5, 1.0, 1.5, 2.0] {
+        assert!(corner_error(&tl.eval(t)[&id]) < 1e-9, "at {t}s");
+    }
+}
+
+#[test]
+fn image_svg() {
+    let mut s = Scene::new();
+    let id = s.add(VState::image(red_blue()).pixelated());
+    s.play(fade_out(id));
+    let tl = s.bake();
+    let svg = to_svg(&tl.eval(0.0), Color::hex(0x000000));
+    assert_eq!(svg.matches("<image").count(), 1);
+    assert!(svg.contains("href=\"data:image/png;base64,"));
+    assert!(svg.contains("image-rendering:pixelated"));
+    assert!(!to_svg(&tl.eval(1.0), WHITE).contains("<image"));
+}
+
+#[test]
+fn images_round_trip_through_png() {
+    let img = red_blue();
+    assert_eq!(Image::decode(&img.to_png()).unwrap(), img);
+    assert!(Image::from_rgba(2, 2, vec![0; 4]).is_err());
+    assert!(Image::decode(b"not an image").is_err());
+}

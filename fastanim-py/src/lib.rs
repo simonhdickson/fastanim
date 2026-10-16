@@ -13,7 +13,7 @@ use fastanim_core::{
     DiffStyle, Position, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
-use fastanim_text::TextMobject;
+use fastanim_text::{TextMobject, TextStyle};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -379,6 +379,16 @@ macro_rules! positioned {
                 Self(align_to(self.0.clone(), &other, direction.0))
             }
 
+            /// Scales about the center to be `height` tall.
+            fn scale_to_fit_height(&self, height: f64) -> Self {
+                Self(self.0.clone().scale_to_fit_height(height))
+            }
+
+            /// Scales about the center to be `width` wide.
+            fn scale_to_fit_width(&self, width: f64) -> Self {
+                Self(self.0.clone().scale_to_fit_width(width))
+            }
+
             /// The bounding-box center.
             fn center(&self) -> PyPoint {
                 PyPoint(self.0.bbox().map_or(Point::ORIGIN, |b| b.center()).to_vec2())
@@ -412,6 +422,11 @@ positioned!(Shape {
 
     fn z_index(&self, z: i32) -> Self {
         Self(self.0.clone().z_index(z))
+    }
+
+    /// Draws an image with sharp pixels when scaled up.
+    fn pixelated(&self) -> Self {
+        Self(self.0.clone().pixelated())
     }
 
     fn rotate(&self, angle: f64) -> Self {
@@ -1082,28 +1097,96 @@ fn function_graph(
     graph(py, &f, |g| VState::function_graph(g, x0..x1, segments))
 }
 
-/// Typeset Typst text.
+/// An image: a PNG or JPEG file's path, or rows of pixels (a NumPy array or nested lists), each
+/// a grey value or `(r, g, b[, a])` from 0 to 255. As tall as manim makes it unless `height` or
+/// `width` is given; `pixelated` keeps pixels sharp when scaled up.
 #[pyfunction]
-fn text(s: &str) -> PyResult<Text> {
-    TextMobject::text(s).map(Text).map_err(typeset_err)
+#[pyo3(signature = (src, *, height = None, width = None, pixelated = false))]
+fn image(
+    src: &Bound<'_, PyAny>,
+    height: Option<f64>,
+    width: Option<f64>,
+    pixelated: bool,
+) -> PyResult<Shape> {
+    let m = if let Ok(path) = src.extract::<PathBuf>() {
+        fastanim_script::image(&path).map_err(scene_err)?
+    } else {
+        let rows = if src.hasattr("tolist")? {
+            src.call_method0("tolist")?
+        } else {
+            src.clone()
+        };
+        let bad = || {
+            PyTypeError::new_err(format!(
+                "expected a path or rows of pixels, got {}",
+                type_name(src)
+            ))
+        };
+        let rows: Vec<Vec<Bound<'_, PyAny>>> = rows.extract().map_err(|_| bad())?;
+        let rows = (rows.iter())
+            .map(|row| {
+                (row.iter())
+                    .map(|p| match p.extract::<f64>() {
+                        Ok(v) => Ok(vec![v]),
+                        Err(_) => p.extract::<Vec<f64>>().map_err(|_| bad()),
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        fastanim_script::image_from_rows(&rows).map_err(PyValueError::new_err)?
+    };
+    let m = match (height, width) {
+        (Some(h), None) => m.scale_to_fit_height(h),
+        (None, Some(w)) => m.scale_to_fit_width(w),
+        (None, None) => m,
+        (Some(_), Some(_)) => {
+            return Err(PyValueError::new_err("give height or width, not both"));
+        }
+    };
+    Ok(Shape(if pixelated { m.pixelated() } else { m }))
+}
+
+/// Loads the fonts in the TTF, OTF, TTC or OTC file at `path`, relative to the current
+/// directory, for `text(..., font=...)`; returns their family names.
+#[pyfunction]
+fn load_font(path: PathBuf) -> PyResult<Vec<String>> {
+    fastanim_script::load_font(&path).map_err(scene_err)
+}
+
+/// Typeset Typst text, optionally in font family `font`.
+#[pyfunction]
+#[pyo3(signature = (s, *, font = None))]
+fn text(s: &str, font: Option<String>) -> PyResult<Text> {
+    (TextMobject::text_styled(s, &TextStyle { font }))
+        .map(Text)
+        .map_err(typeset_err)
 }
 
 /// Typeset Typst math, e.g. `"a^2 + b^2 = c^2"`.
 #[pyfunction]
-fn math_tex(s: &str) -> PyResult<Text> {
-    TextMobject::math(s).map(Text).map_err(typeset_err)
+#[pyo3(signature = (s, *, font = None))]
+fn math_tex(s: &str, font: Option<String>) -> PyResult<Text> {
+    (TextMobject::math_styled(s, &TextStyle { font }))
+        .map(Text)
+        .map_err(typeset_err)
 }
 
 /// Typeset LaTeX math.
 #[pyfunction]
-fn latex(s: &str) -> PyResult<Text> {
-    TextMobject::latex(s).map(Text).map_err(typeset_err)
+#[pyo3(signature = (s, *, font = None))]
+fn latex(s: &str, font: Option<String>) -> PyResult<Text> {
+    (TextMobject::latex_styled(s, &TextStyle { font }))
+        .map(Text)
+        .map_err(typeset_err)
 }
 
 /// Highlighted source code.
 #[pyfunction]
-fn code(s: &str, lang: &str) -> PyResult<Text> {
-    TextMobject::code(s, lang).map(Text).map_err(typeset_err)
+#[pyo3(signature = (s, lang, *, font = None))]
+fn code(s: &str, lang: &str, font: Option<String>) -> PyResult<Text> {
+    (TextMobject::code_styled(s, lang, &TextStyle { font }))
+        .map(Text)
+        .map_err(typeset_err)
 }
 
 /// A row of values, one cell each, for `transform_list`.
@@ -1375,6 +1458,8 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dot,
         polygon,
         function_graph,
+        image,
+        load_font,
         text,
         math_tex,
         latex,

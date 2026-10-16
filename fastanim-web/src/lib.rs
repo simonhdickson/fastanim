@@ -4,11 +4,14 @@
 //! page. `player.js` wraps that as a `<fastanim-player>` element, `index.html` is the playground
 //! around it, and Trunk (`Trunk.toml`) builds it all into `dist/`.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use fastanim_core::color::{BLACK, YELLOW};
 use fastanim_core::svg::path_data;
-use fastanim_core::{BakedTimeline, Color, EventKind, FRAME_WIDTH, to_svg};
-use wasm_bindgen::prelude::*;
-use web_sys::{OffscreenCanvasRenderingContext2d, Path2d};
+use fastanim_core::{BakedTimeline, Color, EventKind, FRAME_WIDTH, Image, ImageFill, to_svg};
+use wasm_bindgen::{Clamped, JsCast, prelude::*};
+use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d, Path2d};
 
 /// Fills the typesetting cache from a `.bundle` written by `fastanim bundle`, so the
 /// text in it is never typeset here (SPEC §14.5); returns how many snippets it held.
@@ -30,6 +33,9 @@ pub struct Player {
     timeline: BakedTimeline,
     bake_ms: f64,
     typeset_ms: f64,
+    /// Each image's pixels on a canvas of their own, put there once, keyed by
+    /// [`Image::key`]; the image is kept so its key isn't reused.
+    images: RefCell<HashMap<usize, (Image, OffscreenCanvas)>>,
 }
 
 #[wasm_bindgen]
@@ -45,6 +51,7 @@ impl Player {
             timeline,
             bake_ms: js_sys::Date::now() - t0,
             typeset_ms: fastanim_text::typeset_ms() - typeset0,
+            images: RefCell::default(),
         })
     }
 
@@ -138,8 +145,14 @@ impl Player {
         let mut order: Vec<_> = state.iter().collect();
         order.sort_by_key(|(id, m)| (m.z_index, **id));
         for (_, m) in order {
+            if m.opacity <= 0.0 {
+                continue;
+            }
+            if let Some(i) = &m.image {
+                self.draw_image(ctx, i, ImageFill::alpha(m.opacity, &m.draw_range))?;
+            }
             let d = path_data(&m.path.trim(m.draw_range.clone()));
-            if m.opacity <= 0.0 || d.is_empty() {
+            if d.is_empty() {
                 continue;
             }
             let p = Path2d::new_with_path_string(&d)?;
@@ -166,6 +179,47 @@ impl Player {
             ctx.set_line_dash(&js_sys::Array::new())?;
         }
         Ok(())
+    }
+}
+
+impl Player {
+    /// Draws `i`'s pixels over the unit square its transform places.
+    fn draw_image(
+        &self,
+        ctx: &OffscreenCanvasRenderingContext2d,
+        i: &ImageFill,
+        alpha: f32,
+    ) -> Result<(), JsValue> {
+        if alpha <= 0.0 {
+            return Ok(());
+        }
+        let src = self.image_canvas(&i.image)?;
+        ctx.save();
+        ctx.set_global_alpha(alpha.into());
+        ctx.set_image_smoothing_enabled(i.smooth);
+        let [a, b, c, d, e, f] = i.transform.as_coeffs();
+        ctx.transform(a, b, c, d, e, f)?;
+        ctx.draw_image_with_offscreen_canvas_and_dw_and_dh(&src, 0.0, 0.0, 1.0, 1.0)?;
+        ctx.restore();
+        Ok(())
+    }
+
+    fn image_canvas(&self, img: &Image) -> Result<OffscreenCanvas, JsValue> {
+        let mut images = self.images.borrow_mut();
+        if let Some((_, c)) = images.get(&img.key()) {
+            return Ok(c.clone());
+        }
+        let c = OffscreenCanvas::new(img.width(), img.height())?;
+        let cx: OffscreenCanvasRenderingContext2d =
+            (c.get_context("2d")?.ok_or("no 2d context")?).dyn_into()?;
+        let data = ImageData::new_with_u8_clamped_array_and_sh(
+            Clamped(img.pixels()),
+            img.width(),
+            img.height(),
+        )?;
+        cx.put_image_data(&data, 0.0, 0.0)?;
+        images.insert(img.key(), (img.clone(), c.clone()));
+        Ok(c)
     }
 }
 

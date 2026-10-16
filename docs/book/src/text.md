@@ -28,6 +28,24 @@ const SRC = `fn main() {
 let c = scene.add(code(SRC, "rust").scale(0.8));
 ```
 
+## Fonts
+
+`text`, `math_tex`, `latex` and `code` take an options map as their last argument. Its one
+option so far is `font`, a font family name: one of the bundled fonts (Libertinus Serif,
+New Computer Modern, New Computer Modern Math, DejaVu Sans Mono), or one loaded from a file
+with `load_font(path)`. `load_font` takes a TTF, OTF, TTC or OTC file, relative to the script's
+directory, and returns the families it holds; loading the same file again does nothing.
+
+```rhai
+let families = load_font("fonts/Inter-Regular.ttf");   // ["Inter"]
+let title = scene.add(text("Hello", #{font: "Inter"}).to_edge(UP));
+scene.add(code("let x = 1;", "rust", #{font: "DejaVu Sans Mono"}));
+```
+
+An unknown family is an error rather than a silent fallback. Math in another font falls back
+to New Computer Modern Math for the symbols that font lacks. Fonts can't be loaded in the
+browser playground yet.
+
 ## Methods
 
 Texts take the [positioning methods](shapes.md#positioning), plus:

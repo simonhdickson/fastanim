@@ -9,7 +9,8 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
-use std::sync::{Mutex, OnceLock};
+use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use fastanim_core::color::{Color, WHITE};
 use fastanim_core::geom::{SubPath, line_segment};
@@ -215,35 +216,82 @@ pub fn typeset_ms() -> f64 {
     *TYPESET_MS.lock().unwrap()
 }
 
+/// How text is typeset, beyond its source: see [`TextMobject::text_styled`] and friends.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TextStyle {
+    /// Font family, bundled or added with [`load_font`]; Typst's default when `None`. Math
+    /// falls back to New Computer Modern Math for what the family lacks.
+    pub font: Option<String>,
+}
+
+impl TextStyle {
+    /// Typst `set` and `show` rules putting this style into effect, ahead of a body.
+    fn preamble(&self) -> String {
+        let Some(font) = &self.font else {
+            return String::new();
+        };
+        let f = typst_str(font);
+        format!(
+            "#set text(font: {f})\n\
+             #show raw: set text(font: {f})\n\
+             #show math.equation: set text(font: ({f}, \"New Computer Modern Math\"))\n"
+        )
+    }
+}
+
 impl TextMobject {
     /// Typesets Typst math; `Err` holds Typst's error messages.
     pub fn math(src: &str) -> Result<Self, String> {
-        Self::typeset(src, &format!("$ {src} $"), Tokens::Glyphs)
+        Self::math_styled(src, &TextStyle::default())
+    }
+
+    /// [`TextMobject::math`] in `style`.
+    pub fn math_styled(src: &str, style: &TextStyle) -> Result<Self, String> {
+        let body = style.preamble() + &format!("$ {src} $");
+        Self::typeset(src, &body, Tokens::Glyphs)
     }
 
     /// Typesets LaTeX math; `Err` holds MiTeX's or Typst's error messages.
     pub fn latex(src: &str) -> Result<Self, String> {
+        Self::latex_styled(src, &TextStyle::default())
+    }
+
+    /// [`TextMobject::latex`] in `style`.
+    pub fn latex_styled(src: &str, style: &TextStyle) -> Result<Self, String> {
         let typst = mitex::convert_math(src, None)?;
-        let body = format!(
-            "#import \"/mitex/latex/standard.typ\": package\n\
-             #math.equation(block: true, eval({}, scope: package.scope))",
-            typst_str(&format!("${typst}$"))
-        );
+        let body = style.preamble()
+            + &format!(
+                "#import \"/mitex/latex/standard.typ\": package\n\
+                 #math.equation(block: true, eval({}, scope: package.scope))",
+                typst_str(&format!("${typst}$"))
+            );
         Self::typeset(src, &body, Tokens::Glyphs)
     }
 
     /// Typesets plain text; `Err` holds Typst's error messages.
     pub fn text(src: &str) -> Result<Self, String> {
-        Self::typeset(src, &format!("#{}", typst_str(src)), Tokens::Words)
+        Self::text_styled(src, &TextStyle::default())
+    }
+
+    /// [`TextMobject::text`] in `style`, e.g. in a font loaded with [`load_font`].
+    pub fn text_styled(src: &str, style: &TextStyle) -> Result<Self, String> {
+        let body = style.preamble() + &format!("#{}", typst_str(src));
+        Self::typeset(src, &body, Tokens::Words)
     }
 
     /// Typesets highlighted source code; `Err` holds Typst's error messages.
     pub fn code(src: &str, lang: &str) -> Result<Self, String> {
-        let body = format!(
-            "#raw(block: true, lang: {}, {})",
-            typst_str(lang),
-            typst_str(src)
-        );
+        Self::code_styled(src, lang, &TextStyle::default())
+    }
+
+    /// [`TextMobject::code`] in `style`.
+    pub fn code_styled(src: &str, lang: &str, style: &TextStyle) -> Result<Self, String> {
+        let body = style.preamble()
+            + &format!(
+                "#raw(block: true, lang: {}, {})",
+                typst_str(lang),
+                typst_str(src)
+            );
         Self::typeset(src, &body, Tokens::Code)
     }
 
@@ -661,25 +709,72 @@ impl ttf_parser::OutlineBuilder for Outline {
     }
 }
 
-/// Fonts and the standard library, built once.
-struct Shared {
-    library: LazyHash<Library>,
+/// The standard library, built once.
+fn library() -> &'static LazyHash<Library> {
+    static LIBRARY: OnceLock<LazyHash<Library>> = OnceLock::new();
+    LIBRARY.get_or_init(|| LazyHash::new(Library::default()))
+}
+
+/// The fonts Typst can use: those bundled in `typst-assets`, then any [`load_font`] added.
+struct Fonts {
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
 }
 
-fn shared() -> &'static Shared {
-    static SHARED: OnceLock<Shared> = OnceLock::new();
-    SHARED.get_or_init(|| {
-        let fonts: Vec<Font> = typst_assets::fonts()
-            .flat_map(|data| Font::iter(Bytes::new(data)))
-            .collect();
-        Shared {
-            library: LazyHash::new(Library::default()),
+impl Fonts {
+    fn new(fonts: Vec<Font>) -> Self {
+        Self {
             book: LazyHash::new(FontBook::from_fonts(&fonts)),
             fonts,
         }
+    }
+}
+
+/// Replaced whole when a font is added, so a compile keeps the set it started with.
+fn font_set() -> &'static RwLock<Arc<Fonts>> {
+    static FONTS: OnceLock<RwLock<Arc<Fonts>>> = OnceLock::new();
+    FONTS.get_or_init(|| {
+        let fonts = typst_assets::fonts()
+            .flat_map(|data| Font::iter(Bytes::new(data)))
+            .collect();
+        RwLock::new(Arc::new(Fonts::new(fonts)))
     })
+}
+
+fn fonts() -> Arc<Fonts> {
+    font_set().read().unwrap().clone()
+}
+
+/// Makes the fonts in the TTF, OTF, TTC or OTC file at `path` available by family name, for
+/// [`TextStyle::font`]; returns their families. Loading a font again does nothing.
+pub fn load_font(path: &Path) -> Result<Vec<String>, String> {
+    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    add_font(data).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// [`load_font`], from the file's bytes.
+pub fn add_font(data: Vec<u8>) -> Result<Vec<String>, String> {
+    let new: Vec<Font> = Font::iter(Bytes::new(data)).collect();
+    if new.is_empty() {
+        return Err("not a TTF, OTF, TTC or OTC font".into());
+    }
+    let mut families: Vec<String> = new.iter().map(|f| f.info().family.clone()).collect();
+    families.dedup();
+    let mut set = font_set().write().unwrap();
+    let fresh: Vec<Font> = (new.into_iter())
+        .filter(|f| {
+            !(set.fonts.iter()).any(|g| g.index() == f.index() && g.data()[..] == f.data()[..])
+        })
+        .collect();
+    if !fresh.is_empty() {
+        let mut fonts = set.fonts.clone();
+        fonts.extend(fresh);
+        *set = Arc::new(Fonts::new(fonts));
+        // Typst may now pick the new font, even for text that doesn't name it, to fill in
+        // glyphs other fonts lack.
+        cache().lock().unwrap().clear();
+    }
+    Ok(families)
 }
 
 /// MiTeX's Typst definitions for the commands its conversions call, e.g. `mitexsqrt`.
@@ -695,14 +790,15 @@ const MITEX: [(&str, &str); 2] = [
 /// packages or the clock.
 struct Doc {
     source: Source,
+    fonts: Arc<Fonts>,
 }
 
 impl World for Doc {
     fn library(&self) -> &LazyHash<Library> {
-        &shared().library
+        library()
     }
     fn book(&self) -> &LazyHash<FontBook> {
-        &shared().book
+        &self.fonts.book
     }
     fn main(&self) -> FileId {
         self.source.id()
@@ -722,7 +818,7 @@ impl World for Doc {
         Err(typst::diag::FileError::AccessDenied)
     }
     fn font(&self, index: usize) -> Option<Font> {
-        shared().fonts.get(index).cloned()
+        self.fonts.fonts.get(index).cloned()
     }
     fn today(&self, _: Option<Duration>) -> Option<Datetime> {
         None
@@ -735,8 +831,17 @@ fn compile(body: &str) -> Result<Frame, String> {
         source: Source::detached(format!(
             "#set page(width: auto, height: auto, margin: 0pt, fill: none)\n{body}"
         )),
+        fonts: fonts(),
     };
-    let out: PagedDocument = typst::compile(&doc).output.map_err(|errs| {
+    let warned = typst::compile::<PagedDocument>(&doc);
+    // Typst only warns, then falls back to its default font.
+    if let Some(w) = (warned.warnings.iter()).find(|w| w.message.contains("unknown font family")) {
+        return Err(format!(
+            "{}; load its file with `load_font` first",
+            w.message
+        ));
+    }
+    let out = warned.output.map_err(|errs| {
         errs.iter()
             .map(|e| e.message.as_str())
             .collect::<Vec<_>>()
@@ -860,6 +965,31 @@ mod tests {
     #[test]
     fn errors_are_reported() {
         assert!(TextMobject::math("#nope").is_err());
+    }
+
+    #[test]
+    fn fonts_by_family() {
+        let mono = TextStyle {
+            font: Some("DejaVu Sans Mono".into()),
+        };
+        let serif = TextMobject::text("iiii").unwrap();
+        let fixed = TextMobject::text_styled("iiii", &mono).unwrap();
+        // Monospaced `i`s sit further apart.
+        assert!(fixed.bbox().unwrap().width() > serif.bbox().unwrap().width() * 1.5);
+        let missing = TextStyle {
+            font: Some("No Such Font".into()),
+        };
+        let err = TextMobject::text_styled("x", &missing).unwrap_err();
+        assert!(err.contains("load_font"), "{err}");
+    }
+
+    #[test]
+    fn adding_fonts() {
+        let bundled = typst_assets::fonts().next().unwrap().to_vec();
+        // Already there, so nothing changes, but its families still come back.
+        assert!(!add_font(bundled).unwrap().is_empty());
+        assert!(add_font(b"not a font".to_vec()).is_err());
+        assert!(load_font(Path::new("no/such/font.ttf")).is_err());
     }
 
     #[test]

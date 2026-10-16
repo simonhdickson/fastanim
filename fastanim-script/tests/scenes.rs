@@ -240,3 +240,49 @@ fn events_are_labelled() {
     assert_eq!(labels, ["title", "FadeIn + Rotate", "Create"]);
     assert_eq!(tl.events()[2].end, 4.0);
 }
+
+#[test]
+fn gradient_image_bakes() {
+    let svg = to_svg(&script("gradient_image").eval(0.5), BLACK);
+    assert_eq!(svg.matches("<image").count(), 1);
+}
+
+#[test]
+fn images_from_files_and_pixels() {
+    let dir = std::env::temp_dir().join("fastanim-script-image");
+    std::fs::create_dir_all(&dir).unwrap();
+    let px = fastanim_core::Image::from_rgba(1, 1, vec![255, 0, 0, 255]).unwrap();
+    std::fs::write(dir.join("red.png"), px.to_png()).unwrap();
+    let src = r#"
+        let a = scene.add(image("red.png").pixelated().scale_to_fit_height(2.0));
+        let b = scene.add(image([[0, [255, 0, 0]], [[0, 0, 255, 128], 255.0]]).next_to(scene.get(a), RIGHT));
+        scene.play(rotate(group([a, b]), 1.0));
+        scene.play(fade_out(b));
+    "#;
+    let tl = fastanim_script::bake_in(src, &dir).unwrap();
+    assert_eq!(to_svg(&tl.eval(1.0), BLACK).matches("<image").count(), 2);
+    assert_eq!(to_svg(&tl.eval(2.0), BLACK).matches("<image").count(), 1);
+
+    let e = |src: &str| match fastanim_script::bake_in(src, &dir) {
+        Ok(_) => panic!("expected an error from {src:?}"),
+        Err(e) => e.message,
+    };
+    assert!(e(r#"image("missing.png");"#).contains("missing.png"));
+    assert!(e("image([[1, 2], [3]]);").contains("row 1 has 1 pixels"));
+    assert!(e("image([[[1, 2]]]);").contains("1, 3 or 4 values"));
+    assert!(e("image([]);").contains("0x0"));
+}
+
+#[test]
+fn text_in_other_fonts() {
+    let tl = fastanim_script::bake(
+        r#"scene.add(text("mono", #{font: "DejaVu Sans Mono"}).to_edge(UP));
+           scene.add(code("let x = 1;", "rust", #{font: "DejaVu Sans Mono"}));
+           scene.add(math_tex("x^2", #{font: "New Computer Modern Math"}));"#,
+    );
+    assert!(tl.is_ok(), "{:?}", tl.err());
+    let e = |src: &str| err(src).message;
+    assert!(e(r#"text("x", #{font: "No Such Font"});"#).contains("load_font"));
+    assert!(e(r#"text("x", #{size: 2.0});"#).contains("unknown text option"));
+    assert!(e(r#"load_font("no/such/font.ttf");"#).contains("no/such/font.ttf"));
+}

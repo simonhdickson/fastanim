@@ -9,9 +9,10 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
 ## Where we are
 
 - **Shapes:** `circle`, `arc`, `square`, `rectangle`, `polygon`, `line`, `dot`,
-  `function_graph`, and `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`, `labels`,
-  arrow tips).
-- **Text:** `text`, `math_tex`, `latex`, `code`, `list` (Typst, per-glyph shapes).
+  `function_graph`, `image`, and `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`,
+  `labels`, arrow tips).
+- **Text:** `text`, `math_tex`, `latex`, `code`, `list` (Typst, per-glyph shapes), in any
+  bundled font or one loaded with `load_font`.
 - **Groups:** `group([...])` of values (with `arrange`) or of added mobjects; indexable,
   accepted by every animation that does not need a single shape or text.
 - **Animations:** creation/removal, fades, `transform`, `replacement_transform`,
@@ -22,7 +23,7 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
 
 What limits most of the remaining work is the data model. A `VState`
 (`fastanim-core/src/mobject.rs`) holds one path, a solid fill, one stroke, opacity, z-index and
-a draw range. There are no images, gradients or dashes. Texts are the only handle that covers
+a draw range, plus an optional image. There are no gradients or dashes. Texts are the only handle that covers
 more than one mobject (`Mob::Text` in `fastanim-script/src/lib.rs`). There is no camera. Every
 new drawable kind or style has to be added to all three renderers: Vello
 (`fastanim-bevy/src/lib.rs`), SVG (`fastanim-core/src/svg.rs`) and Canvas 2D
@@ -41,7 +42,7 @@ The number after each example is the roadmap item it waits on.
 | ManimCELogo | ⬜ | background colour (3), `triangle` (7), groups (1) |
 | BraceAnnotation | ⬜ | `brace`, `brace_between_points`, brace labels (8) |
 | VectorArrow | ⬜ | `arrow` (6), `number_plane` (9) |
-| GradientImageFromArray | ⬜ | **images** (2), `surrounding_rectangle` (8) |
+| GradientImageFromArray | ✅ `scenes/gradient_image.rhai` | `surrounding_rectangle` (8) would tidy it |
 | BooleanOperations | ⬜ | `ellipse` (7), boolean ops (10), groups (1), move to target (4) |
 | PointMovingOnShapes | ⬜ | `move_along_path`, rotate about a point (12) |
 | MovingAngle | ⬜ | value trackers, `always_redraw` (5), `angle` (7) |
@@ -55,7 +56,7 @@ The number after each example is the roadmap item it waits on.
 | PolygonOnAxes | ⬜ | value trackers, `always_redraw` (5) |
 | HeatDiagramPlot | ⬜ | `plot_line_graph`, axis labels (9) |
 | FollowingGraphCamera | ⬜ | moving camera (18), `move_along_path` (12) |
-| MovingZoomedSceneAround | ⬜ | images (2), zoomed scene (21) |
+| MovingZoomedSceneAround | ⬜ | zoomed scene (21) |
 | OpeningManim | ⬜ | `number_plane` (9), nonlinear `apply_function` on a grid |
 
 Each example becomes a `.rhai` scene in `fastanim-script/scenes/` when it is ported, and serves
@@ -71,15 +72,14 @@ These items unblock the most examples, and many later items build on them.
    - Build on `UpdateGroup` (`fastanim-core/src/anim.rs`) and `Group<K>`
      (`fastanim-core/src/transform_diff.rs`). In scripts, generalise `Mob::Text`.
    - Unblocks: ManimCELogo, BooleanOperations, MovingDots, MovingGroupToDestination.
-2. **Images.** A raster drawable that sits beside `VState`.
-   - State: the pixels, an affine transform for placement, opacity, z-index, and
-     nearest/linear resampling.
-   - Load from PNG/JPEG with the `image` crate, or from a pixel array in a script (a Rhai array
-     or a NumPy array in Python).
-   - Rendering: Vello `draw_image`, an SVG `<image>` with a data URI, and Canvas `drawImage`.
-     The web worker has to send the pixels to the player once, not every frame.
-   - Works with `fade_*`, `shift`, `scale`, `rotate`, `move_to`, layout and groups. Morphing an
-     image into a shape is out of scope; cross-fade instead.
+2. ✅ **Images.** `VState::image` / `image(path or pixels)`: a rectangle with an
+   `ImageFill` (shared RGBA pixels, a placement affine that every transform updates, and
+   nearest/linear resampling), so images move, fade, layout and group as shapes do.
+   - Loaded from PNG/JPEG with the `image` crate, or from a Rhai array or NumPy array.
+   - Rendered with Vello `draw_image`, an SVG `<image>` with a PNG data URI, and Canvas
+     `drawImage` from a per-image canvas the worker fills once.
+   - Still to do: image files in the browser playground (they need fetching before the bake).
+     Morphing an image into a shape is out of scope; cross-fade instead.
    - Unblocks: GradientImageFromArray and MovingZoomedSceneAround (with 21).
 3. **Style completeness.**
    - Set the background colour from a scene or script. `to_svg` already takes one.
@@ -115,7 +115,8 @@ These items unblock the most examples, and many later items build on them.
 10. **Boolean operations:** `union`, `intersection`, `difference`, `exclusion` on paths, using
     a clipping crate that works with kurbo paths.
 11. **Text polish:**
-    - Font size, weight, slant and family. Typst already supports these.
+    - Font size, weight and slant. Typst already supports these. Family is done: the `font`
+      option, with `load_font` for font files (not yet in the browser).
     - Colour substrings (manim's `t2c`).
     - Select parts of a `math_tex` by substring or index, to colour, box or animate them.
     - `decimal_number`/`integer` that follow a tracker, re-typeset through the memo cache.
