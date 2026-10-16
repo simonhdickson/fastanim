@@ -94,7 +94,7 @@ let photo = scene.add(image("photo.png").scale_to_fit_height(4.0));
 let ramp = [];
 for i in 0..256 { ramp.push(i); }
 let rows = [];
-for _ in 0..16 { rows.push(ramp); }
+for row in 0..16 { rows.push(ramp); }
 let bar = scene.add(image(rows).pixelated().next_to(scene.get(photo), DOWN));
 scene.play(rotate(group([photo, bar]), PI / 8.0));
 ```

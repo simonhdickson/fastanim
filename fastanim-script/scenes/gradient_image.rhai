@@ -6,7 +6,7 @@ for i in 0..n {
     ramp.push(i * 256 / n);
 }
 let rows = [];
-for _ in 0..n {
+for row in 0..n {
     rows.push(ramp);
 }
 let img = image(rows).scale(2.0);
