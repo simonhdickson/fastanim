@@ -558,7 +558,9 @@ fn encode_image(scene: &mut vello::Scene, i: &ImageFill, alpha: f32) {
 /// One Vello blob per image, so the renderer sees the same image id every frame instead of a
 /// new one to upload.
 fn blob(img: &fastanim_core::Image) -> Blob<u8> {
-    static BLOBS: Mutex<Vec<(Weak<Vec<u8>>, Blob<u8>)>> = Mutex::new(Vec::new());
+    /// Each image's pixels, weakly, and the blob made for them.
+    type Blobs = Vec<(Weak<Vec<u8>>, Blob<u8>)>;
+    static BLOBS: Mutex<Blobs> = Mutex::new(Vec::new());
     let px = img.shared_pixels();
     let mut blobs = BLOBS.lock().unwrap();
     // The blob holds one reference itself; drop it once nothing else does.
