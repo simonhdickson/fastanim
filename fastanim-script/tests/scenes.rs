@@ -342,7 +342,10 @@ fn fades_shift_and_scale() {
 #[test]
 fn definitions_have_return_types_and_constants() {
     let defs = fastanim_script::definitions();
-    assert!(!defs.contains("EvalAltResult"), "a fallible return type was left unfixed");
+    assert!(
+        !defs.contains("EvalAltResult"),
+        "a fallible return type was left unfixed"
+    );
     assert!(defs.contains("fn wait(_: Scene, _: float) -> ();"));
     assert!(defs.contains("const UP: Point;"));
     assert!(defs.contains("let scene: Scene;"));
