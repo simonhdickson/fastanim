@@ -43,6 +43,7 @@ at_frame(_: Lottie, _: f64) -> Lottie
 audio(_: string) -> Audio
 axes(_: array, _: array) -> Axes
 axes(_: array, _: array, _: f64, _: f64) -> Axes
+background(_: &mut Scene, _: Color) -> ()
 c2p(_: &mut Axes, _: f64, _: f64) -> Point
 center(_: Axes) -> Point
 center(_: Group) -> Point
@@ -54,6 +55,11 @@ circumscribe(_: Mobject) -> Animation
 code(_: string, _: string) -> Text
 code(_: string, _: string, _: map) -> Text
 create(_: Mobject) -> Animation
+dashed(_: Shape) -> Shape
+dashed(_: Shape, _: i64) -> Shape
+dashed(_: Shape, _: i64, _: f64) -> Shape
+dashed_line(_: Point, _: Point) -> Shape
+dashed_line(_: Point, _: Point, _: f64) -> Shape
 dot(_: Point) -> Shape
 draw_border_then_fill(_: Mobject) -> Animation
 ease_in(_: string) -> Rate
@@ -68,7 +74,14 @@ fade_out(_: Mobject, _: Point) -> Animation
 fade_out(_: Mobject, _: f64) -> Animation
 fade_out(_: Mobject, _: Point, _: f64) -> Animation
 fill(_: Shape, _: Color) -> Shape
+fill(_: Shape, _: Color, _: f64) -> Shape
 fill(_: Text, _: Color) -> Text
+fill(_: Text, _: Color, _: f64) -> Text
+fill_gradient(_: Shape, _: array) -> Shape
+fill_gradient(_: Shape, _: array, _: Point) -> Shape
+fill_gradient(_: Text, _: array) -> Text
+fill_gradient(_: Text, _: array, _: Point) -> Text
+fill_opacity(_: Shape, _: f64) -> Shape
 fit_axes(_: Fn, _: array) -> Axes
 fit_axes(_: Fn, _: array, _: f64, _: f64) -> Axes
 flash(_: Point) -> Animation
@@ -95,6 +108,8 @@ latex(_: string, _: map) -> Text
 len(_: &mut Group) -> i64
 len(_: &mut Mobject) -> i64
 line(_: Point, _: Point) -> Shape
+line_cap(_: Shape, _: string) -> Shape
+line_join(_: Shape, _: string) -> Shape
 list(_: array) -> Text
 load_font(_: string) -> array
 lottie(_: string) -> Lottie
@@ -184,6 +199,8 @@ scale_to_fit_width(_: Lottie, _: f64) -> Lottie
 scale_to_fit_width(_: Shape, _: f64) -> Shape
 scale_to_fit_width(_: Text, _: f64) -> Text
 sequence(_: array) -> Animation
+set_color_by_gradient(_: Group, _: array) -> Group
+set_color_by_gradient(_: Text, _: array) -> Text
 shape(_: &mut Axes) -> Shape
 shift(_: Axes, _: Point) -> Axes
 shift(_: Group, _: Point) -> Group
@@ -198,6 +215,9 @@ spin_in(_: Mobject) -> Animation
 spring(_: f64, _: f64) -> Rate
 square(_: f64) -> Shape
 stroke(_: Shape, _: Color, _: f64) -> Shape
+stroke_gradient(_: Shape, _: array) -> Shape
+stroke_gradient(_: Shape, _: array, _: Point) -> Shape
+stroke_opacity(_: Shape, _: f64) -> Shape
 text(_: string) -> Text
 text(_: string, _: map) -> Text
 to_debug(_: &mut Point) -> string
@@ -235,6 +255,8 @@ const GREEN
 const YELLOW
 const GREY
 const ORANGE
+const PINK
+const PURPLE
 const TRANSPARENT
 const LINEAR
 const SMOOTH

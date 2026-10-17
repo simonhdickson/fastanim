@@ -617,6 +617,7 @@ fn border_then_fill(s: &VState, p: f32) -> VState {
         Stroke {
             color: s.fill.with_alpha(1.0),
             width: 0.02,
+            ..s.stroke
         }
     };
     if p < 0.5 {
@@ -632,6 +633,7 @@ fn border_then_fill(s: &VState, p: f32) -> VState {
             stroke: Stroke {
                 color: Color::lerp(&outline.color, &s.stroke.color, q),
                 width: outline.width + (s.stroke.width - outline.width) * f64::from(q),
+                ..s.stroke
             },
             fill: s.fill.with_alpha(s.fill.a * q),
             ..s.clone()

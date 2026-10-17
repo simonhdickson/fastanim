@@ -7,6 +7,7 @@ use kurbo::Rect;
 
 use crate::anim::{Animation, RateFn};
 use crate::audio::{Sound, SoundEvent};
+use crate::color::{BLACK, Color};
 use crate::mobject::{MobjectId, SceneState, VState};
 
 /// A clip and the scene as it was when the clip started (the keyframe).
@@ -101,6 +102,7 @@ pub struct Scene {
     sounds: Vec<SoundEvent>,
     events: Vec<SceneEvent>,
     stats: BakeStats,
+    background: Option<Color>,
 }
 
 impl Scene {
@@ -224,6 +226,12 @@ impl Scene {
         });
     }
 
+    /// Sets the color behind every frame, black by default. It is one color for the whole scene:
+    /// the last call wins.
+    pub fn background(&mut self, color: Color) {
+        self.background = Some(color);
+    }
+
     /// Names the current time as a seek point.
     pub fn marker(&mut self, name: &str) {
         self.markers.push((name.to_owned(), self.cursor));
@@ -292,6 +300,7 @@ impl Scene {
             updaters: self.updaters,
             sounds: self.sounds,
             stats: self.stats,
+            background: self.background.unwrap_or(BLACK),
         }
     }
 }
@@ -305,12 +314,18 @@ pub struct BakedTimeline {
     updaters: Vec<Updater>,
     sounds: Vec<SoundEvent>,
     stats: BakeStats,
+    background: Color,
 }
 
 impl BakedTimeline {
     /// Total length in seconds.
     pub fn duration(&self) -> f32 {
         self.duration
+    }
+
+    /// The color behind every frame (see [`Scene::background`]).
+    pub fn background(&self) -> Color {
+        self.background
     }
 
     /// Where the bake's time went (see [`time_baking`]).

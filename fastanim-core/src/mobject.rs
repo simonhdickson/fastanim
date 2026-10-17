@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::f64::consts::TAU;
 use std::ops::Range;
 
-use kurbo::{Affine, Point, Vec2};
+use kurbo::{Affine, Point, Rect, Vec2};
 
 use crate::Interpolate;
 use crate::color::{Color, WHITE};
@@ -18,6 +18,30 @@ pub struct MobjectId(pub u32);
 /// Every mobject's state at one instant, in id order.
 pub type SceneState = BTreeMap<MobjectId, VState>;
 
+/// How open outline ends are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineCap {
+    /// Flat, at the end point.
+    Butt,
+    /// A half circle past the end point.
+    #[default]
+    Round,
+    /// A half square past the end point.
+    Square,
+}
+
+/// How outline corners are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineJoin {
+    /// A sharp point (bevelled past a miter limit of 4, as SVG and Canvas do).
+    Miter,
+    /// Rounded.
+    #[default]
+    Round,
+    /// Cut off flat.
+    Bevel,
+}
+
 /// Outline style.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Stroke {
@@ -25,6 +49,78 @@ pub struct Stroke {
     pub color: Color,
     /// Width in scene units.
     pub width: f64,
+    /// Ends of open contours.
+    pub cap: LineCap,
+    /// Corners.
+    pub join: LineJoin,
+}
+
+impl Stroke {
+    /// A `width` outline in `color`, with round caps and joins.
+    pub const fn new(color: Color, width: f64) -> Self {
+        Self {
+            color,
+            width,
+            cap: LineCap::Round,
+            join: LineJoin::Round,
+        }
+    }
+}
+
+/// A linear gradient: `stops` evenly spaced from `from` to `to` (scene units), padded past
+/// either end with the end color. It moves with the shape it paints.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gradient {
+    /// Where the first stop is.
+    pub from: Point,
+    /// Where the last stop is.
+    pub to: Point,
+    /// At least one color.
+    pub stops: Vec<Color>,
+}
+
+impl Gradient {
+    /// `stops` across `bbox` along `direction`, e.g. [`RIGHT`](crate::RIGHT) for left to right.
+    pub fn across(bbox: Option<Rect>, stops: &[Color], direction: Vec2) -> Self {
+        let c = bbox.map_or(Point::ORIGIN, |r| r.center());
+        let d = direction.normalize();
+        let d = if d.is_finite() {
+            d
+        } else {
+            Vec2::new(1.0, 0.0)
+        };
+        // Half the box's extent along `d`; never zero, which renderers disagree on.
+        let half = bbox.map_or(0.0, |r| {
+            (r.width() * d.x.abs() + r.height() * d.y.abs()) / 2.0
+        });
+        let half = half.max(1e-3);
+        Self {
+            from: c - d * half,
+            to: c + d * half,
+            stops: if stops.is_empty() {
+                vec![WHITE]
+            } else {
+                stops.to_vec()
+            },
+        }
+    }
+
+    /// The stop colors with each alpha scaled by `alpha`, and where each sits, `0..=1`.
+    pub fn stops(&self, alpha: f32) -> impl Iterator<Item = (f32, Color)> + '_ {
+        let n = self.stops.len().saturating_sub(1).max(1) as f32;
+        (self.stops.iter().enumerate()).map(move |(i, c)| (i as f32 / n, c.with_alpha(c.a * alpha)))
+    }
+
+    /// The same gradient with `n` stops, sampled from this one.
+    fn resampled(&self, n: usize) -> Vec<Color> {
+        if self.stops.len() == n {
+            return self.stops.clone();
+        }
+        let k = n.saturating_sub(1).max(1) as f32;
+        (0..n)
+            .map(|i| crate::color::gradient_color(&self.stops, i as f32 / k))
+            .collect()
+    }
 }
 
 /// The animatable state of a shape.
@@ -34,10 +130,16 @@ pub struct Stroke {
 pub struct VState {
     /// The geometry, in scene units (y up).
     pub path: VPath,
-    /// Fill color; transparent by default.
+    /// Fill color; transparent by default. Under a [`fill_gradient`](VState::fill_gradient)
+    /// only its alpha counts, scaling the gradient's.
     pub fill: Color,
-    /// Outline.
+    /// Outline. Under a [`stroke_gradient`](VState::stroke_gradient) only the color's alpha
+    /// counts, scaling the gradient's.
     pub stroke: Stroke,
+    /// Paints the fill instead of the solid color; boxed, as most shapes have none.
+    pub fill_gradient: Option<Box<Gradient>>,
+    /// Paints the outline instead of the solid color.
+    pub stroke_gradient: Option<Box<Gradient>>,
     /// Overall opacity multiplier.
     pub opacity: f32,
     /// Draw order; higher is on top, ties broken by id.
@@ -55,10 +157,9 @@ impl VState {
         Self {
             path,
             fill: Color::TRANSPARENT,
-            stroke: Stroke {
-                color: WHITE,
-                width: 0.04,
-            },
+            stroke: Stroke::new(WHITE, 0.04),
+            fill_gradient: None,
+            stroke_gradient: None,
             opacity: 1.0,
             z_index: 0,
             draw_range: 0.0..1.0,
@@ -155,17 +256,95 @@ impl VState {
         Self::circle(0.08).fill(WHITE).shift(p.to_vec2())
     }
 
-    /// Sets the fill color.
+    /// Sets the fill color, replacing any gradient.
     pub fn fill(self, fill: Color) -> Self {
+        Self {
+            fill,
+            fill_gradient: None,
+            ..self
+        }
+    }
+
+    /// Sets the fill's opacity, keeping its color or gradient.
+    pub fn fill_opacity(self, opacity: f32) -> Self {
+        let fill = self.fill.with_alpha(opacity);
         Self { fill, ..self }
     }
 
-    /// Sets the outline.
+    /// Sets the outline color and width, replacing any gradient; keeps the caps and joins.
     pub fn stroke(self, color: Color, width: f64) -> Self {
         Self {
-            stroke: Stroke { color, width },
+            stroke: Stroke {
+                color,
+                width,
+                ..self.stroke
+            },
+            stroke_gradient: None,
             ..self
         }
+    }
+
+    /// Sets the outline's opacity, keeping its color or gradient.
+    pub fn stroke_opacity(mut self, opacity: f32) -> Self {
+        self.stroke.color = self.stroke.color.with_alpha(opacity);
+        self
+    }
+
+    /// Sets the fill and outline color, keeping their opacities, manim's `set_color`.
+    pub fn color(self, c: Color) -> Self {
+        let (f, s) = (self.fill.a, self.stroke.color.a);
+        let w = self.stroke.width;
+        self.fill(c.with_alpha(f)).stroke(c.with_alpha(s), w)
+    }
+
+    /// Fills with `stops` from one side of the bounding box to the other along `direction`,
+    /// opaque.
+    pub fn fill_gradient(self, stops: &[Color], direction: Vec2) -> Self {
+        let g = Gradient::across(self.path.bbox(), stops, direction);
+        Self {
+            fill: WHITE,
+            fill_gradient: Some(Box::new(g)),
+            ..self
+        }
+    }
+
+    /// Strokes the outline with `stops` from one side of the bounding box to the other along
+    /// `direction`, opaque, keeping its width.
+    pub fn stroke_gradient(mut self, stops: &[Color], direction: Vec2) -> Self {
+        let g = Gradient::across(self.path.bbox(), stops, direction);
+        self.stroke.color = WHITE;
+        self.stroke_gradient = Some(Box::new(g));
+        self
+    }
+
+    /// Sets how open outline ends are drawn.
+    pub fn line_cap(mut self, cap: LineCap) -> Self {
+        self.stroke.cap = cap;
+        self
+    }
+
+    /// Sets how outline corners are drawn.
+    pub fn line_join(mut self, join: LineJoin) -> Self {
+        self.stroke.join = join;
+        self
+    }
+
+    /// The outline cut into `dashes` dashes, each `ratio` (`0..=1`) of its period long, manim's
+    /// `DashedVMobject`. Open contours start and end on a dash. Being geometry, a dashed shape
+    /// still `create`s, dash by dash.
+    pub fn dashed(self, dashes: usize, ratio: f64) -> Self {
+        let path = self.path.dashed(dashes, ratio);
+        Self { path, ..self }
+    }
+
+    /// A dashed line from `a` to `b` with dashes about `dash_length` long, `ratio` of each
+    /// period, manim's `DashedLine` (whose defaults are 0.05 and 0.5).
+    pub fn dashed_line(a: Point, b: Point, dash_length: f64, ratio: f64) -> Self {
+        let ratio = ratio.clamp(0.0, 1.0);
+        let n = (a.distance(b) * ratio / dash_length.max(1e-6))
+            .ceil()
+            .max(2.0);
+        Self::line(a, b).dashed(n as usize, ratio)
     }
 
     /// Sets the draw order.
@@ -173,10 +352,21 @@ impl VState {
         Self { z_index, ..self }
     }
 
-    /// Applies an affine transform to the geometry, and any image with it.
+    /// Applies an affine transform to the geometry, and any image and gradients with it.
     pub fn transform(self, a: Affine) -> Self {
+        let tf = |g: Option<Box<Gradient>>| {
+            g.map(|g| {
+                Box::new(Gradient {
+                    from: a * g.from,
+                    to: a * g.to,
+                    ..*g
+                })
+            })
+        };
         Self {
             path: self.path.transform(a),
+            fill_gradient: tf(self.fill_gradient),
+            stroke_gradient: tf(self.stroke_gradient),
             image: self.image.map(|i| {
                 Box::new(ImageFill {
                     transform: a * i.transform,
@@ -282,7 +472,16 @@ impl Interpolate for VState {
             stroke: Stroke {
                 color: Color::lerp(&a.stroke.color, &b.stroke.color, t),
                 width: a.stroke.width + (b.stroke.width - a.stroke.width) * f64::from(t),
+                ..if t < 1.0 { a.stroke } else { b.stroke }
             },
+            fill_gradient: lerp_gradient(&a.fill_gradient, a.fill, &b.fill_gradient, b.fill, t),
+            stroke_gradient: lerp_gradient(
+                &a.stroke_gradient,
+                a.stroke.color,
+                &b.stroke_gradient,
+                b.stroke.color,
+                t,
+            ),
             opacity: f32::lerp(&a.opacity, &b.opacity, t),
             z_index: if t < 1.0 { a.z_index } else { b.z_index },
             draw_range: f32::lerp(&a.draw_range.start, &b.draw_range.start, t)
@@ -290,6 +489,43 @@ impl Interpolate for VState {
             image: lerp_image(&a.image, &b.image, t),
         }
     }
+}
+
+/// Gradients blend stop by stop, a solid end standing in as a gradient of its one color, so a
+/// shape turns from solid to gradient smoothly. Ends are exact.
+fn lerp_gradient(
+    a: &Option<Box<Gradient>>,
+    a_solid: Color,
+    b: &Option<Box<Gradient>>,
+    b_solid: Color,
+    t: f32,
+) -> Option<Box<Gradient>> {
+    if t <= 0.0 {
+        return a.clone();
+    }
+    if t >= 1.0 {
+        return b.clone();
+    }
+    let solid = |c: Color, like: &Gradient| Gradient {
+        stops: vec![c.with_alpha(1.0); like.stops.len()],
+        ..like.clone()
+    };
+    let (x, y) = match (a, b) {
+        (None, None) => return None,
+        (Some(x), Some(y)) => ((**x).clone(), (**y).clone()),
+        (Some(x), None) => ((**x).clone(), solid(b_solid, x)),
+        (None, Some(y)) => (solid(a_solid, y), (**y).clone()),
+    };
+    let n = x.stops.len().max(y.stops.len());
+    let t64 = f64::from(t);
+    let stops = (x.resampled(n).iter().zip(y.resampled(n)))
+        .map(|(p, q)| Color::lerp(p, &q, t))
+        .collect();
+    Some(Box::new(Gradient {
+        from: x.from.lerp(y.from, t64),
+        to: x.to.lerp(y.to, t64),
+        stops,
+    }))
 }
 
 /// Placements blend when both ends have an image; the pixels (and a lone image) switch at the

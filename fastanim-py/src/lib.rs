@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, Color as CoreColor, DEFAULT_BUFF,
-    DiffStyle, LottieMobject, Position, RateFn, SceneState, VState,
+    DiffStyle, LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
 use fastanim_text::{TextMobject, TextStyle};
@@ -405,24 +405,95 @@ macro_rules! positioned {
 }
 
 /// Shape style keywords, applied to `m`.
-fn styled(m: VState, stroke: Option<C>, stroke_width: Option<f64>, fill: Option<C>) -> VState {
+fn styled(
+    m: VState,
+    stroke: Option<C>,
+    stroke_width: Option<f64>,
+    fill: Option<C>,
+    fill_opacity: Option<f32>,
+) -> VState {
     let w = stroke_width.unwrap_or(m.stroke.width);
-    let c = stroke.map_or(m.stroke.color, |c| c.0);
-    let m = m.stroke(c, w);
-    match fill {
+    let m = match stroke {
+        Some(c) => m.stroke(c.0, w),
+        None => VState {
+            stroke: fastanim_core::Stroke {
+                width: w,
+                ..m.stroke
+            },
+            ..m
+        },
+    };
+    let m = match fill {
         Some(f) => m.fill(f.0),
+        None => m,
+    };
+    match fill_opacity {
+        Some(o) => m.fill_opacity(o),
         None => m,
     }
 }
 
+/// A fill color, its alpha replaced by `opacity` if given.
+fn with_opacity(color: C, opacity: Option<f32>) -> CoreColor {
+    opacity.map_or(color.0, |o| color.0.with_alpha(o))
+}
+
+fn colors(stops: Vec<C>) -> Vec<CoreColor> {
+    stops.into_iter().map(|c| c.0).collect()
+}
+
 positioned!(Shape {
-    fn fill(&self, color: C) -> Self {
-        Self(self.0.clone().fill(color.0))
+    /// Sets the fill color, and its opacity if given.
+    #[pyo3(signature = (color, opacity = None))]
+    fn fill(&self, color: C, opacity: Option<f32>) -> Self {
+        Self(self.0.clone().fill(with_opacity(color, opacity)))
+    }
+
+    /// Sets the fill's opacity, keeping its color or gradient.
+    fn fill_opacity(&self, opacity: f32) -> Self {
+        Self(self.0.clone().fill_opacity(opacity))
     }
 
     #[pyo3(signature = (color, width = None))]
     fn stroke(&self, color: C, width: Option<f64>) -> Self {
-        Self(styled(self.0.clone(), Some(color), width, None))
+        Self(styled(self.0.clone(), Some(color), width, None, None))
+    }
+
+    /// Sets the outline's opacity, keeping its color or gradient.
+    fn stroke_opacity(&self, opacity: f32) -> Self {
+        Self(self.0.clone().stroke_opacity(opacity))
+    }
+
+    /// Fills with a linear gradient of `colors` across the shape along `direction`.
+    #[pyo3(signature = (colors, direction = None))]
+    fn fill_gradient(&self, colors: Vec<C>, direction: Option<P>) -> Self {
+        let d = direction.map_or(RIGHT, |p| p.0);
+        Self(self.0.clone().fill_gradient(&self::colors(colors), d))
+    }
+
+    /// Strokes the outline with a linear gradient of `colors` along `direction`.
+    #[pyo3(signature = (colors, direction = None))]
+    fn stroke_gradient(&self, colors: Vec<C>, direction: Option<P>) -> Self {
+        let d = direction.map_or(RIGHT, |p| p.0);
+        Self(self.0.clone().stroke_gradient(&self::colors(colors), d))
+    }
+
+    /// Sets how open outline ends are drawn: `"butt"`, `"round"` or `"square"`.
+    fn line_cap(&self, cap: &str) -> PyResult<Self> {
+        let cap = fastanim_script::line_cap(cap).map_err(PyValueError::new_err)?;
+        Ok(Self(self.0.clone().line_cap(cap)))
+    }
+
+    /// Sets how outline corners are drawn: `"miter"`, `"round"` or `"bevel"`.
+    fn line_join(&self, join: &str) -> PyResult<Self> {
+        let join = fastanim_script::line_join(join).map_err(PyValueError::new_err)?;
+        Ok(Self(self.0.clone().line_join(join)))
+    }
+
+    /// The outline cut into `dashes` dashes, each `ratio` of its period long.
+    #[pyo3(signature = (dashes = 15, ratio = 0.5))]
+    fn dashed(&self, dashes: usize, ratio: f64) -> Self {
+        Self(self.0.clone().dashed(dashes, ratio))
     }
 
     fn z_index(&self, z: i32) -> Self {
@@ -444,8 +515,22 @@ positioned!(Shape {
 });
 
 positioned!(Text {
-    fn fill(&self, color: C) -> Self {
-        Self(self.0.clone().fill(color.0))
+    /// Sets every glyph's fill color, and its opacity if given.
+    #[pyo3(signature = (color, opacity = None))]
+    fn fill(&self, color: C, opacity: Option<f32>) -> Self {
+        Self(self.0.clone().fill(with_opacity(color, opacity)))
+    }
+
+    /// Fills the whole text with one linear gradient of `colors` along `direction`.
+    #[pyo3(signature = (colors, direction = None))]
+    fn fill_gradient(&self, colors: Vec<C>, direction: Option<P>) -> Self {
+        let d = direction.map_or(RIGHT, |p| p.0);
+        Self(self.0.clone().fill_gradient(&self::colors(colors), d))
+    }
+
+    /// Colors glyph by glyph along `colors`, first glyph to last.
+    fn set_color_by_gradient(&self, colors: Vec<C>) -> Self {
+        Self(self.0.clone().set_color_by_gradient(&self::colors(colors)))
     }
 
     fn rotate(&self, angle: f64) -> Self {
@@ -548,6 +633,11 @@ positioned!(PyGroup {
     #[pyo3(signature = (direction, buff = DEFAULT_BUFF))]
     fn arrange(&self, direction: P, buff: f64) -> Self {
         Self(self.0.clone().arrange(direction.0, buff))
+    }
+
+    /// Colors every shape and glyph along `colors`, first to last, keeping their opacities.
+    fn set_color_by_gradient(&self, colors: Vec<C>) -> Self {
+        Self(self.0.clone().set_color_by_gradient(&self::colors(colors)))
     }
 
     fn __len__(&self) -> usize {
@@ -704,8 +794,9 @@ impl Animate {
         })
     }
 
-    fn fill(&self, color: C) -> Self {
-        let c = color.0;
+    #[pyo3(signature = (color, opacity = None))]
+    fn fill(&self, color: C, opacity: Option<f32>) -> Self {
+        let c = with_opacity(color, opacity);
         self.then(move |g| each_glyph(g, |m| m.fill(c)))
     }
 
@@ -873,6 +964,12 @@ impl PyScene {
         Ok(())
     }
 
+    /// Sets the color behind every frame, black by default; one color for the whole scene.
+    fn background(&self, color: C) -> PyResult<()> {
+        self.lock()?.scene.background(color.0);
+        Ok(())
+    }
+
     /// Names this point in time.
     fn marker(&self, name: &str) -> PyResult<()> {
         self.lock()?.scene.marker(name);
@@ -934,10 +1031,10 @@ impl Timeline {
         self.0.markers().to_vec()
     }
 
-    /// The frame at `t` as SVG.
+    /// The frame at `t` as SVG, over the scene's background unless `background` is given.
     #[pyo3(signature = (t, background = None))]
     fn svg(&self, t: f32, background: Option<C>) -> String {
-        let bg = background.map_or(fastanim_core::color::BLACK, |c| c.0);
+        let bg = background.map_or(self.0.background(), |c| c.0);
         fastanim_core::to_svg(&self.0.eval(t), bg)
     }
 
@@ -1087,14 +1184,17 @@ macro_rules! shapes {
     ($($(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) => $body:expr;)*) => {$(
         $(#[$doc])*
         #[pyfunction]
-        #[pyo3(signature = ($($arg,)* *, stroke = None, stroke_width = None, fill = None))]
+        #[pyo3(signature = (
+            $($arg,)* *, stroke = None, stroke_width = None, fill = None, fill_opacity = None
+        ))]
         fn $name(
             $($arg: $ty,)*
             stroke: Option<C>,
             stroke_width: Option<f64>,
             fill: Option<C>,
+            fill_opacity: Option<f32>,
         ) -> PyResult<Shape> {
-            Ok(Shape(styled($body, stroke, stroke_width, fill)))
+            Ok(Shape(styled($body, stroke, stroke_width, fill, fill_opacity)))
         }
     )*};
 }
@@ -1109,6 +1209,24 @@ shapes! {
     /// A small filled dot at `p`.
     fn dot(p: P) => VState::dot(p.pt());
     fn polygon(points: Vec<P>) => VState::polygon(&points.iter().map(P::pt).collect::<Vec<_>>());
+}
+
+/// A dashed line from `a` to `b`, with dashes about `dash_length` long and `ratio` of each
+/// period.
+#[pyfunction]
+#[pyo3(signature = (
+    a, b, dash_length = 0.05, ratio = 0.5, *, stroke = None, stroke_width = None
+))]
+fn dashed_line(
+    a: P,
+    b: P,
+    dash_length: f64,
+    ratio: f64,
+    stroke: Option<C>,
+    stroke_width: Option<f64>,
+) -> Shape {
+    let m = VState::dashed_line(a.pt(), b.pt(), dash_length, ratio);
+    Shape(styled(m, stroke, stroke_width, None, None))
 }
 
 /// The graph of `f` from `x0` to `x1`, with `segments` cubic pieces.
@@ -1540,6 +1658,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         line,
         dot,
         polygon,
+        dashed_line,
         function_graph,
         image,
         lottie,

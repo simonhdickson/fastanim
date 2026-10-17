@@ -423,6 +423,26 @@ impl TextMobject {
         self
     }
 
+    /// Fills the whole text with one gradient of `stops` across it along `direction`.
+    pub fn fill_gradient(mut self, stops: &[Color], direction: Vec2) -> Self {
+        let g = fastanim_core::Gradient::across(self.bbox(), stops, direction);
+        for m in &mut self.glyphs {
+            m.fill = WHITE;
+            m.fill_gradient = Some(Box::new(g.clone()));
+        }
+        self
+    }
+
+    /// Colors glyph by glyph along `stops`, first glyph to last, manim's
+    /// `set_color_by_gradient`.
+    pub fn set_color_by_gradient(mut self, stops: &[Color]) -> Self {
+        let n = self.glyphs.len().saturating_sub(1).max(1) as f32;
+        self.glyphs = (self.glyphs.into_iter().enumerate())
+            .map(|(i, g)| g.color(fastanim_core::color::gradient_color(stops, i as f32 / n)))
+            .collect();
+        self
+    }
+
     /// Adds every glyph to the scene as a group of tokens; the ids are in glyph order.
     pub fn add_to(&self, s: &mut Scene) -> Group<TokenKey> {
         Group::add(s, &self.layout())

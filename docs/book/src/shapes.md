@@ -15,7 +15,7 @@ print(mid.y);                             // 1.0
 
 | Function | Example |
 | --- | --- |
-| Named constants | `WHITE`, `BLACK`, `BLUE`, `RED`, `GREEN`, `YELLOW`, `GREY`, `ORANGE`, `TRANSPARENT` |
+| Named constants | `WHITE`, `BLACK`, `BLUE`, `RED`, `GREEN`, `YELLOW`, `GREY`, `ORANGE`, `PINK`, `PURPLE`, `TRANSPARENT` |
 | `rgb(r, g, b)` | `rgb(1.0, 0.5, 0.0)`, each 0–1 |
 | `hex(rgb)` | `hex(0xf4d345)` |
 | `with_alpha(c, a)` | `BLUE.with_alpha(0.5)` |
@@ -33,6 +33,8 @@ All shapes are centered on the origin unless they take points.
 | `line(a, b)` | Line from point `a` to point `b` |
 | `dot(p)` | Small filled white dot at `p` |
 | `polygon([p1, p2, ...])` | Closed polygon through the points |
+| `dashed_line(a, b)` | Dashed line from `a` to `b`, dashes about 0.05 long |
+| `dashed_line(a, b, dash_length)` | The same, dashes about `dash_length` long |
 | `function_graph(f, x0, x1, segments)` | Graph of `y = f(x)` for `x` in `x0..x1`, in scene units |
 
 ```rhai
@@ -46,12 +48,43 @@ Style methods return a new shape, so they chain.
 | Method | Effect |
 | --- | --- |
 | `.fill(color)` | Fill color |
+| `.fill(color, opacity)` | Fill color and opacity, 0–1 |
+| `.fill_opacity(opacity)` | Fill opacity, keeping the color or gradient |
 | `.stroke(color, width)` | Outline color and width |
+| `.stroke_opacity(opacity)` | Outline opacity, keeping the color or gradient |
+| `.fill_gradient([c1, c2, ...])` | Fill with a linear gradient from left to right |
+| `.fill_gradient([c1, c2, ...], dir)` | The same, across the shape along `dir`, e.g. `UP` |
+| `.stroke_gradient([c1, c2, ...])` | Outline with a linear gradient, left to right; `dir` as for fills |
+| `.line_cap(cap)` | Ends of open outlines: `"round"` (default), `"butt"` or `"square"` |
+| `.line_join(join)` | Corners: `"round"` (default), `"miter"` or `"bevel"` |
+| `.dashed()` | The outline cut into 15 dashes, each half its period |
+| `.dashed(n)` / `.dashed(n, ratio)` | `n` dashes, each `ratio` (0–1) of its period |
 | `.z_index(n)` | Draw order; higher draws on top |
 | `.rotate(angle)` | Rotate by `angle` radians |
 
 ```rhai
-let s = scene.add(square(2.0).fill(BLUE.with_alpha(0.5)).stroke(WHITE, 0.04).rotate(PI / 4.0));
+let s = scene.add(square(2.0).fill(BLUE, 0.5).stroke(WHITE, 0.04).rotate(PI / 4.0));
+let warm = scene.add(circle(1.0).fill_gradient([YELLOW, ORANGE, RED], UP));
+let ring = scene.add(circle(1.5).stroke(WHITE, 0.1).stroke_gradient([BLUE, PINK]).dashed(24));
+```
+
+`.fill` and `.stroke` replace a gradient with a solid color, so set a gradient after them. A
+gradient spans the shape's box when it is set and then moves, scales and rotates with the
+shape; `transform` blends one gradient into another, or into a solid color. Fading changes
+its opacity like a solid color's.
+
+Dashes are geometry: a dashed shape is many short open pieces, so `create` draws it dash by
+dash, and a fill of a dashed shape fills each piece on its own. An open outline starts and ends
+on a dash; a closed one repeats evenly around.
+
+Texts take `.fill(color, opacity)` and `.fill_gradient(...)` too, the gradient running across
+the whole text. To color a group or a text item by item instead, use
+`.set_color_by_gradient([c1, c2, ...])`: each shape or glyph, first to last, gets the next
+color along the stops, keeping its fill and outline opacities.
+
+```rhai
+let title = scene.add(text("fastanim").fill_gradient([BLUE, GREEN]));
+let dots = scene.add(group([dot(LEFT), dot(ORIGIN), dot(RIGHT)]).set_color_by_gradient([RED, BLUE]));
 ```
 
 ## Positioning

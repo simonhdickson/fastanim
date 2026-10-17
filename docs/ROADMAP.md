@@ -8,23 +8,30 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
 
 ## Where we are
 
-- **Shapes:** `circle`, `arc`, `square`, `rectangle`, `polygon`, `line`, `dot`,
-  `function_graph`, `image`, `lottie` (played with `play_lottie`), and `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`,
-  `labels`, arrow tips).
+- **Shapes:** `circle`, `arc`, `square`, `rectangle`, `polygon`, `line`, `dashed_line`, `dot`,
+  `function_graph`, `image`, `lottie` (played with `play_lottie`), and `axes` (`plot`,
+  `c2p`/`p2c`, `vertical_line`, `numbers`, `labels`, arrow tips). `dashed(m)` dashes any outline.
+- **Style:** solid or linear-gradient fill and outline, each with its own opacity
+  (`fill(color, opacity)`, `fill_gradient`, `stroke_gradient`), `set_color_by_gradient` on
+  groups and texts, line caps and joins, and a scene background colour (`scene.background`).
 - **Text:** `text`, `math_tex`, `latex`, `code`, `list` (Typst, per-glyph shapes), in any
   bundled font or one loaded with `load_font`.
 - **Groups:** `group([...])` of values (with `arrange`) or of added mobjects; indexable,
   accepted by every animation that does not need a single shape or text.
-- **Animations:** creation/removal, fades, `transform`, `replacement_transform`,
+- **Animations:** creation/removal, fades (optionally shifting or scaling, as manim's
+  `FadeIn(m, shift=, scale=)`), `transform`, `replacement_transform`,
   `transform_diff`, grow/shrink, `shift`/`rotate`/`scale`/`move_to`, `apply_function`,
   `indicate`, `wiggle`, `circumscribe`, `flash`, `update`, `parallel`, `sequence`,
   `lagged_start`, easing.
 - **Updaters:** `scene.always(m, |state, t| ...)`. These are pure in `t`; there is no `dt`.
+- **Sound:** `audio`, `sound`, `add_sound` and `wait_for_sounds` (item 22).
+- **Tooling:** `fastanim script-api --definitions` (`just rhai-defs`) writes a `.d.rhai` file
+  that gives editors running `rhai-lsp` completion for scenes.
 
 What limits most of the remaining work is the data model. A `VState`
-(`fastanim-core/src/mobject.rs`) holds one path, a solid fill, one stroke, opacity, z-index and
-a draw range, plus an optional image. There are no gradients or dashes. Texts are the only handle that covers
-more than one mobject (`Mob::Text` in `fastanim-script/src/lib.rs`). There is no camera. Every
+(`fastanim-core/src/mobject.rs`) holds one path, a fill and a stroke (each a solid colour or a
+linear gradient), opacity, z-index and a draw range, plus an optional image. Dashes are
+geometry rather than style. There is no camera. Every
 new drawable kind or style has to be added to all three renderers: Vello
 (`fastanim-bevy/src/lib.rs`), SVG (`fastanim-core/src/svg.rs`) and Canvas 2D
 (`fastanim-web/player.js`).
@@ -37,9 +44,9 @@ The number after each example is the roadmap item it waits on.
 |---|---|---|
 | SinAndCosFunctionPlot | ✅ `scenes/sin_and_cos.rhai` | `get_graph_label` (9) would tidy it |
 | SineCurveUnitCircle | ✅ `scenes/sine_curve.rhai` | `always_redraw` (5) would tidy it |
-| SquareToCircle | ⬜ almost | `fill` colour + opacity in one call (3) |
+| SquareToCircle | ✅ `scenes/square_to_circle.rhai` | |
 | MovingAround | ⬜ | `.animate` fill/scale/rotate (4) |
-| ManimCELogo | ⬜ | background colour (3), `triangle` (7), groups (1) |
+| ManimCELogo | ⬜ | `triangle` (7) |
 | BraceAnnotation | ⬜ | `brace`, `brace_between_points`, brace labels (8) |
 | VectorArrow | ⬜ | `arrow` (6), `number_plane` (9) |
 | GradientImageFromArray | ✅ `scenes/gradient_image.rhai` | `surrounding_rectangle` (8) would tidy it |
@@ -52,7 +59,7 @@ The number after each example is the roadmap item it waits on.
 | RotationUpdater | ⬜ | rotation over time (16), or write it in `t` |
 | PointWithTrace | ⬜ | `traced_path` (16) |
 | ArgMinExample | ⬜ | value trackers (5) |
-| GraphAreaPlot | ⬜ | `get_area`, `riemann_rectangles`, dashed lines (3, 9) |
+| GraphAreaPlot | ⬜ | `get_area`, `riemann_rectangles`, dashed `vertical_line` (9) |
 | PolygonOnAxes | ⬜ | value trackers, `always_redraw` (5) |
 | HeatDiagramPlot | ⬜ | `plot_line_graph`, axis labels (9) |
 | FollowingGraphCamera | ⬜ | moving camera (18), `move_along_path` (12) |
@@ -81,14 +88,17 @@ These items unblock the most examples, and many later items build on them.
    - Still to do: image files in the browser playground (they need fetching before the bake).
      Morphing an image into a shape is out of scope; cross-fade instead.
    - Unblocks: GradientImageFromArray and MovingZoomedSceneAround (with 21).
-3. **Style completeness.**
-   - Set the background colour from a scene or script. `to_svg` already takes one.
-   - Separate fill and stroke opacity: `fill(color, opacity)`.
-   - Gradients: `set_color_by_gradient` across a group, and linear gradient fill/stroke on a
-     shape. All three renderers support linear gradients.
-   - Dashed lines: `dashed_line`, `dashed(shape)`, implemented with `VPath::trim` so `create`
-     still works.
-   - Line cap and line join options.
+3. ✅ **Style completeness.**
+   - `scene.background(color)`: one colour for the whole scene, read by every renderer and
+     export. An animated background would need it in the timeline state; nothing needs that yet.
+   - Separate fill and stroke opacity: `fill(color, opacity)`, `fill_opacity`, `stroke_opacity`.
+   - Gradients: `set_color_by_gradient` across a group or text, and linear gradient fill/stroke
+     on a shape or text (`VState::fill_gradient`/`stroke_gradient`). They move with the shape
+     and blend in `transform`, to and from solid colours. Radial gradients are not done.
+   - Dashed lines: `dashed_line`, `dashed(shape)`, cut with `VPath::dashed` so `create` still
+     works.
+   - Line caps and joins: `line_cap`, `line_join`.
+   - Unblocks: SquareToCircle, and the style parts of ManimCELogo and GraphAreaPlot.
 4. **Animate to a target state.** manim's `.animate`: an animation that moves a mobject to any
    new state, interpolating geometry *and* style together. This is `transform` with style
    interpolation, plus helpers in scripts: `animate(m, |s| s.fill(RED).scale(2.0))`.
@@ -145,8 +155,9 @@ These items unblock the most examples, and many later items build on them.
     state that all three renderers read. Unblocks FollowingGraphCamera.
 19. **SVG import:** `svg_mobject(path)` via `usvg`, giving shapes that diff and morph.
     Lottie import is done (`fastanim-core/src/lottie.rs`): each fill and stroke becomes a
-    shape evaluated per frame. Still to do there: masks, mattes, repeaters and dashes, which
-    wait on the style work in 3, and Lottie files in the browser playground.
+    shape evaluated per frame. Still to do there: masks, mattes, repeaters and dashes, Lottie
+    gradients (drawn as the average of their stops; item 3's linear gradients can now carry
+    them), and Lottie files in the browser playground.
 20. **Tables, matrices and bar charts.**
 21. **Zoomed scene.** It needs a second render of the scene inside the frame, so it comes last.
 22. ~~**Sound:** `add_sound` muxed into the export.~~ Done: `audio`, `sound`, `add_sound` and

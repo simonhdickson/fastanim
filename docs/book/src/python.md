@@ -66,6 +66,23 @@ tl.render("frames.svg", quality="480p15")         # a directory of SVG frames
 Only `svg` output works without the `preview` extra; other formats raise a `RuntimeError` saying
 to install it. The preview window can be opened once per Python process.
 
+## Styles
+
+Shape functions take `stroke=`, `stroke_width=`, `fill=` and `fill_opacity=` keywords, and the
+style methods are as in Rhai, with optional arguments as keywords: `fill(color, opacity=None)`,
+`fill_gradient(colors, direction=RIGHT)`, `stroke_gradient(colors, direction=RIGHT)`,
+`dashed(dashes=15, ratio=0.5)`, `line_cap(cap)`, `line_join(join)` and
+`dashed_line(a, b, dash_length=0.05, ratio=0.5)`. `Scene.background(color)` sets the
+background, and `Timeline.svg(t)` draws over it unless given another `background=`.
+
+```python
+@scene
+def styled(s: Scene) -> None:
+    s.background("#1c1c28")
+    s.add(square(2, fill=BLUE, fill_opacity=0.5).fill_gradient([BLUE, PINK], UP))
+    s.add(circle(1.5).dashed(24).line_cap("butt"))
+```
+
 ## Images, Lottie animations and fonts
 
 `image` takes a path, or rows of pixels as nested lists or a NumPy array (anything with
