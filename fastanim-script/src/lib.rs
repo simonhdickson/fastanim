@@ -33,16 +33,17 @@ use fastanim_core::color::{
 };
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
-    Animation, AnimationExt, Audio, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH,
-    Group, Image, LEFT, LineCap, LineJoin, Lottie, LottieMobject, MobjectId, Parallel, Position,
-    RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update, UpdateGroup, VState, arrange,
+    Animation, AnimationExt, Audio, BakedTimeline, DEFAULT_BUFF, DOWN, DiffStyle, Ease,
+    FRAME_HEIGHT, FRAME_WIDTH, Group, Image, LEFT, LineCap, LineJoin, Lottie, LottieMobject,
+    MobjectId, Parallel, Position, RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update,
+    UpdateGroup, VState, arrange,
 };
 use fastanim_text::{TextMobject, TextStyle, TokenKey};
 
 #[cfg(feature = "rhai")]
 mod rhai;
 #[cfg(feature = "rhai")]
-pub use rhai::{Error, bake, bake_in};
+pub use rhai::{Error, bake, bake_in, check_in};
 #[cfg(all(feature = "rhai", feature = "metadata"))]
 pub use rhai::{definitions, signatures};
 
@@ -225,6 +226,12 @@ impl Ctx {
         }
     }
 
+    /// Where closures record the first error they raise. [`Ctx::play`] reports errors raised
+    /// while the script runs; keep this to find ones raised when the baked timeline is sampled.
+    pub fn errors(&self) -> Errors {
+        Errors(self.err.clone())
+    }
+
     /// Starts `a`, or seconds `range` of it, now without waiting for it.
     pub fn add_sound(&mut self, a: &Audio, range: Option<(f32, f32)>) -> Result<(), String> {
         self.scene.add_sound(clip(a, range)?);
@@ -326,6 +333,33 @@ impl Ctx {
         });
         Ok(())
     }
+}
+
+/// The first error a closure raised; see [`Ctx::errors`].
+#[derive(Clone)]
+pub struct Errors(Arc<Mutex<Option<String>>>);
+
+impl Errors {
+    /// The first error raised since the last call.
+    pub fn take(&self) -> Option<String> {
+        self.0.lock().unwrap().take()
+    }
+}
+
+/// Samples `tl` `fps` times a second and at its end, failing with the time and message of the
+/// first error a closure raises. Running the script tries closures only at the start of each
+/// updater and the end of each animation, so this finds the ones that fail part way through.
+pub fn sample(tl: &BakedTimeline, errors: &Errors, fps: f32) -> Result<(), (f32, String)> {
+    let end = tl.duration();
+    let n = (end * fps).ceil() as usize;
+    let times = (0..n).map(|i| i as f32 / fps).chain([end]);
+    for t in times {
+        tl.eval(t);
+        if let Some(e) = errors.take() {
+            return Err((t, e));
+        }
+    }
+    Ok(())
 }
 
 fn record(err: &Mutex<Option<String>>, e: String) {

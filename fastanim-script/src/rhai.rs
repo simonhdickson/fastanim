@@ -70,6 +70,25 @@ pub fn bake(src: &str) -> Result<BakedTimeline, Error> {
 
 /// [`bake`], with relative file paths relative to `dir`, usually the script's directory.
 pub fn bake_in(src: &str, dir: &Path) -> Result<BakedTimeline, Error> {
+    run(src, dir).map(|(tl, _)| tl)
+}
+
+/// [`bake_in`], then [`sample`](crate::sample)s the timeline `fps` times a second (none for 0),
+/// so a closure that fails only part way through an animation or updater fails here too.
+pub fn check_in(src: &str, dir: &Path, fps: f32) -> Result<BakedTimeline, Error> {
+    let (tl, errors) = run(src, dir)?;
+    if fps > 0.0 {
+        crate::sample(&tl, &errors, fps).map_err(|(t, e)| Error {
+            line: 0,
+            col: 0,
+            message: format!("at {t:.2}s: {e}"),
+        })?;
+    }
+    Ok(tl)
+}
+
+/// Runs and bakes the script, keeping where its closures record errors.
+fn run(src: &str, dir: &Path) -> Result<(BakedTimeline, crate::Errors), Error> {
     let (engine, slot) = engine(dir.to_path_buf());
     let ast = Arc::new(engine.compile(src)?);
     let engine = Arc::new(engine);
@@ -80,8 +99,11 @@ pub fn bake_in(src: &str, dir: &Path) -> Result<BakedTimeline, Error> {
     scope.push("scene", handle.clone());
     engine.run_ast_with_scope(&mut scope, &ast)?;
     // Taken rather than unwrapped: closures in the timeline may still hold `scene`.
-    let scene = std::mem::take(&mut handle.lock()?.scene);
-    Ok(scene.bake())
+    let (scene, errors) = {
+        let mut cx = handle.lock()?;
+        (std::mem::take(&mut cx.scene), cx.errors())
+    };
+    Ok((scene.bake(), errors))
 }
 
 /// Every function a scene can call, as Rhai signatures, then the constants. Rhai's own

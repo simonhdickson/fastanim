@@ -1,12 +1,13 @@
 # Running scenes
 
-The `fastanim` CLI runs scripts in five ways.
+The `fastanim` CLI runs scripts in six ways.
 
 | Command | What it does |
 | --- | --- |
 | `fastanim preview <script>` | Opens a window with a timeline, re-baking on save |
 | `fastanim render <script>` | Exports video or frames |
 | `fastanim still <script>` | Exports one frame |
+| `fastanim check <script>...` | Runs scripts without a window and reports their errors |
 | `fastanim bundle <script>` | Writes the scene's typeset text to a `.bundle` for the web player |
 | `fastanim profile <script> [--runs N]` | Bakes the scene cold, then N times warm, and prints time spent typesetting, planning animations, copying keyframes and running the script |
 
@@ -56,8 +57,22 @@ fastanim still scene.rhai --frame 120 -o frame.svg
 ## Bundle
 
 The web player typesets text slowly. `fastanim bundle scene.rhai` runs the script without a
-window and writes `scene.bundle` beside it, holding the pre-typeset text. It is also the quickest
-way to check a script for errors.
+window and writes `scene.bundle` beside it, holding the pre-typeset text.
+
+## Check
+
+```sh
+fastanim check scene.rhai
+fastanim check scenes/*.rhai --fps 60
+```
+
+Runs each script without a window, then samples its timeline `--fps` times a second (30 by
+default, 0 to skip), running every [updater](updaters.md) and animation closure along the way.
+A script only tries an updater when it is added and an animation's closure at its end, so
+sampling finds closures that fail part way through. Good scripts print `path: ok` and their
+duration; errors go to stderr in the format below, and the exit status is non-zero if any
+script failed, so it suits CI and an editor's `:make`. Errors found while sampling are
+prefixed with the time, as in `scene.rhai: at 0.50s: ...`.
 
 ## Errors
 
