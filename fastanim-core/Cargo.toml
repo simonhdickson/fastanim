@@ -11,6 +11,7 @@ repository.workspace = true
 hound = "3.5"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 kurbo = "0.13"
+serde_json = "1"
 fastanim-diff.workspace = true
 
 [lints]

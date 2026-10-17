@@ -274,6 +274,30 @@ fn images_from_files_and_pixels() {
 }
 
 #[test]
+fn lottie_scene_plays() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("scenes");
+    let src = std::fs::read_to_string(dir.join("lottie.rhai")).unwrap();
+    let tl = fastanim_script::bake_in(&src, &dir).unwrap();
+    // Fade in, two 2 s loops, 2 s moving, fade out.
+    assert_eq!(tl.duration(), 8.0);
+    let at = |t: f32| to_svg(&tl.eval(t), BLACK);
+    assert_ne!(at(1.5), at(2.0), "it animates");
+
+    let e = |src: &str| match fastanim_script::bake_in(src, &dir) {
+        Ok(_) => panic!("expected an error from {src:?}"),
+        Err(e) => e.message,
+    };
+    let c = "let c = scene.add(circle(1.0));";
+    assert!(e(&format!("{c}scene.play(play_lottie(c));")).contains("expected a Lottie"));
+    let l = r#"let l = scene.add(lottie("bounce.json"));"#;
+    assert!(e(&format!("{l}scene.play(play_lottie(l, #{{loops: 0}}));")).contains("loops"));
+    let speed = format!("{l}scene.play(play_lottie(l, #{{speed: 2.0}}));");
+    assert!(e(&speed).contains("unknown option"));
+    assert!(e(r#"lottie("missing.json");"#).contains("missing.json"));
+    assert!(e(r#"lottie("lottie.rhai");"#).contains("lottie.rhai"));
+}
+
+#[test]
 fn text_in_other_fonts() {
     let tl = fastanim_script::bake(
         r#"scene.add(text("mono", #{font: "DejaVu Sans Mono"}).to_edge(UP));

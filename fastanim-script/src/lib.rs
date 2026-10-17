@@ -24,6 +24,7 @@
 //! `transform_diff`, ...); `point(x, y)` for points and vectors; and the [`CONSTANTS`]. In Rhai,
 //! numbers passed as floats must be written as floats (`1.0`, not `1`).
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -31,8 +32,8 @@ use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW}
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Animation, AnimationExt, Audio, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH,
-    Group, Image, LEFT, MobjectId, Parallel, Position, RIGHT, RateFn, Scene, SceneState, Sequence,
-    UP, Update, UpdateGroup, VState, arrange,
+    Group, Image, LEFT, Lottie, LottieMobject, MobjectId, Parallel, Position, RIGHT, RateFn, Scene,
+    SceneState, Sequence, UP, Update, UpdateGroup, VState, arrange,
 };
 use fastanim_text::{TextMobject, TextStyle, TokenKey};
 
@@ -48,6 +49,8 @@ pub struct Ctx {
     /// What the script has recorded so far.
     pub scene: Scene,
     texts: Vec<Group<TokenKey>>,
+    /// Each added Lottie, by the id of its first mobject.
+    lotties: HashMap<MobjectId, Arc<Lottie>>,
     /// The first error a closure raised, since animations can't fail.
     err: Arc<Mutex<Option<String>>>,
 }
@@ -182,6 +185,7 @@ impl Ctx {
         Self {
             scene: Scene::new(),
             texts: Vec::new(),
+            lotties: HashMap::new(),
             err: Arc::default(),
         }
     }
@@ -229,6 +233,13 @@ impl Ctx {
     pub fn add_text(&mut self, t: TextMobject) -> Mob {
         self.texts.push(t.add_to(&mut self.scene));
         Mob::Text(self.texts.len() - 1)
+    }
+
+    /// Adds a Lottie, as a group of its shapes that [`play_lottie`] plays.
+    pub fn add_lottie(&mut self, l: LottieMobject) -> Mob {
+        let ids = l.add_to(&mut self.scene);
+        self.lotties.insert(ids[0], l.lottie);
+        group(ids.into_iter().map(Mob::Shape).collect())
     }
 
     /// Adds a group's items, in order, as one group.
@@ -610,6 +621,52 @@ pub fn image_from_rows(rows: &[Vec<Vec<f64>>]) -> Result<VState, String> {
         rows.len() as u32,
         px,
     )?))
+}
+
+/// The Lottie (Bodymovin JSON) file at `path`, showing its first frame (see [`LottieMobject`]).
+pub fn lottie(path: &Path) -> Result<LottieMobject, String> {
+    if cfg!(target_arch = "wasm32") {
+        return Err("Lottie files can't be loaded in the browser player yet".into());
+    }
+    Ok(LottieMobject::new(Lottie::load(path)?))
+}
+
+/// How [`play_lottie`] plays: which frames, and how many times.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LottiePlay {
+    /// The frame to start at; the file's first by default.
+    pub start: Option<f64>,
+    /// The frame to end at; the file's last by default. Before `start` plays backwards.
+    pub end: Option<f64>,
+    /// How many times to play it through.
+    pub loops: Option<u32>,
+}
+
+/// Sets option `k` of a [`LottiePlay`].
+pub fn lottie_option(p: &mut LottiePlay, k: &str, v: f64) -> Result<(), String> {
+    match k {
+        "start" => p.start = Some(v),
+        "end" => p.end = Some(v),
+        "loops" if v >= 1.0 && v.fract() == 0.0 => p.loops = Some(v as u32),
+        "loops" => return Err(format!("`loops` must be a whole number from 1, got {v}")),
+        _ => return Err(format!("unknown option `{k}`: start, end or loops")),
+    }
+    Ok(())
+}
+
+/// Plays the Lottie `m` (as added) at its own frame rate, from wherever it has been moved to.
+pub fn play_lottie(m: Mob, how: LottiePlay) -> Anim {
+    Anim::new(move |cx| {
+        let ids = cx.ids(&m)?;
+        let l = (ids.first().and_then(|id| cx.lotties.get(id)))
+            .filter(|l| ids.len() == l.shape_count() + 1)
+            .ok_or("expected a Lottie: `scene.add(lottie(...))`")?;
+        let a = fastanim_core::play_lottie(&ids, l.clone()).frames(
+            how.start.unwrap_or(l.in_point()),
+            how.end.unwrap_or(l.out_point()),
+        );
+        Ok(Box::new(a.loops(how.loops.unwrap_or(1))))
+    })
 }
 
 /// Loads the fonts in the font file at `path` for `text`'s `font` option; returns their

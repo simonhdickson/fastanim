@@ -14,6 +14,7 @@ Rhai's standard library is available too but not listed.
 /(_: Point, _: f64) -> Point
 add(_: &mut Scene, _: Axes) -> Mobject
 add(_: &mut Scene, _: Group) -> Mobject
+add(_: &mut Scene, _: Lottie) -> Mobject
 add(_: &mut Scene, _: Shape) -> Mobject
 add(_: &mut Scene, _: Text) -> Mobject
 add_sound(_: &mut Scene, _: Audio) -> ()
@@ -24,6 +25,9 @@ align_to(_: Axes, _: Text, _: Point) -> Axes
 align_to(_: Group, _: Group, _: Point) -> Group
 align_to(_: Group, _: Shape, _: Point) -> Group
 align_to(_: Group, _: Text, _: Point) -> Group
+align_to(_: Lottie, _: Group, _: Point) -> Lottie
+align_to(_: Lottie, _: Shape, _: Point) -> Lottie
+align_to(_: Lottie, _: Text, _: Point) -> Lottie
 align_to(_: Shape, _: Group, _: Point) -> Shape
 align_to(_: Shape, _: Shape, _: Point) -> Shape
 align_to(_: Shape, _: Text, _: Point) -> Shape
@@ -35,12 +39,14 @@ apply_function(_: Mobject, _: Fn) -> Animation
 arc(_: f64, _: f64, _: f64) -> Shape
 arrange(_: Group, _: Point) -> Group
 arrange(_: Group, _: Point, _: f64) -> Group
+at_frame(_: Lottie, _: f64) -> Lottie
 audio(_: string) -> Audio
 axes(_: array, _: array) -> Axes
 axes(_: array, _: array, _: f64, _: f64) -> Axes
 c2p(_: &mut Axes, _: f64, _: f64) -> Point
 center(_: Axes) -> Point
 center(_: Group) -> Point
+center(_: Lottie) -> Point
 center(_: Shape) -> Point
 center(_: Text) -> Point
 circle(_: f64) -> Shape
@@ -62,6 +68,7 @@ fit_axes(_: Fn, _: array, _: f64, _: f64) -> Axes
 flash(_: Point) -> Animation
 function_graph(_: Fn, _: f64, _: f64, _: i64) -> Shape
 get$duration(_: &mut Audio) -> f64
+get$duration(_: &mut Lottie) -> f64
 get$glyphs(_: &mut Text) -> array
 get$time(_: &mut Scene) -> f64
 get$x(_: &mut Point) -> f64
@@ -84,11 +91,13 @@ len(_: &mut Mobject) -> i64
 line(_: Point, _: Point) -> Shape
 list(_: array) -> Text
 load_font(_: string) -> array
+lottie(_: string) -> Lottie
 marker(_: &mut Scene, _: string) -> ()
 math_tex(_: string) -> Text
 math_tex(_: string, _: map) -> Text
 move_to(_: Axes, _: Point) -> Axes
 move_to(_: Group, _: Point) -> Group
+move_to(_: Lottie, _: Point) -> Lottie
 move_to(_: Mobject, _: Point) -> Animation
 move_to(_: Shape, _: Point) -> Shape
 move_to(_: Text, _: Point) -> Text
@@ -107,6 +116,13 @@ next_to(_: Group, _: Shape, _: Point) -> Group
 next_to(_: Group, _: Shape, _: Point, _: f64) -> Group
 next_to(_: Group, _: Text, _: Point) -> Group
 next_to(_: Group, _: Text, _: Point, _: f64) -> Group
+next_to(_: Lottie, _: Group, _: Point) -> Lottie
+next_to(_: Lottie, _: Group, _: Point, _: f64) -> Lottie
+next_to(_: Lottie, _: Point, _: Point) -> Lottie
+next_to(_: Lottie, _: Shape, _: Point) -> Lottie
+next_to(_: Lottie, _: Shape, _: Point, _: f64) -> Lottie
+next_to(_: Lottie, _: Text, _: Point) -> Lottie
+next_to(_: Lottie, _: Text, _: Point, _: f64) -> Lottie
 next_to(_: Shape, _: Group, _: Point) -> Shape
 next_to(_: Shape, _: Group, _: Point, _: f64) -> Shape
 next_to(_: Shape, _: Point, _: Point) -> Shape
@@ -127,6 +143,8 @@ parallel(_: array) -> Animation
 pixelated(_: Shape) -> Shape
 play(_: &mut Scene, _: Animation) -> ()
 play(_: &mut Scene, _: array) -> ()
+play_lottie(_: Mobject) -> Animation
+play_lottie(_: Mobject, _: map) -> Animation
 plot(_: &mut Axes, _: Fn) -> Shape
 plot(_: &mut Axes, _: Fn, _: f64, _: f64) -> Shape
 plot(_: &mut Axes, _: Fn, _: f64, _: f64, _: i64) -> Shape
@@ -138,27 +156,32 @@ remove(_: &mut Scene, _: Mobject) -> ()
 replacement_transform(_: Mobject, _: Mobject) -> Animation
 rgb(_: f64, _: f64, _: f64) -> Color
 rotate(_: Group, _: f64) -> Group
+rotate(_: Lottie, _: f64) -> Lottie
 rotate(_: Mobject, _: f64) -> Animation
 rotate(_: Shape, _: f64) -> Shape
 rotate(_: Text, _: f64) -> Text
 run_time(_: Animation, _: f64) -> Animation
 scale(_: Axes, _: f64) -> Axes
 scale(_: Group, _: f64) -> Group
+scale(_: Lottie, _: f64) -> Lottie
 scale(_: Mobject, _: f64) -> Animation
 scale(_: Shape, _: f64) -> Shape
 scale(_: Text, _: f64) -> Text
 scale_to_fit_height(_: Axes, _: f64) -> Axes
 scale_to_fit_height(_: Group, _: f64) -> Group
+scale_to_fit_height(_: Lottie, _: f64) -> Lottie
 scale_to_fit_height(_: Shape, _: f64) -> Shape
 scale_to_fit_height(_: Text, _: f64) -> Text
 scale_to_fit_width(_: Axes, _: f64) -> Axes
 scale_to_fit_width(_: Group, _: f64) -> Group
+scale_to_fit_width(_: Lottie, _: f64) -> Lottie
 scale_to_fit_width(_: Shape, _: f64) -> Shape
 scale_to_fit_width(_: Text, _: f64) -> Text
 sequence(_: array) -> Animation
 shape(_: &mut Axes) -> Shape
 shift(_: Axes, _: Point) -> Axes
 shift(_: Group, _: Point) -> Group
+shift(_: Lottie, _: Point) -> Lottie
 shift(_: Mobject, _: Point) -> Animation
 shift(_: Shape, _: Point) -> Shape
 shift(_: Text, _: Point) -> Text
@@ -174,6 +197,7 @@ text(_: string, _: map) -> Text
 to_debug(_: &mut Point) -> string
 to_edge(_: Axes, _: Point) -> Axes
 to_edge(_: Group, _: Point) -> Group
+to_edge(_: Lottie, _: Point) -> Lottie
 to_edge(_: Shape, _: Point) -> Shape
 to_edge(_: Text, _: Point) -> Text
 to_string(_: &mut Point) -> string

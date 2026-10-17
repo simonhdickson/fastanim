@@ -85,6 +85,9 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   `load_font` adds TTF/OTF fonts from files, chosen per text with a `font` option.
 - **Images**: PNG and JPEG files, or pixel arrays (Rhai arrays, NumPy in Python), as shapes
   that move, scale, rotate, fade and group like any other; smooth or pixelated.
+- **Lottie**: Lottie (Bodymovin JSON) files evaluated frame by frame into shapes, so they
+  render everywhere and move, fade and group like any other mobject; `play_lottie` plays all
+  or part of one, looped or backwards.
 - **`TransformDiff`**: token diffs choreographed into slides, arcing moves, morphs and fades,
   with `DiffStyle` phasing, highlights and a debug tint. Code diffs line by line, then token by
   token; `list` cells swap with two arcing moves.

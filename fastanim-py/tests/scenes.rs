@@ -149,6 +149,47 @@ raises(SceneError, "no/such/font.ttf", load_font, "no/such/font.ttf")
 "##);
 }
 
+#[test]
+fn lotties() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../fastanim-script/scenes/bounce.json"
+    );
+    run(&r##"
+from fastanim import *
+
+def raises(kind, text, f, *args, **kwargs):
+    try:
+        f(*args, **kwargs)
+    except kind as e:
+        assert text in str(e), e
+    else:
+        raise AssertionError(f"expected {kind.__name__}")
+
+l = lottie(PATH, height=4)
+assert abs(l.center()) < 1e-9
+assert l.duration == 2
+assert l.next_to(circle(1), RIGHT).center().x > 1
+
+@scene
+def s(s):
+    m = s.add(l.at_frame(30).shift(RIGHT))
+    s.play(play_lottie(m, loops=2))
+    s.play(fade_out(m), play_lottie(m, start=30, end=0))
+assert s.bake().duration == 5
+
+raises(SceneError, "missing.json", lottie, "missing.json")
+raises(ValueError, "not both", lottie, PATH, height=1, width=1)
+"##
+    .replace("PATH", &format!("{path:?}")));
+    let e = err("c = s.add(circle(1))\ns.play(play_lottie(c))");
+    assert!(e.contains("expected a Lottie"), "{e}");
+    let e = err(&format!(
+        "l = s.add(lottie({path:?}))\ns.play(play_lottie(l, loops=0))"
+    ));
+    assert!(e.contains("ValueError") && e.contains("loops"), "{e}");
+}
+
 /// The exception `src`'s scene `s` raises, as `Type: message`.
 fn err(src: &str) -> String {
     let src = format!("from fastanim import *\n@scene\ndef s(s):\n{}", indent(src));

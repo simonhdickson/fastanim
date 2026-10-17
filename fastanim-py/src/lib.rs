@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, Color as CoreColor, DEFAULT_BUFF,
-    DiffStyle, Position, RateFn, SceneState, VState,
+    DiffStyle, LottieMobject, Position, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
 use fastanim_text::{TextMobject, TextStyle};
@@ -240,6 +240,11 @@ struct Text(TextMobject);
 #[derive(Clone, Copy)]
 struct PyAxes(CoreAxes);
 
+/// A Lottie animation, before it is added to a scene.
+#[pyclass(frozen, from_py_object, name = "Lottie", module = "fastanim")]
+#[derive(Clone)]
+struct PyLottie(LottieMobject);
+
 /// A loaded WAV file.
 #[pyclass(frozen, from_py_object, name = "Audio", module = "fastanim")]
 #[derive(Clone)]
@@ -456,6 +461,28 @@ positioned!(Text {
 
     fn __repr__(&self) -> String {
         format!("Text({:?})", self.0.source)
+    }
+});
+
+positioned!(PyLottie {
+    fn rotate(&self, angle: f64) -> Self {
+        Self(self.0.clone().rotate(angle))
+    }
+
+    /// Shows frame `frame` until it plays.
+    fn at_frame(&self, frame: f64) -> Self {
+        Self(self.0.clone().at_frame(frame))
+    }
+
+    /// Length in seconds at its own frame rate.
+    #[getter]
+    fn duration(&self) -> f32 {
+        self.0.lottie.duration()
+    }
+
+    fn __repr__(&self) -> String {
+        let l = &self.0.lottie;
+        format!("Lottie({}x{}, {}s)", l.width(), l.height(), l.duration())
     }
 });
 
@@ -757,6 +784,7 @@ enum Addable {
     Shape(Shape),
     Text(Text),
     Axes(PyAxes),
+    Lottie(PyLottie),
     Group(PyGroup),
 }
 
@@ -804,6 +832,7 @@ impl PyScene {
             Addable::Text(t) => cx.add_text(t.0),
             Addable::Axes(a) => cx.add_shape(a.0.shape()),
             Addable::Group(g) => cx.add_group(g.0),
+            Addable::Lottie(l) => cx.add_lottie(l.0),
         }))
     }
 
@@ -1146,6 +1175,22 @@ fn image(
     Ok(Shape(if pixelated { m.pixelated() } else { m }))
 }
 
+/// A Lottie (Bodymovin JSON) file's animation, showing its first frame until played with
+/// `play_lottie`. As tall as an image of its size unless `height` or `width` is given.
+#[pyfunction]
+#[pyo3(signature = (path, *, height = None, width = None))]
+fn lottie(path: PathBuf, height: Option<f64>, width: Option<f64>) -> PyResult<PyLottie> {
+    let l = fastanim_script::lottie(&path).map_err(scene_err)?;
+    Ok(PyLottie(match (height, width) {
+        (Some(h), None) => l.scale_to_fit_height(h),
+        (None, Some(w)) => l.scale_to_fit_width(w),
+        (None, None) => l,
+        (Some(_), Some(_)) => {
+            return Err(PyValueError::new_err("give height or width, not both"));
+        }
+    }))
+}
+
 /// Loads the fonts in the TTF, OTF, TTC or OTC file at `path`, relative to the current
 /// directory, for `text(..., font=...)`; returns their family names.
 #[pyfunction]
@@ -1360,6 +1405,23 @@ fn transform_diff(m: PyMob, to: Text, opts: Option<&Bound<'_, PyDict>>) -> PyRes
     )))
 }
 
+/// Plays Lottie `m` at its own frame rate: frames `start` to `end` (the whole file by default;
+/// backwards if `end < start`), `loops` times over.
+#[pyfunction]
+#[pyo3(signature = (m, *, start = None, end = None, loops = None))]
+fn play_lottie(
+    m: PyMob,
+    start: Option<f64>,
+    end: Option<f64>,
+    loops: Option<u32>,
+) -> PyResult<PyAnim> {
+    if loops == Some(0) {
+        return Err(PyValueError::new_err("`loops` must be at least 1"));
+    }
+    let how = fastanim_script::LottiePlay { start, end, loops };
+    Ok(PyAnim(fastanim_script::play_lottie(m.0, how)))
+}
+
 /// Morphs list `m` into list `to`, moving cells by value.
 #[pyfunction]
 fn transform_list(m: PyMob, to: Text) -> PyAnim {
@@ -1429,6 +1491,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Text>()?;
     m.add_class::<PyAxes>()?;
     m.add_class::<PyAudio>()?;
+    m.add_class::<PyLottie>()?;
     m.add_class::<PyGroup>()?;
     m.add_class::<PyMob>()?;
     m.add_class::<Animate>()?;
@@ -1459,6 +1522,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         polygon,
         function_graph,
         image,
+        lottie,
         load_font,
         text,
         math_tex,
@@ -1496,6 +1560,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         update,
         transform_diff,
         transform_list,
+        play_lottie,
         parallel,
         sequence,
         lagged_start,

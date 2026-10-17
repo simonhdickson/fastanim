@@ -250,7 +250,7 @@ impl<A: Animation> Animation for Timed<A> {
     }
 }
 
-fn get(state: &SceneState, id: MobjectId) -> &VState {
+pub(crate) fn get(state: &SceneState, id: MobjectId) -> &VState {
     state
         .get(&id)
         .unwrap_or_else(|| panic!("{id:?} is not in the scene; `add` it first"))

@@ -9,7 +9,7 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
 ## Where we are
 
 - **Shapes:** `circle`, `arc`, `square`, `rectangle`, `polygon`, `line`, `dot`,
-  `function_graph`, `image`, and `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`,
+  `function_graph`, `image`, `lottie` (played with `play_lottie`), and `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`,
   `labels`, arrow tips).
 - **Text:** `text`, `math_tex`, `latex`, `code`, `list` (Typst, per-glyph shapes), in any
   bundled font or one loaded with `load_font`.
@@ -145,6 +145,9 @@ These items unblock the most examples, and many later items build on them.
 18. **Moving camera.** The camera frame (centre, width, rotation) becomes animated timeline
     state that all three renderers read. Unblocks FollowingGraphCamera.
 19. **SVG import:** `svg_mobject(path)` via `usvg`, giving shapes that diff and morph.
+    Lottie import is done (`fastanim-core/src/lottie.rs`): each fill and stroke becomes a
+    shape evaluated per frame. Still to do there: masks, mattes, repeaters and dashes, which
+    wait on the style work in 3, and Lottie files in the browser playground.
 20. **Tables, matrices and bar charts.**
 21. **Zoomed scene.** It needs a second render of the scene inside the frame, so it comes last.
 22. ~~**Sound:** `add_sound` muxed into the export.~~ Done: `audio`, `sound`, `add_sound` and

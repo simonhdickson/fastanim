@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use fastanim_core::kurbo::{Affine, Point, Vec2};
 use fastanim_core::{
-    Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, Position, RateFn, VState,
+    Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, LottieMobject, Position, RateFn,
+    VState,
 };
 use fastanim_text::{TextMobject, TextStyle};
 use rhai::{
@@ -259,6 +260,17 @@ fn pixel_rows(rows: Array) -> Res<Vec<Vec<Vec<f64>>>> {
         .collect()
 }
 
+fn lottie_play(opts: Map) -> Res<crate::LottiePlay> {
+    let mut how = crate::LottiePlay::default();
+    for (k, v) in opts {
+        let ty = v.type_name();
+        let n = (v.as_float().or_else(|_| v.as_int().map(|i| i as f64)))
+            .map_err(|_| format!("`{k}` must be a number, got {ty}"))?;
+        crate::lottie_option(&mut how, &k, n)?;
+    }
+    Ok(how)
+}
+
 fn text_style(opts: Map) -> Res<TextStyle> {
     let mut style = TextStyle::default();
     for (k, v) in opts {
@@ -482,6 +494,19 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("len", |g: &mut VGroup| g.0.len() as i64);
     positional!(e, VGroup);
 
+    // Lottie animations.
+    e.register_type_with_name::<LottieMobject>("Lottie")
+        .register_fn("lottie", {
+            let dir = dir.clone();
+            move |path: &str| Ok(crate::lottie(&dir.join(path))?) as Res<_>
+        })
+        .register_fn("rotate", LottieMobject::rotate)
+        .register_fn("at_frame", LottieMobject::at_frame)
+        .register_get("duration", |l: &mut LottieMobject| {
+            f64::from(l.lottie.duration())
+        });
+    positional!(e, LottieMobject);
+
     // Axes.
     e.register_type_with_name::<Axes>("Axes")
         .register_fn("axes", |x: Array, y: Array| {
@@ -565,6 +590,9 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("add", |s: &mut SceneHandle, g: VGroup| {
             Ok(s.lock()?.add_group(g)) as Res<_>
+        })
+        .register_fn("add", |s: &mut SceneHandle, l: LottieMobject| {
+            Ok(s.lock()?.add_lottie(l)) as Res<_>
         })
         .register_fn("remove", |s: &mut SceneHandle, m: Mob| {
             Ok(s.lock()?.remove(&m)?) as Res<()>
@@ -695,6 +723,12 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("transform_diff", |m: Mob, to: TextMobject, opts: Map| {
             Ok(crate::transform_diff(m, to, diff_style(opts)?, false)) as Res<_>
+        })
+        .register_fn("play_lottie", |m: Mob| {
+            crate::play_lottie(m, crate::LottiePlay::default())
+        })
+        .register_fn("play_lottie", |m: Mob, opts: Map| {
+            Ok(crate::play_lottie(m, lottie_play(opts)?)) as Res<_>
         })
         .register_fn("transform_list", |m: Mob, to: TextMobject| {
             crate::transform_diff(m, to, DiffStyle::default(), true)

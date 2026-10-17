@@ -103,6 +103,38 @@ scene.play(rotate(group([photo, bar]), PI / 8.0));
 `fade_out` and `fade_in` to cross-fade. Image files can't be loaded in the browser playground
 yet, but images built from pixels can.
 
+## Lottie animations
+
+`lottie(path)` loads a [Lottie](https://lottiefiles.com) file: the JSON that After Effects'
+Bodymovin plugin, LottieFiles and many design tools export. It's sized like an image (a
+composition 1080 pixels tall fills the frame's height) and positioned like a group:
+`.scale_to_fit_height`, `.next_to`, `.rotate` and the rest place its whole frame.
+`.at_frame(f)` picks the frame it shows before it plays, the first by default, and
+`.duration` is its length in seconds.
+
+Added, it is a group with one shape per fill and stroke in the file, which every group
+animation (`fade_in`, `shift`, `scale`, `indicate`, ...) works on. `play_lottie(m)` plays it
+through once at its own frame rate. Its options are `start` and `end` frames (playing backwards
+if `end` comes first) and `loops`, and `.run_time` speeds it up or slows it down:
+
+```rhai
+let anim = scene.add(lottie("bounce.json").scale_to_fit_height(5.0));
+scene.play(fade_in(anim));
+scene.play(play_lottie(anim, #{loops: 2}));
+scene.play([shift(anim, LEFT * 3.0), play_lottie(anim, #{end: 30.0}).run_time(2.0)]);
+```
+
+`play_lottie` follows the group, so animations that move, fade or reorder it can play
+alongside it. They must come before `play_lottie` in the list, or the Lottie's own frames
+overwrite them.
+
+Lottie features drawn: shape, solid, null and precomposition layers, with parenting, time
+stretch and time remapping; groups, paths, rectangles, ellipses, stars and polygons; fills,
+strokes and trim paths; eased, held and spatial keyframes. Gradients are drawn in the average
+of their colours, and rounded star corners are drawn sharp. Masks, mattes, repeaters,
+dashes, line caps and joins, image layers and text layers are not drawn yet. Like image files,
+Lottie files can't be loaded in the browser playground yet.
+
 ## Groups
 
 `group([...])` puts shapes, texts, axes and other groups together, like manim's `VGroup`.
