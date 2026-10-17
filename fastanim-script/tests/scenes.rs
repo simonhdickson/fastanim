@@ -337,3 +337,13 @@ fn fades_shift_and_scale() {
     at(&end, 1, -2.0, 1.0);
     at(&end, 2, 2.0, 1.0);
 }
+
+#[cfg(feature = "metadata")]
+#[test]
+fn definitions_have_return_types_and_constants() {
+    let defs = fastanim_script::definitions();
+    assert!(!defs.contains("EvalAltResult"), "a fallible return type was left unfixed");
+    assert!(defs.contains("fn wait(_: Scene, _: float) -> ();"));
+    assert!(defs.contains("const UP: Point;"));
+    assert!(defs.contains("let scene: Scene;"));
+}

@@ -15,8 +15,9 @@ rhai = { version = "1.26", default-features = false, features = ["std", "sync"],
 
 [features]
 default = ["rhai"]
-# `signatures`, for `fastanim script-api`; off by default since the web player doesn't need it.
-metadata = ["rhai?/metadata"]
+# `signatures` and `definitions`, for `fastanim script-api`; off by default since the web player
+# doesn't need it. `internals` is where Rhai keeps `Engine::definitions`.
+metadata = ["rhai?/metadata", "rhai?/internals"]
 
 [dev-dependencies]
 # For the Rust versions of the example scenes, which the scripts must match.

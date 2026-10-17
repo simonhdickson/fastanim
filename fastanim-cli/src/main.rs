@@ -60,7 +60,11 @@ enum Command {
         runs: u32,
     },
     /// List every function and constant a scene script can use
-    ScriptApi,
+    ScriptApi {
+        /// Print a Rhai definition file (`.d.rhai`) for editor completion instead
+        #[arg(long)]
+        definitions: bool,
+    },
     /// Print a shell completion script, e.g. `fastanim completions fish | source`
     Completions {
         /// The shell to complete for
@@ -97,7 +101,11 @@ fn run(command: Command) -> Result<(), String> {
                 .map_err(|e| format!("{}: {e}", out.display()))
         }),
         Command::Profile { script, runs } => profile(&script, runs),
-        Command::ScriptApi => {
+        Command::ScriptApi { definitions: true } => {
+            print!("{}", fastanim_script::definitions());
+            Ok(())
+        }
+        Command::ScriptApi { definitions: false } => {
             fastanim_script::signatures()
                 .iter()
                 .for_each(|sig| println!("{sig}"));
