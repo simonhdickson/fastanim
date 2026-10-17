@@ -683,7 +683,19 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
     e.register_fn("create", crate::create)
         .register_fn("uncreate", crate::uncreate)
         .register_fn("fade_in", crate::fade_in)
+        .register_fn("fade_in", |m: Mob, v: Vec2| crate::fade_in_with(m, v, 1.0))
+        .register_fn("fade_in", |m: Mob, k: f64| {
+            crate::fade_in_with(m, Vec2::ZERO, k)
+        })
+        .register_fn("fade_in", crate::fade_in_with)
         .register_fn("fade_out", crate::fade_out)
+        .register_fn("fade_out", |m: Mob, v: Vec2| {
+            crate::fade_out_with(m, v, 1.0)
+        })
+        .register_fn("fade_out", |m: Mob, k: f64| {
+            crate::fade_out_with(m, Vec2::ZERO, k)
+        })
+        .register_fn("fade_out", crate::fade_out_with)
         .register_fn("grow_from_center", crate::grow_from_center)
         .register_fn("shrink_to_center", crate::shrink_to_center)
         .register_fn("spin_in", crate::spin_in)

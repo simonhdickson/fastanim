@@ -320,6 +320,32 @@ pub fn fade_in(id: MobjectId) -> Update {
     })
 }
 
+/// Fades in while moving by `v` and scaling from `k` times the size into place, manim's
+/// `FadeIn(shift, scale)`.
+pub fn fade_in_with(id: MobjectId, v: Vec2, k: f64) -> Update {
+    update("FadeIn", id, move |s, a| {
+        fade_pose(s, s.path.center(), -v, k, 1.0 - a)
+    })
+}
+
+/// Fades out while moving by `v` and scaling to `k` times the size, manim's
+/// `FadeOut(shift, scale)`.
+pub fn fade_out_with(id: MobjectId, v: Vec2, k: f64) -> Update {
+    update("FadeOut", id, move |s, a| {
+        fade_pose(s, s.path.center(), v, k, a)
+    })
+}
+
+/// `s` a fraction `t` of the way to transparent, shifted by `v` and scaled by `k` about `c`.
+pub fn fade_pose(s: &VState, c: Point, v: Vec2, k: f64, t: f32) -> VState {
+    let tf = f64::from(t);
+    let m = Affine::translate(v * tf) * Affine::scale_about(1.0 + (k - 1.0) * tf, c);
+    VState {
+        opacity: s.opacity * (1.0 - t),
+        ..s.clone().transform(m)
+    }
+}
+
 /// Fades to transparent. The mobject stays in the scene until removed.
 pub fn fade_out(id: MobjectId) -> Update {
     update("FadeOut", id, |s, a| VState {

@@ -310,3 +310,30 @@ fn text_in_other_fonts() {
     assert!(e(r#"text("x", #{size: 2.0});"#).contains("unknown text option"));
     assert!(e(r#"load_font("no/such/font.ttf");"#).contains("no/such/font.ttf"));
 }
+
+#[test]
+fn fades_shift_and_scale() {
+    let src = r#"
+        let c = scene.add(circle(1.0));
+        scene.play(fade_in(c, RIGHT * 2.0));
+        let g = scene.add(group([circle(1.0).shift(LEFT), circle(1.0).shift(RIGHT)]));
+        scene.play(fade_out(g, UP, 2.0));
+    "#;
+    let tl = fastanim_script::bake(src).unwrap();
+    let (start, end) = (tl.eval(0.0), tl.eval(tl.duration()));
+    let at = |s: &fastanim_core::SceneState, i, x, y| {
+        let p = s[&fastanim_core::MobjectId(i)].path.center();
+        assert!(
+            (p - fastanim_core::Point::new(x, y)).hypot() < 1e-9,
+            "{i}: {p:?}"
+        );
+    };
+    // fade_in starts transparent, `v` back from where it ends.
+    assert_eq!(start[&fastanim_core::MobjectId(0)].opacity, 0.0);
+    at(&start, 0, -2.0, 0.0);
+    // fade_out scales the group about its joint center, so its parts spread apart.
+    assert_eq!(end[&fastanim_core::MobjectId(1)].opacity, 0.0);
+    at(&end, 0, 0.0, 0.0);
+    at(&end, 1, -2.0, 1.0);
+    at(&end, 2, 2.0, 1.0);
+}

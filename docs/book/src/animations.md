@@ -16,6 +16,9 @@ scene.play(shift(c, RIGHT * 2.0).run_time(2.0).rate(THERE_AND_BACK));
 | `create(m)` / `uncreate(m)` | Draw / undraw the outline |
 | `write(m)` / `unwrite(m)` | Write / unwrite, glyph by glyph for text |
 | `fade_in(m)` / `fade_out(m)` | Fade |
+| `fade_in(m, v)` / `fade_out(m, v)` | Fade while moving by `v`, e.g. `fade_in(m, RIGHT)` enters from the left |
+| `fade_in(m, k)` / `fade_out(m, k)` | Fade while scaling from / to `k` times the size |
+| `fade_in(m, v, k)` / `fade_out(m, v, k)` | Both |
 | `grow_from_center(m)` / `shrink_to_center(m)` | Grow from / shrink to a point |
 | `spin_in(m)` | Spin and grow in |
 | `draw_border_then_fill(m)` | Draw the outline, then fill |

@@ -131,9 +131,8 @@ These items unblock the most examples, and many later items build on them.
       diff engine.
     - Clockwise and counter-clockwise transforms, `cyclic_replace`, `swap`.
 14. **Composition:** `succession`, plus a `lag_ratio` option on `parallel`.
-15. **Creation variants:** `grow_from_point`, `grow_from_edge`, `grow_arrow`, `fade_in` with a
-    shift or scale, letter-by-letter text, `show_passing_flash`, `apply_wave`, `focus_on`,
-    `blink`.
+15. **Creation variants:** `grow_from_point`, `grow_from_edge`, `grow_arrow`,
+    letter-by-letter text, `show_passing_flash`, `apply_wave`, `focus_on`, `blink`.
 16. **Traced paths and rotation over time.** `traced_path(m)` and `rotating(m, rate)`, computed
     from `t` (sampled while baking) so seeking still works. Document why there is no `dt`.
 17. **Rate functions:** the rest of manim's set: `rush_into`, `rush_from`,

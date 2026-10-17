@@ -1303,8 +1303,6 @@ macro_rules! simple {
 simple!(
     create,
     uncreate,
-    fade_in,
-    fade_out,
     grow_from_center,
     shrink_to_center,
     spin_in,
@@ -1315,6 +1313,28 @@ simple!(
     wiggle,
     circumscribe
 );
+
+#[pyfunction]
+#[pyo3(signature = (m, shift = None, scale = None))]
+fn fade_in(m: PyMob, shift: Option<P>, scale: Option<f64>) -> PyAnim {
+    PyAnim(match (shift, scale) {
+        (None, None) => fastanim_script::fade_in(m.0),
+        (v, k) => {
+            fastanim_script::fade_in_with(m.0, v.map_or(Vec2::ZERO, |v| v.0), k.unwrap_or(1.0))
+        }
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (m, shift = None, scale = None))]
+fn fade_out(m: PyMob, shift: Option<P>, scale: Option<f64>) -> PyAnim {
+    PyAnim(match (shift, scale) {
+        (None, None) => fastanim_script::fade_out(m.0),
+        (v, k) => {
+            fastanim_script::fade_out_with(m.0, v.map_or(Vec2::ZERO, |v| v.0), k.unwrap_or(1.0))
+        }
+    })
+}
 
 #[pyfunction(name = "shift")]
 fn shift_anim(m: PyMob, v: P) -> PyAnim {

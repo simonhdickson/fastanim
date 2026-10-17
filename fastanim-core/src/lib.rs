@@ -24,9 +24,9 @@ pub use self::image::{Image, ImageFill};
 pub use anim::{
     Animation, AnimationExt, Ease, LaggedStart, Named, Overlay, Parallel, RateFn,
     ReplacementTransform, Sequence, Transform, Unwrite, Update, UpdateGroup, apply_function,
-    circumscribe, create, draw_border_then_fill, fade_in, fade_out, flash, grow_from_center,
-    indicate, lagged_start, move_to, replacement_transform, rotate, scale, shift, shrink_to_center,
-    spin_in, transform, uncreate, unwrite, wiggle, write,
+    circumscribe, create, draw_border_then_fill, fade_in, fade_in_with, fade_out, fade_out_with,
+    fade_pose, flash, grow_from_center, indicate, lagged_start, move_to, replacement_transform,
+    rotate, scale, shift, shrink_to_center, spin_in, transform, uncreate, unwrite, wiggle, write,
 };
 pub use audio::{Audio, Sound, SoundEvent};
 pub use axes::Axes;

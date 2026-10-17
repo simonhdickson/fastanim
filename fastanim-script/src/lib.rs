@@ -437,6 +437,24 @@ pub fn shift(m: Mob, v: Vec2) -> Anim {
     each(m, move |id| fastanim_core::shift(id, v))
 }
 
+/// Fades `m` in while moving it by `v` and scaling it from `k` times the size into place.
+pub fn fade_in_with(m: Mob, v: Vec2, k: f64) -> Anim {
+    whole(
+        m,
+        move |id| fastanim_core::fade_in_with(id, v, k),
+        move |s, c, a| fastanim_core::fade_pose(s, c, -v, k, 1.0 - a),
+    )
+}
+
+/// Fades `m` out while moving it by `v` and scaling it to `k` times the size.
+pub fn fade_out_with(m: Mob, v: Vec2, k: f64) -> Anim {
+    whole(
+        m,
+        move |id| fastanim_core::fade_out_with(id, v, k),
+        move |s, c, a| fastanim_core::fade_pose(s, c, v, k, a),
+    )
+}
+
 /// Rotates `m` by `angle` about its center.
 pub fn rotate(m: Mob, angle: f64) -> Anim {
     whole(

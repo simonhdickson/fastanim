@@ -60,7 +60,13 @@ ease_in(_: string) -> Rate
 ease_in_out(_: string) -> Rate
 ease_out(_: string) -> Rate
 fade_in(_: Mobject) -> Animation
+fade_in(_: Mobject, _: Point) -> Animation
+fade_in(_: Mobject, _: f64) -> Animation
+fade_in(_: Mobject, _: Point, _: f64) -> Animation
 fade_out(_: Mobject) -> Animation
+fade_out(_: Mobject, _: Point) -> Animation
+fade_out(_: Mobject, _: f64) -> Animation
+fade_out(_: Mobject, _: Point, _: f64) -> Animation
 fill(_: Shape, _: Color) -> Shape
 fill(_: Text, _: Color) -> Text
 fit_axes(_: Fn, _: array) -> Axes
