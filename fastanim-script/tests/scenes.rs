@@ -80,6 +80,35 @@ fn errors_are_located() {
 }
 
 #[test]
+fn check_samples_closures() {
+    // `always` tries the updater at t = 0, where it works, so only sampling finds this.
+    let src = "let c = scene.add(circle(1.0));
+        scene.always(c, |s, t| if t < 0.5 { s[c] } else { 1 });
+        scene.wait(1.0);";
+    let dir = std::path::Path::new("");
+    assert!(fastanim_script::bake_in(src, dir).is_ok());
+    assert!(fastanim_script::check_in(src, dir, 0.0).is_ok());
+    let e = match fastanim_script::check_in(src, dir, 30.0) {
+        Ok(_) => panic!("expected an error from {src:?}"),
+        Err(e) => e,
+    };
+    assert!(e.message.starts_with("at 0.50s: "), "{e}");
+    assert!(e.message.contains("not a shape"), "{e}");
+
+    let tl = fastanim_script::check_in(
+        &std::fs::read_to_string(format!(
+            "{}/scenes/growing_wave.rhai",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap(),
+        dir,
+        30.0,
+    )
+    .unwrap();
+    assert_eq!(tl.duration(), 23.0);
+}
+
+#[test]
 fn runaway_scripts_stop() {
     let e = err("loop {}");
     assert!(e.message.contains("Too many operations"), "{e}");

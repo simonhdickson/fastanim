@@ -51,6 +51,15 @@ enum Command {
         /// The scene script
         script: PathBuf,
     },
+    /// Run Rhai scenes without a window and report their errors as `path:line:col: message`
+    Check {
+        /// The scene scripts
+        #[arg(required = true)]
+        scripts: Vec<PathBuf>,
+        /// How many times a second to sample each timeline, running its closures; 0 to skip
+        #[arg(long, default_value_t = 30.0)]
+        fps: f32,
+    },
     /// Bake a Rhai scene repeatedly and print where the time goes
     Profile {
         /// The scene script
@@ -100,6 +109,7 @@ fn run(command: Command) -> Result<(), String> {
             fs::write(&out, fastanim_text::export_bundle())
                 .map_err(|e| format!("{}: {e}", out.display()))
         }),
+        Command::Check { scripts, fps } => check(&scripts, fps),
         Command::Profile { script, runs } => profile(&script, runs),
         Command::ScriptApi { definitions: true } => {
             print!("{}", fastanim_script::definitions());
@@ -126,12 +136,42 @@ fn run(command: Command) -> Result<(), String> {
 /// Runs the script at `path`, with relative paths in it relative to its directory; errors are
 /// `path:line:col: message`.
 fn bake(path: &Path) -> Result<BakedTimeline, String> {
+    load(path, fastanim_script::bake_in)
+}
+
+/// `run` on the script at `path` and its directory, with errors as in [`bake`].
+fn load(
+    path: &Path,
+    run: impl FnOnce(&str, &Path) -> Result<BakedTimeline, fastanim_script::Error>,
+) -> Result<BakedTimeline, String> {
     let src = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let dir = path.parent().unwrap_or(Path::new(""));
-    fastanim_script::bake_in(&src, dir).map_err(|e| match e.line {
+    run(&src, dir).map_err(|e| match e.line {
         0 => format!("{}: {e}", path.display()),
         _ => format!("{}:{e}", path.display()),
     })
+}
+
+/// Bakes and samples each script, printing its errors to stderr and a line per good one to
+/// stdout, and fails if any failed.
+fn check(scripts: &[PathBuf], fps: f32) -> Result<(), String> {
+    let failed = (scripts.iter())
+        .filter(|path| {
+            let checked = load(path, |src, dir| fastanim_script::check_in(src, dir, fps));
+            match checked {
+                Ok(tl) => println!("{}: ok, {}s", path.display(), tl.duration()),
+                Err(e) => {
+                    eprintln!("{e}");
+                    return true;
+                }
+            }
+            false
+        })
+        .count();
+    match failed {
+        0 => Ok(()),
+        n => Err(format!("{n} of {} scripts failed", scripts.len())),
+    }
 }
 
 /// Bakes `path` once with an empty text cache, then `runs` times with a warm one, as the
