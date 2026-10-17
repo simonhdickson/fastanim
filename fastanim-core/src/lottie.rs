@@ -983,7 +983,7 @@ fn draw(path: VPath, paint: Paint2, opacity: f64, shown: bool) -> VState {
     let m = match paint {
         Paint2::Fill(c) => m.fill(c).stroke(Color::TRANSPARENT, 0.0),
         Paint2::Stroke(c, w) => VState {
-            stroke: Stroke { color: c, width: w },
+            stroke: Stroke::new(c, w),
             ..m
         },
     };

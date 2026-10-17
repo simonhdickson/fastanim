@@ -9,9 +9,14 @@ use std::collections::HashMap;
 
 use fastanim_core::color::{BLACK, YELLOW};
 use fastanim_core::svg::path_data;
-use fastanim_core::{BakedTimeline, Color, EventKind, FRAME_WIDTH, Image, ImageFill, to_svg};
+use fastanim_core::{
+    BakedTimeline, Color, EventKind, FRAME_WIDTH, Gradient, Image, ImageFill, LineCap, LineJoin,
+    to_svg,
+};
 use wasm_bindgen::{Clamped, JsCast, prelude::*};
-use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d, Path2d};
+use web_sys::{
+    CanvasGradient, ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d, Path2d,
+};
 
 /// Fills the typesetting cache from a `.bundle` written by `fastanim bundle`, so the
 /// text in it is never typeset here (SPEC §14.5); returns how many snippets it held.
@@ -118,7 +123,7 @@ impl Player {
 
     /// The frame at `t` as an SVG document.
     pub fn svg(&self, t: f32) -> String {
-        to_svg(&self.timeline.eval(t), BLACK)
+        to_svg(&self.timeline.eval(t), self.timeline.background())
     }
 
     /// Draws the frame at `t`, filling the canvas width with the 16:9 frame, with a dashed box
@@ -138,8 +143,11 @@ impl Player {
         // Scene units are y-up and centered.
         let k = w / FRAME_WIDTH;
         ctx.set_transform(k, 0.0, 0.0, -k, w / 2.0, h / 2.0)?;
-        ctx.set_line_join("round");
-        ctx.set_line_cap("round");
+        let frame_h = fastanim_core::FRAME_HEIGHT;
+        ctx.set_fill_style_str(&css(self.timeline.background().with_alpha(1.0)));
+        ctx.fill_rect(-FRAME_WIDTH / 2.0, -frame_h / 2.0, FRAME_WIDTH, frame_h);
+        // Vello's and SVG's.
+        ctx.set_miter_limit(4.0);
 
         let state = self.timeline.eval(t);
         let mut order: Vec<_> = state.iter().collect();
@@ -158,12 +166,29 @@ impl Player {
             let p = Path2d::new_with_path_string(&d)?;
             ctx.set_global_alpha(m.opacity.into());
             if m.fill.a > 0.0 {
-                ctx.set_fill_style_str(&css(m.fill));
+                match &m.fill_gradient {
+                    Some(g) => ctx.set_fill_style_canvas_gradient(&gradient(ctx, g, m.fill.a)?),
+                    None => ctx.set_fill_style_str(&css(m.fill)),
+                }
                 ctx.fill_with_path_2d(&p);
             }
             if m.stroke.width > 0.0 && m.stroke.color.a > 0.0 {
-                ctx.set_stroke_style_str(&css(m.stroke.color));
+                let c = m.stroke.color;
+                match &m.stroke_gradient {
+                    Some(g) => ctx.set_stroke_style_canvas_gradient(&gradient(ctx, g, c.a)?),
+                    None => ctx.set_stroke_style_str(&css(c)),
+                }
                 ctx.set_line_width(m.stroke.width);
+                ctx.set_line_join(match m.stroke.join {
+                    LineJoin::Miter => "miter",
+                    LineJoin::Round => "round",
+                    LineJoin::Bevel => "bevel",
+                });
+                ctx.set_line_cap(match m.stroke.cap {
+                    LineCap::Butt => "butt",
+                    LineCap::Round => "round",
+                    LineCap::Square => "square",
+                });
                 ctx.stroke_with_path(&p);
             }
         }
@@ -221,6 +246,19 @@ impl Player {
         images.insert(img.key(), (img.clone(), c.clone()));
         Ok(c)
     }
+}
+
+/// `g` in scene units, its alpha scaled by `alpha`.
+fn gradient(
+    ctx: &OffscreenCanvasRenderingContext2d,
+    g: &Gradient,
+    alpha: f32,
+) -> Result<CanvasGradient, JsValue> {
+    let cg = ctx.create_linear_gradient(g.from.x, g.from.y, g.to.x, g.to.y);
+    for (offset, c) in g.stops(alpha) {
+        cg.add_color_stop(offset, &css(c))?;
+    }
+    Ok(cg)
 }
 
 fn css(c: Color) -> String {

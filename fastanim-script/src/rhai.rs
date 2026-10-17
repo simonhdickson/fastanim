@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use fastanim_core::kurbo::{Affine, Point, Vec2};
 use fastanim_core::{
-    Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, LottieMobject, Position, RateFn,
-    VState,
+    Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, LottieMobject, Position, RIGHT,
+    RateFn, VState,
 };
 use fastanim_text::{TextMobject, TextStyle};
 use rhai::{
@@ -249,6 +249,15 @@ fn points(a: Array) -> Res<Vec<Point>> {
         .collect()
 }
 
+fn colors(a: Array) -> Res<Vec<Color>> {
+    (a.into_iter())
+        .map(|d| {
+            let ty = d.type_name();
+            (d.try_cast::<Color>()).ok_or_else(|| format!("expected a color, got {ty}").into())
+        })
+        .collect()
+}
+
 /// `[min, max, step]`, or `[min, max]` with step 1; ints allowed.
 fn range(a: Array) -> Res<[f64; 3]> {
     let n = (a.iter())
@@ -469,7 +478,45 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("pixelated", VState::pixelated)
         .register_fn("fill", |m: VState, c: Color| m.fill(c))
+        .register_fn("fill", |m: VState, c: Color, opacity: f64| {
+            m.fill(c.with_alpha(opacity as f32))
+        })
+        .register_fn("fill_opacity", |m: VState, o: f64| m.fill_opacity(o as f32))
         .register_fn("stroke", |m: VState, c: Color, w: f64| m.stroke(c, w))
+        .register_fn("stroke_opacity", |m: VState, o: f64| {
+            m.stroke_opacity(o as f32)
+        })
+        .register_fn("fill_gradient", |m: VState, stops: Array| {
+            Ok(m.fill_gradient(&colors(stops)?, RIGHT)) as Res<_>
+        })
+        .register_fn("fill_gradient", |m: VState, stops: Array, d: Vec2| {
+            Ok(m.fill_gradient(&colors(stops)?, d)) as Res<_>
+        })
+        .register_fn("stroke_gradient", |m: VState, stops: Array| {
+            Ok(m.stroke_gradient(&colors(stops)?, RIGHT)) as Res<_>
+        })
+        .register_fn("stroke_gradient", |m: VState, stops: Array, d: Vec2| {
+            Ok(m.stroke_gradient(&colors(stops)?, d)) as Res<_>
+        })
+        .register_fn("line_cap", |m: VState, cap: &str| {
+            Ok(m.line_cap(crate::line_cap(cap)?)) as Res<_>
+        })
+        .register_fn("line_join", |m: VState, join: &str| {
+            Ok(m.line_join(crate::line_join(join)?)) as Res<_>
+        })
+        .register_fn("dashed", |m: VState| m.dashed(15, 0.5))
+        .register_fn("dashed", |m: VState, n: i64| {
+            m.dashed(n.max(0) as usize, 0.5)
+        })
+        .register_fn("dashed", |m: VState, n: i64, ratio: f64| {
+            m.dashed(n.max(0) as usize, ratio)
+        })
+        .register_fn("dashed_line", |a: Vec2, b: Vec2| {
+            VState::dashed_line(a.to_point(), b.to_point(), 0.05, 0.5)
+        })
+        .register_fn("dashed_line", |a: Vec2, b: Vec2, dash_length: f64| {
+            VState::dashed_line(a.to_point(), b.to_point(), dash_length, 0.5)
+        })
         .register_fn("z_index", |m: VState, z: i64| m.z_index(z as i32))
         .register_fn("rotate", |m: VState, a: f64| m.rotate(a));
     positional!(e, VState);
@@ -509,6 +556,18 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("list", |a: Array| fastanim_text::list(&a))
         .register_fn("fill", |m: TextMobject, c: Color| m.fill(c))
+        .register_fn("fill", |m: TextMobject, c: Color, opacity: f64| {
+            m.fill(c.with_alpha(opacity as f32))
+        })
+        .register_fn("fill_gradient", |m: TextMobject, stops: Array| {
+            Ok(m.fill_gradient(&colors(stops)?, RIGHT)) as Res<_>
+        })
+        .register_fn("fill_gradient", |m: TextMobject, stops: Array, d: Vec2| {
+            Ok(m.fill_gradient(&colors(stops)?, d)) as Res<_>
+        })
+        .register_fn("set_color_by_gradient", |m: TextMobject, stops: Array| {
+            Ok(m.set_color_by_gradient(&colors(stops)?)) as Res<_>
+        })
         .register_fn("rotate", |m: TextMobject, a: f64| {
             let c = m.bbox().map_or(Point::ORIGIN, |b| b.center());
             m.transform(Affine::rotate_about(a, c))
@@ -528,6 +587,9 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("rotate", VGroup::rotate)
         .register_fn("arrange", |g: VGroup, d: Vec2| g.arrange(d, DEFAULT_BUFF))
         .register_fn("arrange", VGroup::arrange)
+        .register_fn("set_color_by_gradient", |g: VGroup, stops: Array| {
+            Ok(g.set_color_by_gradient(&colors(stops)?)) as Res<_>
+        })
         .register_fn("len", |g: &mut VGroup| g.0.len() as i64);
     positional!(e, VGroup);
 
@@ -650,6 +712,10 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("wait", |s: &mut SceneHandle, secs: f64| {
             s.lock()?.scene.wait(secs as f32);
+            Ok(()) as Res<_>
+        })
+        .register_fn("background", |s: &mut SceneHandle, c: Color| {
+            s.lock()?.scene.background(c);
             Ok(()) as Res<_>
         })
         .register_fn("marker", |s: &mut SceneHandle, name: &str| {

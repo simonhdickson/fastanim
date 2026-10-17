@@ -27,14 +27,15 @@ use bevy_vello::VelloPlugin;
 use bevy_vello::prelude::*;
 use clap::{Parser, Subcommand};
 use fastanim_core::{
-    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, ImageFill, Scene, SceneEvent, SceneState,
-    VState,
+    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, ImageFill, LineCap, LineJoin, Scene,
+    SceneEvent, SceneState, VState,
 };
 
 use bevy_vello::vello;
 use bevy_vello::vello::kurbo::{self, Affine, BezPath, Cap, Join, Rect};
 use bevy_vello::vello::peniko::{
-    Blob, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageQuality,
+    self, Blob, Brush, Color, ColorStop, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat,
+    ImageQuality,
 };
 
 /// Preview or export a fastanim scene.
@@ -477,6 +478,15 @@ fn draw(
     };
     let tl = &tl.0;
     scene.reset();
+    // The frame's background; the window around it stays black.
+    let frame = Rect::new(
+        -FRAME_WIDTH / 2.0,
+        -FRAME_HEIGHT / 2.0,
+        FRAME_WIDTH / 2.0,
+        FRAME_HEIGHT / 2.0,
+    );
+    let bg = color(tl.background(), 1.0);
+    scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &frame);
     encode(&mut scene, &tl.eval(clock.t));
     let event = selected.0.and_then(|i| tl.events().get(i));
     if let Some(r) = event.and_then(|e| tl.highlight_box(e, clock.t)) {
@@ -515,17 +525,49 @@ fn encode_one(scene: &mut vello::Scene, m: &VState) {
     if path.elements().is_empty() {
         return;
     }
-    let color = |c: fastanim_core::Color| Color::new([c.r, c.g, c.b, c.a * m.opacity]);
     let flip = Affine::FLIP_Y;
     if m.fill.a > 0.0 {
-        scene.fill(Fill::NonZero, flip, color(m.fill), None, &path);
+        let brush = paint(m.fill, m.fill_gradient.as_deref(), m.opacity);
+        scene.fill(Fill::NonZero, flip, &brush, None, &path);
     }
     if m.stroke.color.a > 0.0 && m.stroke.width > 0.0 {
         let stroke = kurbo::Stroke::new(m.stroke.width)
-            .with_join(Join::Round)
-            .with_caps(Cap::Round);
-        scene.stroke(&stroke, flip, color(m.stroke.color), None, &path);
+            .with_join(match m.stroke.join {
+                LineJoin::Miter => Join::Miter,
+                LineJoin::Round => Join::Round,
+                LineJoin::Bevel => Join::Bevel,
+            })
+            .with_caps(match m.stroke.cap {
+                LineCap::Butt => Cap::Butt,
+                LineCap::Round => Cap::Round,
+                LineCap::Square => Cap::Square,
+            });
+        let brush = paint(m.stroke.color, m.stroke_gradient.as_deref(), m.opacity);
+        scene.stroke(&stroke, flip, &brush, None, &path);
     }
+}
+
+fn color(c: fastanim_core::Color, alpha: f32) -> Color {
+    Color::new([c.r, c.g, c.b, c.a * alpha])
+}
+
+/// A solid `c`, or `gradient` with its alpha scaled by `c`'s; both faded by `opacity`.
+fn paint(
+    c: fastanim_core::Color,
+    gradient: Option<&fastanim_core::Gradient>,
+    opacity: f32,
+) -> Brush {
+    let Some(g) = gradient else {
+        return Brush::Solid(color(c, opacity));
+    };
+    let stops: Vec<ColorStop> = (g.stops(c.a * opacity))
+        .map(|(offset, c)| ColorStop {
+            offset,
+            color: color(c, 1.0).into(),
+        })
+        .collect();
+    let (a, b) = (g.from, g.to);
+    Brush::Gradient(peniko::Gradient::new_linear((a.x, a.y), (b.x, b.y)).with_stops(&stops[..]))
 }
 
 /// Draws `i`'s pixels over the unit square its transform places.
@@ -753,9 +795,9 @@ mod tests {
             return;
         };
         let tl = timeline();
-        let a = r.render(&tl.eval(0.5)).unwrap();
+        let a = r.render(&tl.eval(0.5), tl.background()).unwrap();
         assert_eq!(a.len(), 64 * 36 * 4);
-        assert_eq!(a, r.render(&tl.eval(0.5)).unwrap());
-        assert_ne!(a, r.render(&tl.eval(0.0)).unwrap());
+        assert_eq!(a, r.render(&tl.eval(0.5), tl.background()).unwrap());
+        assert_ne!(a, r.render(&tl.eval(0.0), tl.background()).unwrap());
     }
 }

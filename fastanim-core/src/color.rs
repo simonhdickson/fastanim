@@ -101,6 +101,20 @@ impl Interpolate for Color {
     }
 }
 
+/// The color a fraction `t` (`0..=1`) of the way along `stops`, evenly spaced and blended in
+/// Oklab; white if there are none.
+pub fn gradient_color(stops: &[Color], t: f32) -> Color {
+    match stops {
+        [] => WHITE,
+        [c] => *c,
+        _ => {
+            let x = t.clamp(0.0, 1.0) * (stops.len() - 1) as f32;
+            let i = (x.floor() as usize).min(stops.len() - 2);
+            Color::lerp(&stops[i], &stops[i + 1], x - i as f32)
+        }
+    }
+}
+
 /// White.
 pub const WHITE: Color = Color::rgb(1.0, 1.0, 1.0);
 /// Black.
@@ -117,3 +131,7 @@ pub const YELLOW: Color = Color::hex(0xffff00);
 pub const GREY: Color = Color::hex(0x888888);
 /// manim's `ORANGE`.
 pub const ORANGE: Color = Color::hex(0xff862f);
+/// manim's `PINK`.
+pub const PINK: Color = Color::hex(0xd147bd);
+/// manim's `PURPLE`.
+pub const PURPLE: Color = Color::hex(0x9a72ac);

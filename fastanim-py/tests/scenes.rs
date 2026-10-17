@@ -58,6 +58,7 @@ fn script(name: &str) -> BakedTimeline {
 
 fn assert_same(a: &BakedTimeline, b: &BakedTimeline) {
     assert_eq!(a.duration(), b.duration());
+    assert_eq!(a.background(), b.background());
     assert_eq!(a.markers(), b.markers());
     let n = (a.duration() * 10.0) as usize;
     for t in (0..=n).map(|i| i as f32 / 10.0) {
@@ -106,6 +107,16 @@ fn moving_group_matches_rhai() {
 #[test]
 fn gradient_image_matches_rhai() {
     assert_same(&rhai("gradient_image"), &script("gradient_image"));
+}
+
+#[test]
+fn square_to_circle_matches_rhai() {
+    assert_same(&rhai("square_to_circle"), &script("square_to_circle"));
+}
+
+#[test]
+fn styles_matches_rhai() {
+    assert_same(&rhai("styles"), &script("styles"));
 }
 
 #[test]

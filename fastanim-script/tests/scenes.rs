@@ -25,6 +25,7 @@ fn script(name: &str) -> BakedTimeline {
 
 fn assert_same(a: &BakedTimeline, b: &BakedTimeline) {
     assert_eq!(a.duration(), b.duration());
+    assert_eq!(a.background(), b.background());
     assert_eq!(a.markers(), b.markers());
     let n = (a.duration() * 10.0) as usize;
     for t in (0..=n).map(|i| i as f32 / 10.0) {
@@ -336,6 +337,64 @@ fn fades_shift_and_scale() {
     at(&end, 0, 0.0, 0.0);
     at(&end, 1, -2.0, 1.0);
     at(&end, 2, 2.0, 1.0);
+}
+
+#[test]
+fn square_to_circle_ends_pink_and_faded() {
+    use fastanim_core::MobjectId;
+    let tl = script("square_to_circle");
+    let n = tl.duration();
+    let sq = |t: f32| tl.eval(t)[&MobjectId(0)].clone();
+    let pink = fastanim_core::color::PINK.with_alpha(0.5);
+    assert_eq!(sq(n * 2.0 / 3.0).fill, pink);
+    assert_eq!(sq(n).opacity, 0.0);
+}
+
+#[test]
+fn styles_scene_renders_every_style() {
+    let tl = script("styles");
+    assert_eq!(tl.background(), fastanim_core::Color::hex(0x1c1c28));
+    let svg = to_svg(&tl.eval(tl.duration()), tl.background());
+    assert!(svg.contains(r##"fill="#1c1c28""##));
+    // The title's glyphs, the ring and the card.
+    assert!(svg.matches("<linearGradient").count() > 2);
+    for attr in [
+        r#"stroke-linecap="butt""#,
+        r#"stroke-linecap="square""#,
+        r#"stroke-linejoin="miter""#,
+        r#"stroke-linejoin="bevel""#,
+    ] {
+        assert!(svg.contains(attr), "{attr}");
+    }
+}
+
+#[test]
+fn bad_styles_fail() {
+    let e = err(r#"scene.add(line(LEFT, RIGHT).line_cap("pointy"));"#);
+    assert!(e.message.contains("unknown line cap"), "{e}");
+    let e = err(r#"scene.add(square(1.0).line_join("x"));"#);
+    assert!(e.message.contains("unknown line join"), "{e}");
+    let e = err("scene.add(square(1.0).fill_gradient([RED, 1.0]));");
+    assert!(e.message.contains("expected a color"), "{e}");
+}
+
+#[test]
+fn groups_and_texts_color_by_gradient() {
+    use fastanim_core::color::{BLUE, RED};
+    let tl = fastanim_script::bake(
+        r#"
+        scene.add(group([square(1.0), square(1.0).fill(WHITE, 0.5), square(1.0)])
+            .set_color_by_gradient([RED, BLUE]));
+        "#,
+    )
+    .unwrap();
+    let s = tl.eval(0.0);
+    let m = |i| &s[&fastanim_core::MobjectId(i)];
+    assert_eq!((m(0).stroke.color, m(2).stroke.color), (RED, BLUE));
+    // Opacities stay: the first square is unfilled, the second half filled.
+    assert_eq!(m(0).fill.a, 0.0);
+    assert_eq!(m(1).fill.a, 0.5);
+    assert_ne!(m(1).stroke.color, RED);
 }
 
 #[cfg(feature = "metadata")]

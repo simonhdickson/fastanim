@@ -664,3 +664,120 @@ fn images_round_trip_through_png() {
     assert!(Image::from_rgba(2, 2, vec![0; 4]).is_err());
     assert!(Image::decode(b"not an image").is_err());
 }
+
+#[test]
+fn background_is_one_color_for_the_scene() {
+    assert_eq!(Scene::new().bake().background(), color::BLACK);
+    let mut s = Scene::new();
+    s.background(BLUE);
+    s.wait(1.0);
+    s.background(RED);
+    assert_eq!(s.bake().background(), RED);
+}
+
+#[test]
+fn fill_and_stroke_opacity_keep_color() {
+    let m = VState::square(1.0)
+        .fill(BLUE)
+        .fill_opacity(0.5)
+        .stroke_opacity(0.25);
+    assert_eq!(m.fill, BLUE.with_alpha(0.5));
+    assert_eq!(m.stroke.color, WHITE.with_alpha(0.25));
+    // Restyling the outline keeps its caps and joins.
+    let m = m
+        .line_cap(LineCap::Butt)
+        .line_join(LineJoin::Bevel)
+        .stroke(RED, 0.1);
+    assert_eq!(
+        (m.stroke.cap, m.stroke.join),
+        (LineCap::Butt, LineJoin::Bevel)
+    );
+    let m = m.color(BLUE);
+    assert_eq!((m.fill, m.stroke.color), (BLUE.with_alpha(0.5), BLUE));
+}
+
+#[test]
+fn gradients_span_the_box_and_move_with_it() {
+    let m = VState::rectangle(4.0, 2.0).fill_gradient(&[RED, BLUE], RIGHT);
+    let g = m.fill_gradient.as_deref().unwrap();
+    assert_eq!(
+        (g.from, g.to),
+        (Point::new(-2.0, 0.0), Point::new(2.0, 0.0))
+    );
+    assert_eq!(m.fill, WHITE);
+    let m = m.shift(UP);
+    let g = m.fill_gradient.as_deref().unwrap();
+    assert_eq!(
+        (g.from, g.to),
+        (Point::new(-2.0, 1.0), Point::new(2.0, 1.0))
+    );
+    let stops: Vec<_> = g.stops(0.5).collect();
+    assert_eq!(
+        stops,
+        [(0.0, RED.with_alpha(0.5)), (1.0, BLUE.with_alpha(0.5))]
+    );
+    // A plain fill replaces it.
+    assert!(m.fill(RED).fill_gradient.is_none());
+    assert_eq!(color::gradient_color(&[RED, WHITE, BLUE], 0.5), WHITE);
+}
+
+#[test]
+fn solid_to_gradient_blends() {
+    let a = VState::square(2.0).fill(RED);
+    let b = VState::square(2.0).fill_gradient(&[RED, BLUE, WHITE], UP);
+    assert_eq!(VState::lerp(&a, &b, 0.0), a);
+    assert_eq!(VState::lerp(&a, &b, 1.0), b);
+    let mid = VState::lerp(&a, &b, 0.5);
+    let g = mid.fill_gradient.as_deref().unwrap();
+    // Every stop starts red; the first stays red.
+    assert_eq!(g.stops.len(), 3);
+    assert!((g.stops[0].g - RED.g).abs() < 1e-3 && (g.stops[0].b - RED.b).abs() < 1e-3);
+    assert!((g.stops[2].b - RED.b).abs() > 0.1);
+}
+
+#[test]
+fn dashes_split_the_outline() {
+    let line = VState::line(Point::new(0.0, 0.0), Point::new(10.0, 0.0));
+    let d = line.clone().dashed(5, 0.5);
+    assert_eq!(d.path.subpaths.len(), 5);
+    // Open: starts and ends on a dash, 5 dashes and 4 gaps of the same length.
+    assert!((d.path.length() - 5.0 * 10.0 / 9.0).abs() < 1e-6);
+    let first = d.path.subpaths[0].segments[0].p0;
+    let last = d.path.subpaths[4].segments.last().unwrap().p3;
+    assert!(first.distance(Point::new(0.0, 0.0)) < 1e-9);
+    assert!(last.distance(Point::new(10.0, 0.0)) < 1e-6);
+    // Closed: evenly around.
+    let c = VState::circle(1.0).dashed(8, 0.25);
+    assert_eq!(c.path.subpaths.len(), 8);
+    assert!((c.path.length() - std::f64::consts::TAU / 4.0).abs() < 1e-3);
+    assert!(VState::circle(1.0).dashed(0, 0.5).path.subpaths.is_empty());
+    // Dashes about 0.25 long on a 2-unit line at half duty.
+    let dl = VState::dashed_line(Point::ORIGIN, Point::new(2.0, 0.0), 0.25, 0.5);
+    assert_eq!(dl.path.subpaths.len(), 4);
+    // `create` still draws it dash by dash.
+    assert!(d.path.trim(0.0..0.5).subpaths.len() < 5);
+}
+
+#[test]
+fn svg_styles() {
+    let mut s = Scene::new();
+    s.add(
+        VState::square(2.0)
+            .fill_gradient(&[RED, BLUE], RIGHT)
+            .fill_opacity(0.5),
+    );
+    s.add(
+        VState::line(Point::ORIGIN, Point::new(1.0, 0.0))
+            .stroke_gradient(&[RED, BLUE], RIGHT)
+            .line_cap(LineCap::Butt)
+            .line_join(LineJoin::Miter),
+    );
+    let svg = to_svg(&s.bake().eval(0.0), Color::hex(0x123456));
+    assert!(svg.contains(r##"fill="#123456""##));
+    assert_eq!(svg.matches("<linearGradient").count(), 2);
+    assert!(svg.contains(r#"fill="url(#g1)" fill-opacity="0.5""#));
+    assert!(svg.contains(r#"stroke="url(#g2)""#));
+    assert!(svg.contains(r#"x1="-1" y1="0" x2="1" y2="0""#));
+    assert!(svg.contains(r#"stroke-linejoin="miter" stroke-linecap="butt""#));
+    assert!(svg.contains(r##"<stop offset="1" stop-color="#58c4dd" stop-opacity="1"/>"##));
+}

@@ -24,6 +24,16 @@ scene.play(create(c));
 Values like `circle(1.0)` are plain descriptions. Changing one after `add` does not change the
 scene; animate the mobject instead.
 
+## Background
+
+`scene.background(color)` sets the color behind every frame; it is black until set. It is one
+color for the whole scene, so the last call wins wherever it is in the script. The preview,
+video and still exports, SVG and the browser player all use it.
+
+```rhai
+scene.background(hex(0x1c1c28));
+```
+
 ## Time
 
 | Call | Effect |

@@ -127,6 +127,43 @@ impl VPath {
         if range.start <= 0.0 && range.end >= 1.0 {
             return self.clone();
         }
+        self.pieces(&[f64::from(range.start)..f64::from(range.end)])
+    }
+
+    /// Total arc length.
+    pub fn length(&self) -> f64 {
+        (self.subpaths.iter())
+            .flat_map(|sp| &sp.segments)
+            .map(|s| s.arclen(ARCLEN_ACCURACY))
+            .sum()
+    }
+
+    /// Cut into `dashes` pieces, each `ratio` (`0..=1`) of its period along the whole arc
+    /// length. An open path starts and ends on a dash; a closed one repeats evenly around.
+    pub fn dashed(&self, dashes: usize, ratio: f64) -> Self {
+        let ratio = ratio.clamp(0.0, 1.0);
+        if dashes == 0 || ratio <= 0.0 {
+            return Self::default();
+        }
+        let closed = self.subpaths.iter().all(|sp| sp.closed);
+        let n = dashes as f64;
+        let period = if closed {
+            1.0 / n
+        } else {
+            1.0 / (n - 1.0 + ratio)
+        };
+        let ranges: Vec<_> = (0..dashes)
+            .map(|i| {
+                let a = i as f64 * period;
+                a..(a + ratio * period).min(1.0)
+            })
+            .collect();
+        self.pieces(&ranges)
+    }
+
+    /// The open pieces of the path between each pair of arc-length fractions in `ranges`, which
+    /// are in order and don't overlap; a piece crossing from one contour to the next is split.
+    fn pieces(&self, ranges: &[Range<f64>]) -> Self {
         let lens: Vec<Vec<f64>> = self
             .subpaths
             .iter()
@@ -138,34 +175,39 @@ impl VPath {
             })
             .collect();
         let total: f64 = lens.iter().flatten().sum();
-        let (from, to) = (f64::from(range.start) * total, f64::from(range.end) * total);
-        let mut acc = 0.0;
         let mut subpaths = Vec::new();
-        for (sp, lens) in self.subpaths.iter().zip(&lens) {
-            let mut segments = Vec::new();
-            for (seg, &len) in sp.segments.iter().zip(lens) {
-                let (l0, l1) = (acc, acc + len);
-                acc = l1;
-                if len == 0.0 || l1 <= from || l0 >= to {
-                    continue;
+        for r in ranges {
+            let (from, to) = (r.start * total, r.end * total);
+            let mut acc = 0.0;
+            for (sp, lens) in self.subpaths.iter().zip(&lens) {
+                let mut segments = Vec::new();
+                for (seg, &len) in sp.segments.iter().zip(lens) {
+                    let (l0, l1) = (acc, acc + len);
+                    acc = l1;
+                    if len == 0.0 || l1 <= from || l0 >= to {
+                        continue;
+                    }
+                    let t0 = if from > l0 {
+                        seg.inv_arclen(from - l0, ARCLEN_ACCURACY)
+                    } else {
+                        0.0
+                    };
+                    let t1 = if to < l1 {
+                        seg.inv_arclen(to - l0, ARCLEN_ACCURACY)
+                    } else {
+                        1.0
+                    };
+                    segments.push(seg.subsegment(t0..t1));
                 }
-                let t0 = if from > l0 {
-                    seg.inv_arclen(from - l0, ARCLEN_ACCURACY)
-                } else {
-                    0.0
-                };
-                let t1 = if to < l1 {
-                    seg.inv_arclen(to - l0, ARCLEN_ACCURACY)
-                } else {
-                    1.0
-                };
-                segments.push(seg.subsegment(t0..t1));
-            }
-            if !segments.is_empty() {
-                subpaths.push(SubPath {
-                    segments,
-                    closed: false,
-                });
+                if !segments.is_empty() {
+                    subpaths.push(SubPath {
+                        segments,
+                        closed: false,
+                    });
+                }
+                if acc >= to {
+                    break;
+                }
             }
         }
         Self { subpaths }

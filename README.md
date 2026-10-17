@@ -71,11 +71,14 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   replace pairing and semantic cleanup.
 - **Core model**: cubic-Bézier paths and shapes, path alignment, Oklab colors, a `Scene` builder
   baked into a seekable `BakedTimeline`, and SVG still export.
-- **Animations**: `create`, `write`, `fade_in`/`fade_out`, `transform`,
-  `replacement_transform`, `grow_from_center`, `spin_in`, `draw_border_then_fill`, `uncreate`,
+- **Animations**: `create`, `write`, `fade_in`/`fade_out` (optionally shifting or scaling),
+  `transform`, `replacement_transform`, `grow_from_center`, `spin_in`, `draw_border_then_fill`, `uncreate`,
   `unwrite`, `shrink_to_center`, `move_to`, `apply_function`, `indicate`, `wiggle`,
   `circumscribe`, `flash`; composed with `Parallel`, `Sequence` and `lagged_start`; eased with
   quad, cubic, expo, back and spring rate functions.
+- **Styles**: solid or linear-gradient fills and outlines with separate opacities,
+  `set_color_by_gradient` across groups and texts, dashed outlines and `dashed_line`, line caps
+  and joins, and a scene background colour.
 - **Layout**: `next_to`, `align_to`, `to_edge`, `arrange`, `scale_to_fit_height`/`width`.
 - **Graphs**: manim-style `axes` (with arrow tips and labels) and `fit_axes`, which picks the
   y range; `plot` graphs a function, `c2p` maps graph to scene coordinates.

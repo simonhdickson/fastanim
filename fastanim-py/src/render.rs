@@ -110,7 +110,7 @@ fn frame_times((start, end): (f32, f32), fps: u32) -> Vec<f32> {
 /// As `fastanim-bevy` writes SVG: one file, or a directory of `0000.svg`, `0001.svg`, ….
 #[cfg(not(feature = "preview"))]
 fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path) -> std::io::Result<()> {
-    let svg = |t| fastanim_core::to_svg(&tl.eval(t), fastanim_core::color::BLACK);
+    let svg = |t| fastanim_core::to_svg(&tl.eval(t), tl.background());
     if let [t] = times {
         return std::fs::write(out, svg(*t));
     }

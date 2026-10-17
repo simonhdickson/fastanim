@@ -28,12 +28,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use fastanim_core::color::{BLACK, BLUE, GREEN, GREY, ORANGE, RED, WHITE, YELLOW};
+use fastanim_core::color::{
+    BLACK, BLUE, GREEN, GREY, ORANGE, PINK, PURPLE, RED, WHITE, YELLOW, gradient_color,
+};
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Animation, AnimationExt, Audio, DEFAULT_BUFF, DOWN, DiffStyle, Ease, FRAME_HEIGHT, FRAME_WIDTH,
-    Group, Image, LEFT, Lottie, LottieMobject, MobjectId, Parallel, Position, RIGHT, RateFn, Scene,
-    SceneState, Sequence, UP, Update, UpdateGroup, VState, arrange,
+    Group, Image, LEFT, LineCap, LineJoin, Lottie, LottieMobject, MobjectId, Parallel, Position,
+    RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update, UpdateGroup, VState, arrange,
 };
 use fastanim_text::{TextMobject, TextStyle, TokenKey};
 
@@ -170,6 +172,39 @@ impl VGroup {
     /// Lays the items out in a row in direction `dir`, `buff` apart; see [`arrange`].
     pub fn arrange(self, dir: Vec2, buff: f64) -> Self {
         Self(arrange(self.0, dir, buff))
+    }
+
+    /// Colors every shape and glyph in it along `stops`, first to last, nested groups
+    /// included, keeping their opacities: manim's `set_color_by_gradient`.
+    pub fn set_color_by_gradient(self, stops: &[fastanim_core::Color]) -> Self {
+        fn leaves(items: &[Item]) -> usize {
+            (items.iter())
+                .map(|i| match i {
+                    Item::Shape(_) => 1,
+                    Item::Text(t) => t.glyphs.len(),
+                    Item::Group(g) => leaves(&g.0),
+                })
+                .sum()
+        }
+        fn paint(items: Vec<Item>, next: &mut dyn FnMut() -> fastanim_core::Color) -> Vec<Item> {
+            (items.into_iter())
+                .map(|i| match i {
+                    Item::Shape(m) => Item::Shape(m.color(next())),
+                    Item::Text(mut t) => {
+                        t.glyphs = t.glyphs.into_iter().map(|g| g.color(next())).collect();
+                        Item::Text(t)
+                    }
+                    Item::Group(g) => Item::Group(VGroup(paint(g.0, next))),
+                })
+                .collect()
+        }
+        let n = leaves(&self.0).saturating_sub(1).max(1) as f32;
+        let mut i = 0;
+        let mut next = || {
+            i += 1;
+            gradient_color(stops, (i - 1) as f32 / n)
+        };
+        Self(paint(self.0, &mut next))
     }
 }
 
@@ -840,6 +875,26 @@ pub enum Const {
     Num(f64),
 }
 
+/// A line cap by name: `"butt"`, `"round"` or `"square"`.
+pub fn line_cap(name: &str) -> Result<LineCap, String> {
+    Ok(match name {
+        "butt" => LineCap::Butt,
+        "round" => LineCap::Round,
+        "square" => LineCap::Square,
+        _ => return Err(format!("unknown line cap `{name}` (butt, round, square)")),
+    })
+}
+
+/// A line join by name: `"miter"`, `"round"` or `"bevel"`.
+pub fn line_join(name: &str) -> Result<LineJoin, String> {
+    Ok(match name {
+        "miter" => LineJoin::Miter,
+        "round" => LineJoin::Round,
+        "bevel" => LineJoin::Bevel,
+        _ => return Err(format!("unknown line join `{name}` (miter, round, bevel)")),
+    })
+}
+
 /// The names [`constant`] knows; keep in step with it.
 pub const CONSTANTS: &[&str] = &[
     "UP",
@@ -855,6 +910,8 @@ pub const CONSTANTS: &[&str] = &[
     "YELLOW",
     "GREY",
     "ORANGE",
+    "PINK",
+    "PURPLE",
     "TRANSPARENT",
     "LINEAR",
     "SMOOTH",
@@ -883,6 +940,8 @@ pub fn constant(name: &str) -> Option<Const> {
         "YELLOW" => C(YELLOW),
         "GREY" => C(GREY),
         "ORANGE" => C(ORANGE),
+        "PINK" => C(PINK),
+        "PURPLE" => C(PURPLE),
         "TRANSPARENT" => C(fastanim_core::Color::TRANSPARENT),
         "LINEAR" => R(RateFn::Linear),
         "SMOOTH" => R(RateFn::Smooth),

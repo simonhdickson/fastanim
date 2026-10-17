@@ -5,7 +5,7 @@ use std::fmt::Write;
 use crate::color::Color;
 use crate::geom::VPath;
 use crate::image::ImageFill;
-use crate::mobject::SceneState;
+use crate::mobject::{Gradient, LineCap, LineJoin, SceneState};
 use crate::{FRAME_HEIGHT, FRAME_WIDTH};
 
 /// Renders one frame as a 16:9 SVG document over a `background` fill.
@@ -33,6 +33,7 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
     out.push_str("<g transform=\"scale(1,-1)\">\n");
     let mut order: Vec<_> = state.iter().collect();
     order.sort_by_key(|(id, m)| (m.z_index, **id));
+    let mut gradients = 0;
     for (_, m) in order {
         if m.opacity <= 0.0 {
             continue;
@@ -44,12 +45,30 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
         if d.is_empty() {
             continue;
         }
+        let mut paint = |c: Color, g: Option<&Gradient>| match g {
+            Some(g) => {
+                gradients += 1;
+                gradient(&mut out, gradients, g);
+                format!("url(#g{gradients})")
+            }
+            None => c.to_hex(),
+        };
+        let fill = paint(m.fill, m.fill_gradient.as_deref());
+        let stroke = paint(m.stroke.color, m.stroke_gradient.as_deref());
+        let join = match m.stroke.join {
+            LineJoin::Miter => "miter",
+            LineJoin::Round => "round",
+            LineJoin::Bevel => "bevel",
+        };
+        let cap = match m.stroke.cap {
+            LineCap::Butt => "butt",
+            LineCap::Round => "round",
+            LineCap::Square => "square",
+        };
         let _ = writeln!(
             out,
-            r#"<path d="{d}" fill="{}" fill-opacity="{}" stroke="{}" stroke-opacity="{}" stroke-width="{}" stroke-linejoin="round" stroke-linecap="round" opacity="{}"/>"#,
-            m.fill.to_hex(),
+            r#"<path d="{d}" fill="{fill}" fill-opacity="{}" stroke="{stroke}" stroke-opacity="{}" stroke-width="{}" stroke-linejoin="{join}" stroke-linecap="{cap}" opacity="{}"/>"#,
             num(m.fill.a.into()),
-            m.stroke.color.to_hex(),
             num(m.stroke.color.a.into()),
             num(m.stroke.width),
             num(m.opacity.into()),
@@ -57,6 +76,29 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
     }
     out.push_str("</g>\n</svg>\n");
     out
+}
+
+/// A `<linearGradient>` with id `g{id}`, in scene units; its stops keep their own alpha, and the
+/// path's fill or stroke opacity scales it.
+fn gradient(out: &mut String, id: usize, g: &Gradient) {
+    let _ = writeln!(
+        out,
+        r#"<defs><linearGradient id="g{id}" gradientUnits="userSpaceOnUse" x1="{}" y1="{}" x2="{}" y2="{}">"#,
+        num(g.from.x),
+        num(g.from.y),
+        num(g.to.x),
+        num(g.to.y),
+    );
+    for (offset, c) in g.stops(1.0) {
+        let _ = writeln!(
+            out,
+            r#"<stop offset="{}" stop-color="{}" stop-opacity="{}"/>"#,
+            num(offset.into()),
+            c.to_hex(),
+            num(c.a.into()),
+        );
+    }
+    out.push_str("</linearGradient></defs>\n");
 }
 
 /// An `<image>` filling the unit square under `i`'s transform, as an embedded PNG.
