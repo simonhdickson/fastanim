@@ -6,7 +6,10 @@ fn main() -> Result<(), String> {
         .nth(1)
         .ok_or("usage: bundle <scene.rhai>")?;
     let src = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-    fastanim_script::bake(&src).map_err(|e| format!("{path}:{e}"))?;
-    let out = std::path::Path::new(&path).with_extension("bundle");
+    let path = std::path::Path::new(&path);
+    // Files the script loads, such as a Lottie's, are beside it.
+    let dir = path.parent().unwrap_or(std::path::Path::new(""));
+    fastanim_script::bake_in(&src, dir).map_err(|e| format!("{}:{e}", path.display()))?;
+    let out = path.with_extension("bundle");
     std::fs::write(&out, fastanim_text::export_bundle()).map_err(|e| e.to_string())
 }

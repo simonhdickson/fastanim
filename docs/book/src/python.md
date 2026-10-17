@@ -66,10 +66,11 @@ tl.render("frames.svg", quality="480p15")         # a directory of SVG frames
 Only `svg` output works without the `preview` extra; other formats raise a `RuntimeError` saying
 to install it. The preview window can be opened once per Python process.
 
-## Images and fonts
+## Images, Lottie animations and fonts
 
 `image` takes a path, or rows of pixels as nested lists or a NumPy array (anything with
-`tolist()`), plus `height=`, `width=` and `pixelated=` keywords. Text functions take a `font=`
+`tolist()`), plus `height=`, `width=` and `pixelated=` keywords. `lottie(path)` takes
+`height=` and `width=` too, and `play_lottie(m, start=, end=, loops=)` plays it. Text functions take a `font=`
 keyword, and `load_font(path)` loads a font file (relative to the current directory):
 
 ```python
@@ -82,4 +83,6 @@ def gallery(s: Scene) -> None:
     ramp = np.tile(np.arange(256, dtype=np.uint8), (64, 1))
     s.add(image(ramp, height=2, pixelated=True).to_edge(DOWN))
     s.add(text("Hello", font="Inter").to_edge(UP))
+    spinner = s.add(lottie("spinner.json", height=3))
+    s.play(play_lottie(spinner, loops=3))
 ```
