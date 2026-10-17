@@ -693,7 +693,7 @@ impl Value2 for Bez {
         }
         Some(Bez {
             closed: v.get("c").and_then(Value::as_bool).unwrap_or(false),
-            v: vs.into_iter().map(Point::from).collect(),
+            v: vs.into_iter().map(|[x, y]| Point::new(x, y)).collect(),
             i: is.into_iter().map(|[x, y]| Vec2::new(x, y)).collect(),
             o: os.into_iter().map(|[x, y]| Vec2::new(x, y)).collect(),
         })
