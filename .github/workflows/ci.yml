@@ -17,6 +17,8 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     env:
       RUSTFLAGS: -D warnings -C link-arg=-fuse-ld=/usr/bin/mold
