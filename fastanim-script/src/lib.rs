@@ -42,10 +42,10 @@ use fastanim_text::{TextMobject, TextStyle, TokenKey};
 
 #[cfg(feature = "rhai")]
 mod rhai;
-#[cfg(feature = "rhai")]
-pub use rhai::{Error, bake, bake_in, check_in};
 #[cfg(all(feature = "rhai", feature = "metadata"))]
 pub use rhai::signatures;
+#[cfg(feature = "rhai")]
+pub use rhai::{Error, bake, bake_in, check_in};
 
 /// The scene being recorded, plus the text groups that scripts hold by index.
 pub struct Ctx {
