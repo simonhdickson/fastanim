@@ -156,6 +156,12 @@ fn fit_axes_and_default_plot_range() {
 
 /// A directory holding `tone.wav`, two seconds of silence.
 fn wav_dir() -> std::path::PathBuf {
+    // Tests run in parallel and `create` truncates, so write the file only once.
+    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(write_wav_dir).clone()
+}
+
+fn write_wav_dir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join("fastanim-script-sound");
     std::fs::create_dir_all(&dir).unwrap();
     let spec = hound::WavSpec {
