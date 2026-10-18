@@ -8,16 +8,20 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
 
 ## Where we are
 
-- **Shapes:** `circle`, `arc`, `square`, `rectangle`, `polygon`, `line`, `dashed_line`, `dot`,
-  `function_graph`, `image`, `lottie` (played with `play_lottie`), and `axes` (`plot`,
-  `c2p`/`p2c`, `vertical_line`, `numbers`, `labels`, arrow tips). `dashed(m)` dashes any outline.
+- **Shapes:** `circle`, `arc`, `square`, `rectangle`, `ellipse`, `polygon`, `line`,
+  `dashed_line`, `dot`, `function_graph`, `image`, `lottie` (played with `play_lottie`), and
+  `axes` (`plot`, `c2p`/`p2c`, `vertical_line`, `numbers`, `labels`, arrow tips). `dashed(m)`
+  dashes any outline, and `union`, `intersection`, `difference` and `exclusion` combine two
+  shapes' areas.
 - **Style:** solid or linear-gradient fill and outline, each with its own opacity
   (`fill(color, opacity)`, `fill_gradient`, `stroke_gradient`), `set_color_by_gradient` on
   groups and texts, line caps and joins, and a scene background colour (`scene.background`).
+  `shader(wgsl)` paints a fill with a WGSL fragment shader on the GPU (preview and export only).
 - **Text:** `text`, `math_tex`, `latex`, `code`, `list` (Typst, per-glyph shapes), in any
   bundled font or one loaded with `load_font`.
 - **Groups:** `group([...])` of values (with `arrange`) or of added mobjects; indexable,
-  accepted by every animation that does not need a single shape or text.
+  accepted by every animation that does not need a single shape or text. Every mobject has
+  `.width()` and `.height()`.
 - **Animations:** creation/removal, fades (optionally shifting or scaling, as manim's
   `FadeIn(m, shift=, scale=)`), `transform`, `replacement_transform`,
   `transform_diff`, grow/shrink, `shift`/`rotate`/`scale`/`move_to`, `apply_function`,
@@ -25,15 +29,17 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
   `lagged_start`, easing.
 - **Updaters:** `scene.always(m, |state, t| ...)`. These are pure in `t`; there is no `dt`.
 - **Sound:** `audio`, `sound`, `add_sound` and `wait_for_sounds` (item 22).
-- **Tooling:** `fastanim lsp` gives editors errors, completion and hover for scenes.
+- **Tooling:** `fastanim lsp` gives editors errors, completion and hover for scenes, and
+  `fastanim check` bakes and samples scripts without a window, for CI.
 
 What limits most of the remaining work is the data model. A `VState`
 (`fastanim-core/src/mobject.rs`) holds one path, a fill and a stroke (each a solid colour or a
-linear gradient), opacity, z-index and a draw range, plus an optional image. Dashes are
-geometry rather than style. There is no camera. Every
-new drawable kind or style has to be added to all three renderers: Vello
+linear gradient), opacity, z-index and a draw range, plus an optional image and an optional
+shader fill. Dashes and boolean operations are geometry rather than style. There is no camera.
+Every new drawable kind or style has to be added to all three renderers: Vello
 (`fastanim-bevy/src/lib.rs`), SVG (`fastanim-core/src/svg.rs`) and Canvas 2D
-(`fastanim-web/player.js`).
+(`fastanim-web/player.js`). Shader fills are the one exception: only Vello runs them, and SVG
+and Canvas draw the solid fill instead.
 
 ## Gallery checklist
 
@@ -49,7 +55,7 @@ The number after each example is the roadmap item it waits on.
 | BraceAnnotation | ⬜ | `brace`, `brace_between_points`, brace labels (8) |
 | VectorArrow | ⬜ | `arrow` (6), `number_plane` (9) |
 | GradientImageFromArray | ✅ `scenes/gradient_image.rhai` | `surrounding_rectangle` (8) would tidy it |
-| BooleanOperations | ⬜ | `ellipse` (7), boolean ops (10), groups (1), move to target (4) |
+| BooleanOperations | ✅ `scenes/boolean_operations.rhai` | `animate` (4) would replace its `transform`s to a target |
 | PointMovingOnShapes | ⬜ | `move_along_path`, rotate about a point (12) |
 | MovingAngle | ⬜ | value trackers, `always_redraw` (5), `angle` (7) |
 | MovingDots | ⬜ | value trackers (5), groups (1) |
@@ -113,16 +119,18 @@ These items unblock the most examples, and many later items build on them.
 
 6. **Arrows:** `arrow`, `double_arrow`, `vector`, and tip styles. Reuse the axes tips in
    `fastanim-core/src/axes.rs`.
-7. **More shapes:** `ellipse`, `triangle`, `regular_polygon`, `star`, `annulus`, `sector`,
+7. **More shapes:** `triangle`, `regular_polygon`, `star`, `annulus`, `sector`,
    `rounded_rectangle`, `arc_between_points`, `curved_arrow`, `angle`, `right_angle`.
+   `ellipse` is done.
 8. **Annotations:** `surrounding_rectangle`, `background_rectangle`, `brace`,
    `brace_between_points`, brace labels, `cross`, `underline`.
 9. **Coordinate systems:**
    - `number_line` and `number_plane` (with faded grid lines).
    - On axes: `get_graph_label`, `get_area`, `riemann_rectangles`, `plot_line_graph`,
      dashed `vertical_line`/`horizontal_line`, `input_to_graph_point`.
-10. **Boolean operations:** `union`, `intersection`, `difference`, `exclusion` on paths, using
-    a clipping crate that works with kurbo paths.
+10. ✅ **Boolean operations:** `union`, `intersection`, `difference` and `exclusion`
+    (`VPath::boolean`, nonzero winding, using `linesweeper` on kurbo paths). The result takes
+    the default style; open contours count as closed. Unblocked BooleanOperations.
 11. **Text polish:**
     - Font size, weight and slant. Typst already supports these. Family is done: the `font`
       option, with `load_font` for font files (not yet in the browser).
