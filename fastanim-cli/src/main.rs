@@ -12,6 +12,8 @@ use fastanim_bevy::{Command as BevyCommand, RenderArgs, StillArgs};
 use fastanim_core::BakedTimeline;
 use fastanim_diff::{Algorithm, Cleanup, DiffOptions, Differ, Op, TieBreak};
 
+mod lsp;
+
 /// fastanim: programmatic mathematical animation
 #[derive(Debug, Parser)]
 #[command(name = "fastanim", version)]
@@ -74,6 +76,8 @@ enum Command {
         #[arg(long)]
         definitions: bool,
     },
+    /// Run a language server for scene scripts on stdin and stdout: errors, completion, hover
+    Lsp,
     /// Print a shell completion script, e.g. `fastanim completions fish | source`
     Completions {
         /// The shell to complete for
@@ -121,6 +125,7 @@ fn run(command: Command) -> Result<(), String> {
                 .for_each(|sig| println!("{sig}"));
             Ok(())
         }
+        Command::Lsp => lsp::run(),
         Command::Completions { shell } => {
             clap_complete::generate(
                 shell,

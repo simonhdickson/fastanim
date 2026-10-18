@@ -1,0 +1,12 @@
+id = "fastanim"
+name = "fastanim"
+version = "0.1.0"
+schema_version = 1
+authors = ["Simon Dickson <simonhdickson@gmail.com>"]
+description = "Errors, completion and hover for fastanim scene scripts, from `fastanim lsp`."
+repository = "https://github.com/simonhdickson/fastanim"
+
+# The Rhai language itself comes from the `rhai` extension.
+[language_servers.fastanim]
+name = "fastanim"
+languages = ["Rhai"]

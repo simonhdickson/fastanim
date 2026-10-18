@@ -441,7 +441,10 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .set_max_string_size(1 << 20)
         .set_max_array_size(1 << 20)
         .set_max_map_size(1 << 10)
-        .on_var(|name, _, _| Ok(constant(name)));
+        .on_var(|name, _, _| Ok(constant(name)))
+        // stderr, as stdout carries data: `fastanim lsp`'s messages, `script-api`'s listing.
+        .on_print(|s| eprintln!("{s}"))
+        .on_debug(|s, _, pos| eprintln!("{pos:?} | {s}"));
 
     // Points and colors.
     e.register_type_with_name::<Vec2>("Point")

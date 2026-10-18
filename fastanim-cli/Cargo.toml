@@ -19,6 +19,8 @@ fastanim-core.workspace = true
 fastanim-diff.workspace = true
 fastanim-script = { workspace = true, features = ["metadata"] }
 fastanim-text.workspace = true
+lsp-server = "0.10.0"
+serde_json = "1.0.154"
 
 [lints]
 workspace = true

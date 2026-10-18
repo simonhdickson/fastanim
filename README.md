@@ -102,7 +102,8 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   background with `add_sound`; heard in the preview and mixed into MP4 and WebM exports.
 - **Scripting**: `fastanim preview` plays Rhai scenes, re-baking on save; `fastanim render` and `fastanim still` export them.
   Typeset text is memoized, so a re-bake only typesets what changed. `fastanim profile` shows
-  where bake time goes; `fastanim script-api` lists every script function.
+  where bake time goes; `fastanim script-api` lists every script function, and `fastanim lsp` gives editors errors,
+  completion and hover for scenes.
 - **Python**: `fastanim-py` (built with [maturin](https://www.maturin.rs)) records `@scene`
   functions and bakes them to the same timelines as Rust and Rhai, with SVG stills. Preview and
   video from Python are not available yet.

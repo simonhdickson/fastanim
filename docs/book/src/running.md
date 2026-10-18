@@ -74,6 +74,46 @@ duration; errors go to stderr in the format below, and the exit status is non-ze
 script failed, so it suits CI and an editor's `:make`. Errors found while sampling are
 prefixed with the time, as in `scene.rhai: at 0.50s: ...`.
 
+## Editors
+
+`fastanim lsp` is a language server on stdin and stdout. Point your editor's LSP client for
+`.rhai` files at it. It bakes each open script as you type and marks the error, if any, at its
+line and column. It also completes function and constant names, and the variables, functions and
+parameters the script declares. Hover shows a function's signatures or the line declaring a name.
+Output from a script's `print` and `debug` goes to stderr.
+
+Both setups below expect `fastanim` on your `PATH` (see [Install](introduction.md#install)).
+
+### Neovim
+
+Neovim 0.11 or later. Add to your `init.lua`:
+
+```lua
+vim.filetype.add({ extension = { rhai = "rhai" } })
+vim.lsp.config("fastanim", {
+  cmd = { "fastanim", "lsp" },
+  filetypes = { "rhai" },
+  root_markers = { ".git" },
+})
+vim.lsp.enable("fastanim")
+```
+
+Errors show as diagnostics. Completion comes through `<C-x><C-o>` or your completion plugin.
+Hover is `K`. `:checkhealth vim.lsp` shows whether the server started.
+
+### Zed
+
+Zed starts a language server only when an extension declares it, so fastanim ships one in
+`editors/zed`. Zed compiles it to WebAssembly itself, which needs Rust installed through
+[rustup](https://rustup.rs).
+
+1. Install the `rhai` extension from the extensions page (`zed: extensions`). It gives Zed the
+   Rhai language that the server attaches to.
+2. Clone the fastanim repository. Run `zed: install dev extension` and pick its `editors/zed`
+   directory.
+3. Open a `.rhai` file. `dev: open language server logs` shows the server's output and any
+   error starting it.
+
 ## Errors
 
 Errors are reported as `path:line:col: message`, for example:
