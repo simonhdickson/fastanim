@@ -593,7 +593,6 @@ fastanim bundle  scene.rhai               # pre-typeset text for the web player 
 fastanim check   scene.rhai... [--fps 30] # run and sample scripts, reporting errors as file:line:col
 fastanim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
 fastanim script-api                       # every function a scene script can use
-fastanim script-api --definitions         # the same as a `.d.rhai` file, for rhai-lsp
 fastanim lsp                              # language server: bake errors, completion, hover
 fastanim completions <shell>              # shell completion script
 ```

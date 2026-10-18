@@ -128,43 +128,6 @@ pub fn signatures() -> Vec<String> {
     out
 }
 
-/// The scene API as one Rhai definition file (`.d.rhai`), for editors running `rhai-lsp`.
-#[cfg(feature = "metadata")]
-pub fn definitions() -> String {
-    let (e, _) = engine(PathBuf::new());
-    // Constants come from `on_var`, which definitions can't see; declare them in a scope.
-    let mut scope = Scope::new();
-    for c in crate::CONSTANTS {
-        scope.push_constant_dynamic(*c, constant(c).expect("listed constant"));
-    }
-    scope.push("scene", SceneHandle(Arc::new(Mutex::new(Ctx::new()))));
-    // Rhai writes fallible return types as `EvalAltResult>>`; take them from `signatures`.
-    let def_type = |t: &str| {
-        (t.replace("&mut ", "").replace("get$", "get "))
-            .replace("f64", "float")
-            .replace("i64", "int")
-            .replace("types::dynamic::Dynamic", "?")
-    };
-    let returns: std::collections::HashMap<String, String> = (signatures().iter())
-        .filter_map(|sig| sig.rsplit_once(" -> "))
-        .map(|(head, ret)| (def_type(head), def_type(ret)))
-        .collect();
-    (e.definitions_with_scope(&scope).single_file().lines())
-        .map(|line| {
-            let head = line
-                .strip_prefix("fn ")
-                .and_then(|l| l.strip_suffix(" -> EvalAltResult>>;"));
-            match head {
-                Some(head) => {
-                    let ret = returns.get(head).map_or("?", String::as_str);
-                    format!("fn {head} -> {ret};\n")
-                }
-                None => format!("{line}\n"),
-            }
-        })
-        .collect()
-}
-
 /// What closures need after the script has finished: the engine and the script.
 #[derive(Clone)]
 struct Rt {

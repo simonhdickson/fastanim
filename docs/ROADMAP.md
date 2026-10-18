@@ -25,8 +25,7 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
   `lagged_start`, easing.
 - **Updaters:** `scene.always(m, |state, t| ...)`. These are pure in `t`; there is no `dt`.
 - **Sound:** `audio`, `sound`, `add_sound` and `wait_for_sounds` (item 22).
-- **Tooling:** `fastanim script-api --definitions` (`just rhai-defs`) writes a `.d.rhai` file
-  that gives editors running `rhai-lsp` completion for scenes.
+- **Tooling:** `fastanim lsp` gives editors errors, completion and hover for scenes.
 
 What limits most of the remaining work is the data model. A `VState`
 (`fastanim-core/src/mobject.rs`) holds one path, a fill and a stroke (each a solid colour or a

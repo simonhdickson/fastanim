@@ -45,7 +45,7 @@ mod rhai;
 #[cfg(feature = "rhai")]
 pub use rhai::{Error, bake, bake_in, check_in};
 #[cfg(all(feature = "rhai", feature = "metadata"))]
-pub use rhai::{definitions, signatures};
+pub use rhai::signatures;
 
 /// The scene being recorded, plus the text groups that scripts hold by index.
 pub struct Ctx {
