@@ -33,7 +33,7 @@ pub use axes::Axes;
 pub use color::Color;
 pub use geom::{SubPath, VPath, align};
 pub use lottie::{Lottie, LottieMobject, PlayLottie, play_lottie};
-pub use mobject::{Gradient, LineCap, LineJoin, MobjectId, SceneState, Stroke, VState};
+pub use mobject::{Gradient, LineCap, LineJoin, MobjectId, SceneState, ShaderFill, Stroke, VState};
 pub use position::{DEFAULT_BUFF, EDGE_BUFF, Position, arrange};
 pub use svg::to_svg;
 pub use timeline::{BakeStats, BakedTimeline, EventKind, Scene, SceneEvent, time_baking};

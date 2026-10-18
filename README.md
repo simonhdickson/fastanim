@@ -79,6 +79,10 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - **Styles**: solid or linear-gradient fills and outlines with separate opacities,
   `set_color_by_gradient` across groups and texts, dashed outlines and `dashed_line`, line caps
   and joins, and a scene background colour.
+- **Shader fills**: `shader(wgsl)` paints a shape's fill with a WGSL fragment shader
+  (`fn shade(uv: vec2<f32>) -> vec4<f32>`, reading `shape.color`, `shape.size` and
+  `shape.time`) on the GPU in preview and export; SVG and the web player draw the solid fill.
+  See `fastanim-script/scenes/shader.rhai`.
 - **Layout**: `next_to`, `align_to`, `to_edge`, `arrange`, `scale_to_fit_height`/`width`.
 - **Graphs**: manim-style `axes` (with arrow tips and labels) and `fit_axes`, which picks the
   y range; `plot` graphs a function, `c2p` maps graph to scene coordinates.

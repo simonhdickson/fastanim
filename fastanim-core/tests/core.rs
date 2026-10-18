@@ -722,6 +722,25 @@ fn gradients_span_the_box_and_move_with_it() {
 }
 
 #[test]
+fn shaders_span_the_box_and_move_with_it() {
+    let m = VState::rectangle(4.0, 2.0).shader("src");
+    assert_eq!(m.fill, WHITE);
+    let f = m.shader.as_deref().unwrap();
+    assert_eq!(&*f.source, "src");
+    // The unit square's top-left and bottom-right corners.
+    assert_eq!(f.transform * Point::ORIGIN, Point::new(-2.0, 1.0));
+    assert_eq!(f.transform * Point::new(1.0, 1.0), Point::new(2.0, -1.0));
+    let moved = m.clone().shift(UP);
+    let g = moved.shader.as_deref().unwrap();
+    assert_eq!(g.transform * Point::ORIGIN, Point::new(-2.0, 2.0));
+    let mid = VState::lerp(&m, &moved, 0.5);
+    let h = mid.shader.as_deref().unwrap();
+    assert!((h.transform * Point::ORIGIN).distance(Point::new(-2.0, 1.5)) < 1e-9);
+    // A fill color is kept for the shader.
+    assert_eq!(VState::square(1.0).fill(RED).shader("s").fill, RED);
+}
+
+#[test]
 fn solid_to_gradient_blends() {
     let a = VState::square(2.0).fill(RED);
     let b = VState::square(2.0).fill_gradient(&[RED, BLUE, WHITE], UP);

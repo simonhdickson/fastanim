@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::f64::consts::TAU;
 use std::ops::Range;
+use std::sync::Arc;
 
 use kurbo::{Affine, Point, Rect, Vec2};
 
@@ -149,6 +150,23 @@ pub struct VState {
     /// A raster image drawn under the fill and stroke, moving with the shape; boxed, as
     /// most shapes have none.
     pub image: Option<Box<ImageFill>>,
+    /// A WGSL shader painting the fill on the GPU instead of the solid color; renderers
+    /// without one (SVG, the web player) draw the solid fill.
+    pub shader: Option<Box<ShaderFill>>,
+}
+
+/// A WGSL fragment shader painting a shape's fill, over the unit square `transform` places.
+///
+/// `source` defines `fn shade(uv: vec2<f32>) -> vec4<f32>`, returning a straight-alpha sRGB
+/// color for `uv`, `(0, 0)` top-left and `(1, 1)` bottom-right. It can read the uniform
+/// `shape`: `shape.color` (the fill color), `shape.size` (the square's size in scene units)
+/// and `shape.time` (scene time in seconds).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShaderFill {
+    /// The WGSL source.
+    pub source: Arc<str>,
+    /// Maps the unit square into scene units; it moves with the shape.
+    pub transform: Affine,
 }
 
 impl VState {
@@ -164,6 +182,7 @@ impl VState {
             z_index: 0,
             draw_range: 0.0..1.0,
             image: None,
+            shader: None,
         }
     }
 
@@ -308,6 +327,21 @@ impl VState {
         }
     }
 
+    /// Paints the fill with the WGSL `source` (see [`ShaderFill`]) over the bounding box,
+    /// keeping the fill color, or white if there is none, for the shader and other renderers.
+    pub fn shader(self, source: &str) -> Self {
+        let r = self.path.bbox().unwrap_or_default();
+        let place = Affine::new([r.width(), 0.0, 0.0, -r.height(), r.x0, r.y1]);
+        Self {
+            fill: if self.fill.a > 0.0 { self.fill } else { WHITE },
+            shader: Some(Box::new(ShaderFill {
+                source: source.into(),
+                transform: place,
+            })),
+            ..self
+        }
+    }
+
     /// Strokes the outline with `stops` from one side of the bounding box to the other along
     /// `direction`, opaque, keeping its width.
     pub fn stroke_gradient(mut self, stops: &[Color], direction: Vec2) -> Self {
@@ -371,6 +405,12 @@ impl VState {
                 Box::new(ImageFill {
                     transform: a * i.transform,
                     ..*i
+                })
+            }),
+            shader: self.shader.map(|f| {
+                Box::new(ShaderFill {
+                    transform: a * f.transform,
+                    ..*f
                 })
             }),
             ..self
@@ -487,6 +527,7 @@ impl Interpolate for VState {
             draw_range: f32::lerp(&a.draw_range.start, &b.draw_range.start, t)
                 ..f32::lerp(&a.draw_range.end, &b.draw_range.end, t),
             image: lerp_image(&a.image, &b.image, t),
+            shader: lerp_shader(&a.shader, &b.shader, t),
         }
     }
 }
@@ -538,6 +579,22 @@ fn lerp_image(
     let pick = if t < 1.0 { a } else { b };
     match (a, b) {
         (Some(x), Some(y)) => Some(Box::new(ImageFill {
+            transform: lerp_affine(x.transform, y.transform, f64::from(t)),
+            ..(**pick.as_ref()?).clone()
+        })),
+        _ => pick.clone(),
+    }
+}
+
+/// Like [`lerp_image`]: placements blend, the source switches at the end.
+fn lerp_shader(
+    a: &Option<Box<ShaderFill>>,
+    b: &Option<Box<ShaderFill>>,
+    t: f32,
+) -> Option<Box<ShaderFill>> {
+    let pick = if t < 1.0 { a } else { b };
+    match (a, b) {
+        (Some(x), Some(y)) => Some(Box::new(ShaderFill {
             transform: lerp_affine(x.transform, y.transform, f64::from(t)),
             ..(**pick.as_ref()?).clone()
         })),

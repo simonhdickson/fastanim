@@ -16,20 +16,26 @@
 #[cfg(feature = "audio")]
 mod audio;
 pub mod export;
+pub mod shader;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use bevy::camera::ScalingMode;
 use bevy::prelude::*;
+use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
+use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::sprite::Anchor;
 use bevy_vello::VelloPlugin;
 use bevy_vello::prelude::*;
+use bevy_vello::render::VelloRenderer;
 use clap::{Parser, Subcommand};
 use fastanim_core::{
     BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, ImageFill, LineCap, LineJoin, Scene,
     SceneEvent, SceneState, VState,
 };
+use shader::{ShaderFills, ShaderJob};
 
 use bevy_vello::vello;
 use bevy_vello::vello::kurbo::{self, Affine, BezPath, Cap, Join, Rect};
@@ -241,6 +247,27 @@ pub struct SceneClock {
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct Selected(pub Option<usize>);
 
+/// The shader fills [`draw`] left for the render world to draw before Vello.
+#[derive(Resource, Clone, Default, ExtractResource)]
+struct ShaderJobs(Vec<ShaderJob>);
+
+/// The preview device's compiled shader fills, in the render world.
+#[derive(Resource, Default)]
+struct PreviewShaders(ShaderFills);
+
+fn prepare_shaders(
+    jobs: Res<ShaderJobs>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+    renderer: Res<VelloRenderer>,
+    mut fills: ResMut<PreviewShaders>,
+) {
+    let mut renderer = renderer.lock().unwrap();
+    fills
+        .0
+        .prepare(device.wgpu_device(), &queue, &mut renderer, &jobs.0);
+}
+
 /// Marks the entity holding the encoded scene.
 #[derive(Component)]
 struct Canvas;
@@ -250,6 +277,9 @@ struct Canvas;
 struct BlockLabel;
 
 const STEP: f32 = 1.0 / 60.0;
+// shortcut: preview shader fills at 1080p density whatever the window size; follow the
+// camera's scale if large windows look soft.
+const PREVIEW_PX_PER_UNIT: f64 = 1920.0 / FRAME_WIDTH;
 // The timeline panel sits in scene units (y up) under the frame.
 const TRACK_X0: f64 = -FRAME_WIDTH / 2.0 + 0.2;
 const TRACK_W: f64 = FRAME_WIDTH - 0.4;
@@ -271,6 +301,8 @@ impl Plugin for FastanimPlugin {
                 speed: 1.0,
             })
             .init_resource::<Selected>()
+            .init_resource::<ShaderJobs>()
+            .add_plugins(ExtractResourcePlugin::<ShaderJobs>::default())
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
@@ -282,6 +314,14 @@ impl Plugin for FastanimPlugin {
                 )
                     .chain(),
             );
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.init_resource::<PreviewShaders>().add_systems(
+                Render,
+                prepare_shaders
+                    .in_set(RenderSystems::Prepare)
+                    .run_if(resource_exists::<VelloRenderer>),
+            );
+        }
         #[cfg(feature = "audio")]
         app.init_resource::<audio::AudioOut>()
             .add_systems(Update, audio::sync_audio.after(advance_clock));
@@ -472,6 +512,7 @@ fn draw(
     clock: Res<SceneClock>,
     selected: Res<Selected>,
     mut canvas: Query<&mut VelloScene2d, With<Canvas>>,
+    mut jobs: ResMut<ShaderJobs>,
 ) {
     let Ok(mut scene) = canvas.single_mut() else {
         return;
@@ -487,7 +528,7 @@ fn draw(
     );
     let bg = color(tl.background(), 1.0);
     scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &frame);
-    encode(&mut scene, &tl.eval(clock.t));
+    jobs.0 = encode(&mut scene, &tl.eval(clock.t), clock.t, PREVIEW_PX_PER_UNIT);
     let event = selected.0.and_then(|i| tl.events().get(i));
     if let Some(r) = event.and_then(|e| tl.highlight_box(e, clock.t)) {
         let dashed = kurbo::Stroke::new(0.04).with_dashes(0.0, [0.15, 0.1]);
@@ -503,18 +544,40 @@ fn draw(
     draw_timeline(&mut scene, tl, clock.t, selected.0);
 }
 
-/// Encodes one frame in scene units (y up) into a Vello scene, in draw order.
-pub fn encode(scene: &mut vello::Scene, state: &SceneState) {
+/// Encodes one frame at scene time `t` in scene units (y up) into a Vello scene, in draw
+/// order, and returns the shader fills to render at `px_per_unit` before Vello draws it.
+pub fn encode(
+    scene: &mut vello::Scene,
+    state: &SceneState,
+    t: f32,
+    px_per_unit: f64,
+) -> Vec<ShaderJob> {
     let mut order: Vec<_> = state.iter().collect();
     order.sort_by_key(|(id, m)| (m.z_index, **id));
-    for (_, m) in order {
-        encode_one(scene, m);
+    let mut jobs = Vec::new();
+    for (id, m) in order {
+        let job = m.shader.as_ref().map(|f| {
+            let a = f.transform.as_coeffs();
+            let size = (a[0].hypot(a[1]), a[2].hypot(a[3]));
+            let c = m.fill;
+            ShaderJob::new(
+                id.0,
+                f.source.clone(),
+                size,
+                px_per_unit,
+                [c.r, c.g, c.b, c.a],
+                t,
+            )
+        });
+        encode_one(scene, m, job.as_ref());
+        jobs.extend(job);
     }
+    jobs
 }
 
 // ponytail: opacity multiplies fill and stroke alpha separately, so overlapping fill and
 // stroke show through each other while fading; use a Vello layer per mobject if that shows.
-fn encode_one(scene: &mut vello::Scene, m: &VState) {
+fn encode_one(scene: &mut vello::Scene, m: &VState, shader: Option<&ShaderJob>) {
     if m.opacity <= 0.0 {
         return;
     }
@@ -526,7 +589,19 @@ fn encode_one(scene: &mut vello::Scene, m: &VState) {
         return;
     }
     let flip = Affine::FLIP_Y;
-    if m.fill.a > 0.0 {
+    if let (Some(job), Some(f)) = (shader, &m.shader) {
+        let img = &job.image;
+        let brush = ImageBrush::new(img.clone()).with_alpha(m.fill.a * m.opacity);
+        let to_unit =
+            Affine::scale_non_uniform(1.0 / f64::from(img.width), 1.0 / f64::from(img.height));
+        scene.fill(
+            Fill::NonZero,
+            flip,
+            &brush,
+            Some(f.transform * to_unit),
+            &path,
+        );
+    } else if m.fill.a > 0.0 {
         let brush = paint(m.fill, m.fill_gradient.as_deref(), m.opacity);
         scene.fill(Fill::NonZero, flip, &brush, None, &path);
     }
@@ -795,9 +870,44 @@ mod tests {
             return;
         };
         let tl = timeline();
-        let a = r.render(&tl.eval(0.5), tl.background()).unwrap();
+        let a = r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap();
         assert_eq!(a.len(), 64 * 36 * 4);
-        assert_eq!(a, r.render(&tl.eval(0.5), tl.background()).unwrap());
-        assert_ne!(a, r.render(&tl.eval(0.0), tl.background()).unwrap());
+        assert_eq!(a, r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap());
+        assert_ne!(a, r.render(&tl.eval(0.0), 0.0, tl.background()).unwrap());
+    }
+
+    #[test]
+    fn shader_fills_render_on_the_gpu() {
+        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
+            eprintln!("skipping: no GPU adapter");
+            return;
+        };
+        // The center pixel of a full-frame square filled by `wgsl`, over black.
+        let mut center = |wgsl: &str| {
+            let mut s = Scene::new();
+            let sq = VState::rectangle(FRAME_WIDTH, FRAME_HEIGHT).fill(fastanim_core::color::BLUE);
+            s.add(sq.shader(wgsl));
+            let tl = s.bake();
+            let px = r.render(&tl.eval(0.0), 0.0, tl.background()).unwrap();
+            let i = (18 * 64 + 32) * 4;
+            [px[i], px[i + 1], px[i + 2]]
+        };
+        let red =
+            center("fn shade(uv: vec2<f32>) -> vec4<f32> { return vec4(1.0, 0.0, 0.0, 1.0); }");
+        assert!(red[0] > 250 && red[1] < 5 && red[2] < 5, "{red:?}");
+        // `shape.color` is the fill; uv is 0.5 at the center.
+        let uv =
+            center("fn shade(uv: vec2<f32>) -> vec4<f32> { return vec4(uv, shape.color.b, 1.0); }");
+        assert!(
+            uv[0].abs_diff(128) < 8 && uv[1].abs_diff(128) < 8 && uv[2] > 200,
+            "{uv:?}"
+        );
+        // A shader that doesn't compile draws the solid fill.
+        let bad = center("fn shade(uv: vec2<f32>) -> vec4<f32> { return oops; }");
+        assert_eq!(
+            bad,
+            center("fn shade(uv: vec2<f32>) -> vec4<f32> { return shape.color; }")
+        );
+        assert!(bad[2] > 200 && bad[0] < 100, "{bad:?}");
     }
 }

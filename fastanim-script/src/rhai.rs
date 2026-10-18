@@ -517,6 +517,7 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("fill_gradient", |m: VState, stops: Array, d: Vec2| {
             Ok(m.fill_gradient(&colors(stops)?, d)) as Res<_>
         })
+        .register_fn("shader", |m: VState, wgsl: &str| m.shader(wgsl))
         .register_fn("stroke_gradient", |m: VState, stops: Array| {
             Ok(m.stroke_gradient(&colors(stops)?, RIGHT)) as Res<_>
         })

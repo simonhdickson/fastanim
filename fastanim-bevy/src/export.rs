@@ -21,6 +21,7 @@ use bevy_vello::vello::{self, AaConfig, AaSupport, RenderParams, RendererOptions
 use fastanim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, SoundEvent, to_svg};
 
 use crate::encode;
+use crate::shader::ShaderFills;
 
 /// Output resolution and frame rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +84,7 @@ pub struct FrameRenderer {
     height: u32,
     frame: vello::Scene,
     scene: vello::Scene,
+    shaders: ShaderFills,
 }
 
 impl FrameRenderer {
@@ -133,27 +135,30 @@ impl FrameRenderer {
             height,
             frame: vello::Scene::new(),
             scene: vello::Scene::new(),
+            shaders: ShaderFills::default(),
         })
     }
 
-    /// Renders one frame over `background` and returns tightly packed RGBA rows, top to bottom.
+    /// Renders the frame at time `t` over `background` and returns tightly packed RGBA rows, top to bottom.
     // shortcut: one blocking readback per frame; the RGBA feed to ffmpeg limits export, not this.
     // See docs/export-performance.md before optimising.
     pub fn render(
         &mut self,
         state: &SceneState,
+        t: f32,
         background: fastanim_core::Color,
     ) -> Result<Vec<u8>, String> {
         let (w, h) = (f64::from(self.width), f64::from(self.height));
         let scale = (w / FRAME_WIDTH).min(h / FRAME_HEIGHT);
         self.frame.reset();
-        encode(&mut self.frame, state);
+        let jobs = encode(&mut self.frame, state, t, scale);
         self.scene.reset();
         let to_pixels = Affine::translate((w / 2.0, h / 2.0)) * Affine::scale(scale);
         self.scene.append(&self.frame, Some(to_pixels));
 
         let handle = &self.ctx.devices[self.dev];
         let (device, queue) = (&handle.device, &handle.queue);
+        (self.shaders).prepare(device, queue, &mut self.renderer, &jobs);
         self.renderer
             .render_to_texture(
                 device,
@@ -303,7 +308,7 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         for i in 0..total {
             let state = states[i % workers].recv().map_err(|e| e.to_string())?;
             if px_tx
-                .send(renderer.render(&state, tl.background())?)
+                .send(renderer.render(&state, times[i], tl.background())?)
                 .is_err()
             {
                 break; // writer failed; its error is reported below

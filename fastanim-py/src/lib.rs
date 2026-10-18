@@ -471,6 +471,12 @@ positioned!(Shape {
         Self(self.0.clone().fill_gradient(&self::colors(colors), d))
     }
 
+    /// Paints the fill with a WGSL shader defining `fn shade(uv: vec2<f32>) -> vec4<f32>`,
+    /// drawn on the GPU by preview and export; SVG and the web player draw the solid fill.
+    fn shader(&self, source: &str) -> Self {
+        Self(self.0.clone().shader(source))
+    }
+
     /// Strokes the outline with a linear gradient of `colors` along `direction`.
     #[pyo3(signature = (colors, direction = None))]
     fn stroke_gradient(&self, colors: Vec<C>, direction: Option<P>) -> Self {
