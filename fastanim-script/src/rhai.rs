@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use fastanim_core::kurbo::{Affine, Point, Vec2};
 use fastanim_core::{
-    Audio, Axes, BakedTimeline, Color, DEFAULT_BUFF, DiffStyle, LottieMobject, Position, RIGHT,
-    RateFn, VState,
+    Audio, Axes, BakedTimeline, BinaryOp, Color, DEFAULT_BUFF, DiffStyle, LottieMobject, Position,
+    RIGHT, RateFn, VState,
 };
 use fastanim_text::{TextMobject, TextStyle};
 use rhai::{
@@ -388,6 +388,8 @@ macro_rules! positional {
             .register_fn("center", |m: $t| {
                 m.bbox().map_or(Point::ORIGIN, |b| b.center()).to_vec2()
             })
+            .register_fn("width", |m: $t| m.bbox().map_or(0.0, |b| b.width()))
+            .register_fn("height", |m: $t| m.bbox().map_or(0.0, |b| b.height()))
     };
 }
 
@@ -438,6 +440,19 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("circle", VState::circle)
         .register_fn("square", VState::square)
         .register_fn("rectangle", VState::rectangle)
+        .register_fn("ellipse", VState::ellipse)
+        .register_fn("union", |a: VState, b: VState| {
+            a.boolean(&b, BinaryOp::Union)
+        })
+        .register_fn("intersection", |a: VState, b: VState| {
+            a.boolean(&b, BinaryOp::Intersection)
+        })
+        .register_fn("difference", |a: VState, b: VState| {
+            a.boolean(&b, BinaryOp::Difference)
+        })
+        .register_fn("exclusion", |a: VState, b: VState| {
+            a.boolean(&b, BinaryOp::Xor)
+        })
         .register_fn("arc", VState::arc)
         .register_fn("line", |a: Vec2, b: Vec2| {
             VState::line(a.to_point(), b.to_point())

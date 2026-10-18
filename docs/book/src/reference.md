@@ -60,19 +60,22 @@ dashed(_: Shape, _: i64) -> Shape
 dashed(_: Shape, _: i64, _: f64) -> Shape
 dashed_line(_: Point, _: Point) -> Shape
 dashed_line(_: Point, _: Point, _: f64) -> Shape
+difference(_: Shape, _: Shape) -> Shape
 dot(_: Point) -> Shape
 draw_border_then_fill(_: Mobject) -> Animation
 ease_in(_: string) -> Rate
 ease_in_out(_: string) -> Rate
 ease_out(_: string) -> Rate
+ellipse(_: f64, _: f64) -> Shape
+exclusion(_: Shape, _: Shape) -> Shape
 fade_in(_: Mobject) -> Animation
 fade_in(_: Mobject, _: Point) -> Animation
-fade_in(_: Mobject, _: f64) -> Animation
 fade_in(_: Mobject, _: Point, _: f64) -> Animation
+fade_in(_: Mobject, _: f64) -> Animation
 fade_out(_: Mobject) -> Animation
 fade_out(_: Mobject, _: Point) -> Animation
-fade_out(_: Mobject, _: f64) -> Animation
 fade_out(_: Mobject, _: Point, _: f64) -> Animation
+fade_out(_: Mobject, _: f64) -> Animation
 fill(_: Shape, _: Color) -> Shape
 fill(_: Shape, _: Color, _: f64) -> Shape
 fill(_: Text, _: Color) -> Text
@@ -95,12 +98,18 @@ get$y(_: &mut Point) -> f64
 get(_: &mut Scene, _: Mobject) -> Shape
 group(_: array) -> types::dynamic::Dynamic
 grow_from_center(_: Mobject) -> Animation
+height(_: Axes) -> f64
+height(_: Group) -> f64
+height(_: Lottie) -> f64
+height(_: Shape) -> f64
+height(_: Text) -> f64
 hex(_: i64) -> Color
 image(_: array) -> Shape
 image(_: string) -> Shape
 index$get$(_: &mut Mobject, _: i64) -> Mobject
 index$get$(_: &mut State, _: Mobject) -> Shape
 indicate(_: Mobject) -> Animation
+intersection(_: Shape, _: Shape) -> Shape
 labels(_: &mut Axes, _: string, _: string) -> Text
 lagged_start(_: f64, _: array) -> Animation
 latex(_: string) -> Text
@@ -201,6 +210,7 @@ scale_to_fit_width(_: Text, _: f64) -> Text
 sequence(_: array) -> Animation
 set_color_by_gradient(_: Group, _: array) -> Group
 set_color_by_gradient(_: Text, _: array) -> Text
+shader(_: Shape, _: string) -> Shape
 shape(_: &mut Axes) -> Shape
 shift(_: Axes, _: Point) -> Axes
 shift(_: Group, _: Point) -> Group
@@ -232,12 +242,18 @@ transform_diff(_: Mobject, _: Text) -> Animation
 transform_diff(_: Mobject, _: Text, _: map) -> Animation
 transform_list(_: Mobject, _: Text) -> Animation
 uncreate(_: Mobject) -> Animation
+union(_: Shape, _: Shape) -> Shape
 unwrite(_: Mobject) -> Animation
 update(_: Mobject, _: Fn) -> Animation
 vertical_line(_: &mut Axes, _: Point) -> Shape
 wait(_: &mut Scene) -> ()
 wait(_: &mut Scene, _: f64) -> ()
 wait_for_sounds(_: &mut Scene) -> ()
+width(_: Axes) -> f64
+width(_: Group) -> f64
+width(_: Lottie) -> f64
+width(_: Shape) -> f64
+width(_: Text) -> f64
 wiggle(_: Mobject) -> Animation
 with_alpha(_: Color, _: f64) -> Color
 write(_: Mobject) -> Animation

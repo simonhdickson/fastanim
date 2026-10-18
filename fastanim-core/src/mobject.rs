@@ -220,6 +220,18 @@ impl VState {
         Self::new(VPath::arc(radius, start, sweep))
     }
 
+    /// Axis-aligned ellipse centered on the origin.
+    pub fn ellipse(width: f64, height: f64) -> Self {
+        let a = Affine::scale_non_uniform(width / 2.0, height / 2.0);
+        Self::new(VPath::arc(1.0, 0.0, TAU).transform(a))
+    }
+
+    /// The region `op` makes of the two shapes' areas, in the default style (manim's
+    /// `Union`, `Intersection`, `Difference` and `Exclusion`).
+    pub fn boolean(&self, other: &Self, op: crate::geom::BinaryOp) -> Self {
+        Self::new(self.path.boolean(&other.path, op))
+    }
+
     /// Axis-aligned rectangle centered on the origin.
     pub fn rectangle(width: f64, height: f64) -> Self {
         let (w, h) = (width / 2.0, height / 2.0);

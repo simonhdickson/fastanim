@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
-    Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, Color as CoreColor, DEFAULT_BUFF,
-    DiffStyle, LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
+    Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, BinaryOp, Color as CoreColor,
+    DEFAULT_BUFF, DiffStyle, LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
 use fastanim_text::{TextMobject, TextStyle};
@@ -397,6 +397,18 @@ macro_rules! positioned {
             /// The bounding-box center.
             fn center(&self) -> PyPoint {
                 PyPoint(self.0.bbox().map_or(Point::ORIGIN, |b| b.center()).to_vec2())
+            }
+
+            /// The bounding-box width.
+            #[getter]
+            fn width(&self) -> f64 {
+                self.0.bbox().map_or(0.0, |b| b.width())
+            }
+
+            /// The bounding-box height.
+            #[getter]
+            fn height(&self) -> f64 {
+                self.0.bbox().map_or(0.0, |b| b.height())
             }
 
             $($extra)*
@@ -1209,6 +1221,15 @@ shapes! {
     fn circle(radius: f64) => VState::circle(radius);
     fn square(side: f64) => VState::square(side);
     fn rectangle(width: f64, height: f64) => VState::rectangle(width, height);
+    fn ellipse(width: f64, height: f64) => VState::ellipse(width, height);
+    /// The area covered by either shape.
+    fn union(a: Shape, b: Shape) => a.0.boolean(&b.0, BinaryOp::Union);
+    /// The area covered by both shapes.
+    fn intersection(a: Shape, b: Shape) => a.0.boolean(&b.0, BinaryOp::Intersection);
+    /// The area covered by `a` but not `b`.
+    fn difference(a: Shape, b: Shape) => a.0.boolean(&b.0, BinaryOp::Difference);
+    /// The area covered by exactly one of the shapes.
+    fn exclusion(a: Shape, b: Shape) => a.0.boolean(&b.0, BinaryOp::Xor);
     /// An arc of a circle, from angle `start` sweeping `sweep` radians.
     fn arc(radius: f64, start: f64, sweep: f64) => VState::arc(radius, start, sweep);
     fn line(a: P, b: P) => VState::line(a.pt(), b.pt());
@@ -1658,6 +1679,11 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         rgb,
         hex,
         circle,
+        ellipse,
+        union,
+        intersection,
+        difference,
+        exclusion,
         square,
         rectangle,
         arc,

@@ -13,6 +13,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 kurbo = "0.13"
 serde_json = "1"
 fastanim-diff.workspace = true
+linesweeper = "0.5"
 
 [lints]
 workspace = true

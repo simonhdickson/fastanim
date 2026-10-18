@@ -431,3 +431,8 @@ fn groups_and_texts_color_by_gradient() {
     assert_eq!(m(1).fill.a, 0.5);
     assert_ne!(m(1).stroke.color, RED);
 }
+
+#[test]
+fn boolean_operations_bakes() {
+    assert!(script("boolean_operations").duration() > 0.0);
+}

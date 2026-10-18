@@ -800,3 +800,26 @@ fn svg_styles() {
     assert!(svg.contains(r#"stroke-linejoin="miter" stroke-linecap="butt""#));
     assert!(svg.contains(r##"<stop offset="1" stop-color="#58c4dd" stop-opacity="1"/>"##));
 }
+
+#[test]
+fn boolean_ops_cover_the_right_region() {
+    let a = VState::square(2.0).shift(Vec2::new(-0.5, 0.0));
+    let b = VState::square(2.0).shift(Vec2::new(0.5, 0.0));
+    let x_range = |op| {
+        let r = a.boolean(&b, op).path.bbox().unwrap();
+        ((r.x0 * 1e6).round() / 1e6, (r.x1 * 1e6).round() / 1e6)
+    };
+    assert_eq!(x_range(BinaryOp::Union), (-1.5, 1.5));
+    assert_eq!(x_range(BinaryOp::Intersection), (-0.5, 0.5));
+    assert_eq!(x_range(BinaryOp::Difference), (-1.5, -0.5));
+    assert_eq!(x_range(BinaryOp::Xor), (-1.5, 1.5));
+    let disjoint = VState::square(1.0).shift(Vec2::new(5.0, 0.0));
+    assert!(
+        a.boolean(&disjoint, BinaryOp::Intersection)
+            .path
+            .subpaths
+            .is_empty()
+    );
+    let e = VState::ellipse(4.0, 2.0).path.bbox().unwrap();
+    assert!((e.width() - 4.0).abs() < 1e-9 && (e.height() - 2.0).abs() < 1e-9);
+}

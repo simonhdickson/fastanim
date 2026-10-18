@@ -31,7 +31,7 @@ pub use anim::{
 pub use audio::{Audio, Sound, SoundEvent};
 pub use axes::Axes;
 pub use color::Color;
-pub use geom::{SubPath, VPath, align};
+pub use geom::{BinaryOp, SubPath, VPath, align};
 pub use lottie::{Lottie, LottieMobject, PlayLottie, play_lottie};
 pub use mobject::{Gradient, LineCap, LineJoin, MobjectId, SceneState, ShaderFill, Stroke, VState};
 pub use position::{DEFAULT_BUFF, EDGE_BUFF, Position, arrange};

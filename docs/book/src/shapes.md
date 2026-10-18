@@ -29,6 +29,7 @@ All shapes are centered on the origin unless they take points.
 | `circle(radius)` | Circle |
 | `square(side)` | Square |
 | `rectangle(width, height)` | Rectangle |
+| `ellipse(width, height)` | Ellipse |
 | `arc(radius, start, sweep)` | Arc, `sweep` radians counter-clockwise from `start` |
 | `line(a, b)` | Line from point `a` to point `b` |
 | `dot(p)` | Small filled white dot at `p` |
@@ -39,6 +40,14 @@ All shapes are centered on the origin unless they take points.
 
 ```rhai
 let wave = function_graph(|x| x.sin(), -PI, PI, 32);
+```
+
+`union(a, b)`, `intersection(a, b)`, `difference(a, b)` (`a` without `b`) and
+`exclusion(a, b)` (one or the other, not both) make a new shape from the areas two shapes
+cover, in the default style.
+
+```rhai
+let lens = intersection(circle(1.0).shift(LEFT * 0.5), circle(1.0).shift(RIGHT * 0.5));
 ```
 
 ## Styling
@@ -103,6 +112,7 @@ These methods work on shapes, texts, axes and groups alike.
 | `.scale_to_fit_height(h)` | Scale about the center to be `h` tall |
 | `.scale_to_fit_width(w)` | Scale about the center to be `w` wide |
 | `.center()` | The bounding-box center, as a point |
+| `.width()`, `.height()` | The bounding-box size |
 
 ```rhai
 let box = square(1.0);

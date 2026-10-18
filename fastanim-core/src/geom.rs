@@ -6,7 +6,10 @@
 use std::f64::consts::FRAC_PI_2;
 use std::ops::Range;
 
-use kurbo::{Affine, CubicBez, ParamCurve, ParamCurveArclen, ParamCurveExtrema, Point, Rect};
+use kurbo::{
+    Affine, BezPath, CubicBez, ParamCurve, ParamCurveArclen, ParamCurveExtrema, PathEl, Point, Rect,
+};
+pub use linesweeper::BinaryOp;
 
 const ARCLEN_ACCURACY: f64 = 1e-6;
 
@@ -119,6 +122,71 @@ impl VPath {
     /// Center of the bounding box (the origin for an empty path).
     pub fn center(&self) -> Point {
         self.bbox().map_or(Point::ORIGIN, |r| r.center())
+    }
+
+    /// The region `op` makes of the areas `self` and `other` enclose (nonzero winding), manim's
+    /// `Union`, `Intersection`, `Difference` and `Exclusion`. Open contours count as closed;
+    /// a path with a NaN or infinite point gives an empty result.
+    pub fn boolean(&self, other: &Self, op: BinaryOp) -> Self {
+        let fill = linesweeper::FillRule::NonZero;
+        let Ok(out) = linesweeper::binary_op(&self.to_bez(), &other.to_bez(), fill, op) else {
+            return Self::default();
+        };
+        let subpaths = out
+            .contours()
+            .flat_map(|c| Self::from_bez(&c.path).subpaths);
+        Self {
+            subpaths: subpaths.collect(),
+        }
+    }
+
+    fn to_bez(&self) -> BezPath {
+        let mut b = BezPath::new();
+        for sp in self.subpaths.iter().filter(|sp| !sp.segments.is_empty()) {
+            b.move_to(sp.segments[0].p0);
+            for s in &sp.segments {
+                b.curve_to(s.p1, s.p2, s.p3);
+            }
+            b.close_path();
+        }
+        b
+    }
+
+    fn from_bez(b: &BezPath) -> Self {
+        let mut subpaths: Vec<SubPath> = Vec::new();
+        let (mut start, mut last) = (Point::ORIGIN, Point::ORIGIN);
+        for el in b.elements() {
+            let seg = match *el {
+                PathEl::MoveTo(p) => {
+                    (start, last) = (p, p);
+                    subpaths.push(SubPath {
+                        segments: Vec::new(),
+                        closed: false,
+                    });
+                    continue;
+                }
+                PathEl::LineTo(p) => line_segment(last, p),
+                PathEl::QuadTo(p1, p2) => kurbo::QuadBez::new(last, p1, p2).raise(),
+                PathEl::CurveTo(p1, p2, p3) => CubicBez::new(last, p1, p2, p3),
+                PathEl::ClosePath => {
+                    let Some(sp) = subpaths.last_mut() else {
+                        continue;
+                    };
+                    if last.distance(start) > 1e-9 {
+                        sp.segments.push(line_segment(last, start));
+                    }
+                    sp.closed = true;
+                    last = start;
+                    continue;
+                }
+            };
+            last = seg.p3;
+            if let Some(sp) = subpaths.last_mut() {
+                sp.segments.push(seg);
+            }
+        }
+        subpaths.retain(|sp| !sp.segments.is_empty());
+        Self { subpaths }
     }
 
     /// The part between fractions `range` of total arc length, as drawn by `Create`.
