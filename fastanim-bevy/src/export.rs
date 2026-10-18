@@ -392,7 +392,7 @@ fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path, still: bool) -> io:
     Ok(())
 }
 
-/// Redraws `[####----] done/total  eta` on stderr after each frame, if stderr is a terminal and
+/// Redraws `[####----] done/total  fps  eta` on stderr after each frame, if stderr is a terminal and
 /// there's more than one frame.
 fn progress(done: usize, total: usize, start: Instant) {
     if total < 2 || !io::stderr().is_terminal() {
@@ -400,9 +400,11 @@ fn progress(done: usize, total: usize, start: Instant) {
     }
     const WIDTH: usize = 30;
     let filled = WIDTH * done / total;
-    let eta = start.elapsed().as_secs_f32() * (total - done) as f32 / done as f32;
+    let elapsed = start.elapsed().as_secs_f32();
+    let fps = done as f32 / elapsed;
+    let eta = elapsed * (total - done) as f32 / done as f32;
     eprint!(
-        "\r[{}{}] {done}/{total}  eta {eta:.0}s ",
+        "\r[{}{}] {done}/{total}  {fps:.1} fps  eta {eta:.0}s ",
         "#".repeat(filled),
         "-".repeat(WIDTH - filled)
     );
