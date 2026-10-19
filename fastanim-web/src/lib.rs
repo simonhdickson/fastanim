@@ -7,7 +7,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use fastanim_core::color::{BLACK, YELLOW};
+use fastanim_core::color::BLACK;
 use fastanim_core::svg::path_data;
 use fastanim_core::{
     BakedTimeline, Color, EventKind, FRAME_WIDTH, Gradient, Image, ImageFill, LineCap, LineJoin,
@@ -126,14 +126,8 @@ impl Player {
         to_svg(&self.timeline.eval(t), self.timeline.background())
     }
 
-    /// Draws the frame at `t`, filling the canvas width with the 16:9 frame, with a dashed box
-    /// around the targets of event `selected` (an index into [`Player::events`]).
-    pub fn draw(
-        &self,
-        ctx: &OffscreenCanvasRenderingContext2d,
-        t: f32,
-        selected: Option<u32>,
-    ) -> Result<(), JsValue> {
+    /// Draws the frame at `t`, filling the canvas width with the 16:9 frame.
+    pub fn draw(&self, ctx: &OffscreenCanvasRenderingContext2d, t: f32) -> Result<(), JsValue> {
         let canvas = ctx.canvas();
         let (w, h) = (f64::from(canvas.width()), f64::from(canvas.height()));
         ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)?;
@@ -191,17 +185,6 @@ impl Player {
                 });
                 ctx.stroke_with_path(&p);
             }
-        }
-        let event = selected.and_then(|i| self.timeline.events().get(i as usize));
-        if let Some(r) = event.and_then(|e| self.timeline.highlight_box(e, t)) {
-            let r = r.inflate(0.15, 0.15);
-            let dash = js_sys::Array::of2(&0.15.into(), &0.1.into());
-            ctx.set_global_alpha(1.0);
-            ctx.set_line_dash(&dash)?;
-            ctx.set_stroke_style_str(&css(YELLOW));
-            ctx.set_line_width(0.04);
-            ctx.stroke_rect(r.x0, r.y0, r.width(), r.height());
-            ctx.set_line_dash(&js_sys::Array::new())?;
         }
         Ok(())
     }

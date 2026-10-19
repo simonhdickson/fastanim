@@ -568,7 +568,8 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 ### 8.4 Preview mode
 
 - Window with the scene and a bottom timeline bar showing clips and markers.
-- Space = play/pause, ←/→ = step frame, `[`/`]` = jump to previous/next marker, drag = scrub.
+- Space = play/pause, ←/→ = step frame, `[`/`]` = jump to previous/next marker, drag = scrub,
+  Shift+drag = select a region to loop, Esc = clear it.
 - Hot reload (stretch): `fastanim preview` watches the scene crate, rebuilds it as a `cdylib`,
   reloads, re-bakes and keeps the current `t`.
 

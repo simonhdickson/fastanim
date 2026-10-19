@@ -202,19 +202,23 @@ fn reload_timeline(
     mut reload: ResMut<Reloader>,
     mut tl: ResMut<Timeline>,
     mut clock: ResMut<SceneClock>,
-    mut selected: ResMut<Selected>,
+    mut region: ResMut<LoopRegion>,
 ) {
     if let Some(new) = (reload.0)() {
-        clock.t = clock.t.min(new.duration());
-        selected.0 = None;
+        let dur = new.duration();
+        clock.t = clock.t.min(dur);
+        // The region survives reloads, cut to the new duration.
+        region.0 = (region.0)
+            .map(|(a, b)| (a.min(dur), b.min(dur)))
+            .filter(|(a, b)| b > a);
         tl.0 = Arc::new(new);
     }
 }
 
 /// Plays a [`BakedTimeline`] in a window above a timeline of its plays, updaters and sounds, with
 /// keyboard and mouse controls: Space play/pause, ←/→ step a frame, `[`/`]` previous/next marker,
-/// drag along the timeline to scrub, click a block to seek to it and box the shapes it affects,
-/// click it again or Esc to deselect.
+/// drag along the timeline to scrub, Shift+drag to select a region that playback loops over, Esc
+/// to clear it.
 pub struct FastanimPlugin {
     timeline: Arc<BakedTimeline>,
 }
@@ -243,9 +247,9 @@ pub struct SceneClock {
     pub speed: f32,
 }
 
-/// The timeline block whose targets are boxed: an index into [`BakedTimeline::events`].
+/// The `(start, end)` seconds playback loops over, if a region of the timeline is selected.
 #[derive(Resource, Debug, Clone, Copy, Default)]
-pub struct Selected(pub Option<usize>);
+pub struct LoopRegion(pub Option<(f32, f32)>);
 
 /// The shader fills [`draw`] left for the render world to draw before Vello.
 #[derive(Resource, Clone, Default, ExtractResource)]
@@ -300,7 +304,7 @@ impl Plugin for FastanimPlugin {
                 playing: true,
                 speed: 1.0,
             })
-            .init_resource::<Selected>()
+            .init_resource::<LoopRegion>()
             .init_resource::<ShaderJobs>()
             .add_plugins(ExtractResourcePlugin::<ShaderJobs>::default())
             .add_systems(Startup, setup)
@@ -376,23 +380,9 @@ fn track_x(t: f32, dur: f32) -> f64 {
     TRACK_X0 + TRACK_W * f64::from(t / dur.max(f32::EPSILON)).clamp(0.0, 1.0)
 }
 
-/// What a click at scene point `(x, y)` lands on.
-#[derive(Debug, PartialEq)]
-enum Hit {
-    /// Timeline block `i`.
-    Block(usize),
-    /// The timeline outside any block.
-    Track,
-}
-
-fn hit(tl: &BakedTimeline, x: f64, y: f64) -> Option<Hit> {
-    if y > PANEL_TOP {
-        return None;
-    }
-    let dur = tl.duration();
-    let block =
-        (tl.events().iter()).position(|e| block_rect(e, dur).contains(kurbo::Point::new(x, y)));
-    Some(block.map_or(Hit::Track, Hit::Block))
+/// The time under scene x coordinate `x` on the timeline.
+fn track_t(x: f64, dur: f32) -> f32 {
+    ((x - TRACK_X0) / TRACK_W) as f32 * dur
 }
 
 /// One label per timeline block, rebuilt with the timeline.
@@ -424,10 +414,19 @@ fn fit_label(label: &str, width: f64) -> String {
     label.chars().take(n).collect()
 }
 
-fn advance_clock(time: Res<Time>, tl: Res<Timeline>, mut clock: ResMut<SceneClock>) {
+fn advance_clock(
+    time: Res<Time>,
+    tl: Res<Timeline>,
+    region: Res<LoopRegion>,
+    mut clock: ResMut<SceneClock>,
+) {
     if clock.playing {
         clock.t += time.delta_secs() * clock.speed;
-        if clock.t >= tl.0.duration() {
+        if let Some((a, b)) = region.0 {
+            if clock.t < a || clock.t >= b {
+                clock.t = a;
+            }
+        } else if clock.t >= tl.0.duration() {
             clock.t = tl.0.duration();
             clock.playing = false;
         }
@@ -442,9 +441,11 @@ fn controls(
     camera: Query<(&Camera, &GlobalTransform)>,
     tl: Res<Timeline>,
     mut clock: ResMut<SceneClock>,
-    mut selected: ResMut<Selected>,
-    // Whether the current drag started on the track, so it scrubs even over blocks.
+    mut region: ResMut<LoopRegion>,
+    // Whether the current drag started on the timeline, so it scrubs even off it.
     mut scrubbing: Local<bool>,
+    // Where the current Shift+drag started, in seconds.
+    mut anchor: Local<Option<f32>>,
 ) {
     let dur = tl.0.duration();
     if keys.just_pressed(KeyCode::Space) {
@@ -475,10 +476,11 @@ fn controls(
         target = Some(prev.unwrap_or(0.0));
     }
     if keys.just_pressed(KeyCode::Escape) {
-        selected.0 = None;
+        region.0 = None;
     }
     if !mouse.pressed(MouseButton::Left) {
         *scrubbing = false;
+        *anchor = None;
     }
     if let (Ok(window), Ok((cam, cam_tf))) = (windows.single(), camera.single())
         && let Some(p) = window
@@ -486,19 +488,23 @@ fn controls(
             .and_then(|c| cam.viewport_to_world_2d(cam_tf, c).ok())
     {
         let (x, y) = (f64::from(p.x), f64::from(p.y));
-        if mouse.just_pressed(MouseButton::Left) {
-            match hit(&tl.0, x, y) {
-                Some(Hit::Block(i)) if selected.0 == Some(i) => selected.0 = None,
-                Some(Hit::Block(i)) => {
-                    selected.0 = Some(i);
-                    target = Some(tl.0.events()[i].start);
-                }
-                Some(Hit::Track) => *scrubbing = true,
-                None => {}
+        let t = track_t(x, dur).clamp(0.0, dur);
+        if mouse.just_pressed(MouseButton::Left) && y <= PANEL_TOP {
+            if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
+                *anchor = Some(t);
+            } else {
+                *scrubbing = true;
             }
         }
         if *scrubbing {
-            target = Some(((x - TRACK_X0) / TRACK_W) as f32 * dur);
+            target = Some(t);
+        }
+        // A Shift+click without a drag selects nothing, so it leaves the region alone.
+        if let Some(a) = *anchor
+            && (t - a).abs() > STEP
+        {
+            region.0 = Some((a.min(t), a.max(t)));
+            clock.t = a.min(t);
         }
     }
     if let Some(t) = target {
@@ -510,7 +516,7 @@ fn controls(
 fn draw(
     tl: Res<Timeline>,
     clock: Res<SceneClock>,
-    selected: Res<Selected>,
+    region: Res<LoopRegion>,
     mut canvas: Query<&mut VelloScene2d, With<Canvas>>,
     mut jobs: ResMut<ShaderJobs>,
 ) {
@@ -529,19 +535,7 @@ fn draw(
     let bg = color(tl.background(), 1.0);
     scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &frame);
     jobs.0 = encode(&mut scene, &tl.eval(clock.t), clock.t, PREVIEW_PX_PER_UNIT);
-    let event = selected.0.and_then(|i| tl.events().get(i));
-    if let Some(r) = event.and_then(|e| tl.highlight_box(e, clock.t)) {
-        let dashed = kurbo::Stroke::new(0.04).with_dashes(0.0, [0.15, 0.1]);
-        let yellow = Color::from_rgb8(255, 255, 0);
-        scene.stroke(
-            &dashed,
-            Affine::FLIP_Y,
-            yellow,
-            None,
-            &r.inflate(0.15, 0.15),
-        );
-    }
-    draw_timeline(&mut scene, tl, clock.t, selected.0);
+    draw_timeline(&mut scene, tl, clock.t, region.0);
 }
 
 /// Encodes one frame at scene time `t` in scene units (y up) into a Vello scene, in draw
@@ -707,8 +701,9 @@ fn bez_path(p: &fastanim_core::VPath) -> BezPath {
     out
 }
 
-/// The timeline panel under the frame: a block per event, a tick per marker and the playhead.
-fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, selected: Option<usize>) {
+/// The timeline panel under the frame: a block per event, a tick per marker, the loop region and
+/// the playhead.
+fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, region: Option<(f32, f32)>) {
     let flip = Affine::FLIP_Y;
     let dur = tl.duration();
     let bottom = PANEL_TOP - panel_height(tl);
@@ -722,12 +717,11 @@ fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, selected:
         &panel,
     );
     let edge = kurbo::Stroke::new(0.015);
-    for (i, e) in tl.events().iter().enumerate() {
-        let (fill, line) = match (selected == Some(i), e.kind) {
-            (true, _) => ((92, 84, 0), (255, 255, 0)),
-            (_, EventKind::Play) => ((30, 61, 74), (58, 121, 144)),
-            (_, EventKind::Updater) => ((36, 64, 42), (76, 138, 88)),
-            (_, EventKind::Sound) => ((59, 42, 74), (122, 90, 150)),
+    for e in tl.events() {
+        let (fill, line) = match e.kind {
+            EventKind::Play => ((30, 61, 74), (58, 121, 144)),
+            EventKind::Updater => ((36, 64, 42), (76, 138, 88)),
+            EventKind::Sound => ((59, 42, 74), (122, 90, 150)),
         };
         let rgb = |(r, g, b)| Color::from_rgb8(r, g, b);
         let r = block_rect(e, dur).to_rounded_rect(0.04);
@@ -735,6 +729,19 @@ fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, selected:
         scene.stroke(&edge, flip, rgb(line), None, &r);
     }
     let line = |x: f64, w: f64| Rect::new(x - w, bottom, x + w, PANEL_TOP);
+    if let Some((a, b)) = region {
+        let r = Rect::new(track_x(a, dur), bottom, track_x(b, dur), PANEL_TOP);
+        scene.fill(
+            Fill::NonZero,
+            flip,
+            Color::new([1.0, 1.0, 0.0, 0.15]),
+            None,
+            &r,
+        );
+        let yellow = Color::from_rgb8(255, 255, 0);
+        scene.fill(Fill::NonZero, flip, yellow, None, &line(r.x0, 0.008));
+        scene.fill(Fill::NonZero, flip, yellow, None, &line(r.x1, 0.008));
+    }
     for &(_, m) in tl.markers() {
         let tick = Color::new([1.0, 1.0, 1.0, 0.4]);
         scene.fill(
@@ -850,14 +857,8 @@ mod tests {
     }
 
     #[test]
-    fn clicks_hit_blocks_then_track() {
-        let tl = timeline();
-        let block = block_rect(&tl.events()[0], tl.duration());
-        let c = block.center();
-        assert_eq!(hit(&tl, c.x, c.y), Some(Hit::Block(0)));
-        // Past the create, on the same lane: just the track.
-        assert_eq!(hit(&tl, block.x1 + 0.5, c.y), Some(Hit::Track));
-        assert_eq!(hit(&tl, c.x, PANEL_TOP + 0.1), None);
+    fn labels_fit_blocks() {
+        assert!((track_t(track_x(1.5, 3.0), 3.0) - 1.5).abs() < 1e-5);
         assert_eq!(fit_label("Create", 10.0), "Create");
         assert_eq!(fit_label("Create", 0.5), "Crea");
         assert_eq!(fit_label("Create", 0.1), "");

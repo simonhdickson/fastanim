@@ -23,8 +23,8 @@ fastanim preview scene.rhai
 | ← / → | Step a frame |
 | `[` / `]` | Jump to the previous / next [marker](scene.md#markers) |
 | Drag along the timeline | Scrub |
-| Click a block | Jump to its start and box the shapes it affects |
-| Click it again / Esc | Deselect |
+| Shift + drag along the timeline | Select a region; playback loops over it |
+| Esc | Clear the loop region |
 
 The timeline under the scene has a block per `play`, labelled with the animation's kind or
 its [`.named`](animations.md#names) title, and rows below for updaters and sounds. The web

@@ -1,8 +1,10 @@
 // <fastanim-player src="scene.rhai"></fastanim-player>: a scene script played in the page,
 // with play/pause, a scrubber, marker buttons and a timeline of the scene's plays, updaters and
-// sounds (SPEC §14.4); clicking one seeks to it and boxes the shapes it affects. A `.bundle` beside the script,
-// from `fastanim bundle`, is loaded too, so its text is never typeset in the browser.
-// Focus it for keys: Space play/pause, ←/→ step a frame, [/] previous/next marker, Esc deselect.
+// sounds (SPEC §14.4); drag along it to scrub, Shift+drag to select a region that playback loops
+// over. A `.bundle` beside the script, from `fastanim bundle`, is loaded too, so its text is never
+// typeset in the browser.
+// Focus it for keys: Space play/pause, ←/→ step a frame, [/] previous/next marker, Esc clear the
+// loop region.
 //
 // Baking and drawing happen in `worker.js`. Scripting the element:
 //   await el.open(url)          fetch, bake and play a script (and its bundle); returns the script
@@ -22,14 +24,14 @@ const STYLE = `
   .time { font-variant-numeric: tabular-nums; }
   .error { color: #f77; white-space: pre-wrap; font-family: ui-monospace, monospace; }
   .error:empty { display: none; }
-  .tracks { position: relative; margin-top: 8px; background: #111; cursor: pointer; }
+  .tracks { position: relative; margin-top: 8px; background: #111; cursor: pointer; user-select: none; }
   .tracks .ev { position: absolute; height: 20px; min-width: 3px; padding: 0 4px; box-sizing: border-box;
-    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; text-align: left;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 18px;
     background: #1e3d4a; border: 1px solid #3a7990; border-radius: 3px; }
   .tracks .updater { background: #24402a; border-color: #4c8a58; }
   .tracks .sound { background: #3b2a4a; border-color: #7a5a96; }
-  .tracks .ev.sel { background: #5c5400; border-color: #ff0; color: #fff; }
-  .tracks .head, .tracks .tick { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+  .tracks .head, .tracks .tick, .tracks .loop { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+  .tracks .loop { background: #ff02; border: solid #ff0; border-width: 0 1px; box-sizing: border-box; }
   .tracks .head { width: 2px; margin-left: -1px; background: #58c4dd; }
   .tracks .tick { width: 1px; background: #fff6; }
 `;
@@ -38,7 +40,7 @@ const LANE = 24;
 class FastanimPlayer extends HTMLElement {
   static observedAttributes = ["src"];
   #worker; #ui = {}; #duration = 0; #t = 0; #playing = false; #last = null; #markers = [];
-  #blocks = []; #selected = null;
+  #region = null; #drag = null;
 
   constructor() {
     super();
@@ -67,11 +69,20 @@ class FastanimPlayer extends HTMLElement {
 
     this.#ui.play.onclick = () => this.#setPlaying(!this.#playing);
     this.#ui.scrub.oninput = (e) => this.#seek(+e.target.value);
-    // Clicking the empty track scrubs; blocks stop the click.
-    this.#ui.tracks.onclick = (e) => {
-      const r = this.#ui.tracks.getBoundingClientRect();
-      this.#seek((e.clientX - r.left) / r.width * this.#duration);
+    const tracks = this.#ui.tracks;
+    const at = (e) => {
+      const r = tracks.getBoundingClientRect();
+      return Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * this.#duration;
     };
+    // A drag scrubs; a Shift+drag selects the loop region from where it started.
+    tracks.onpointerdown = (e) => {
+      if (e.button !== 0) return;
+      tracks.setPointerCapture(e.pointerId);
+      this.#drag = e.shiftKey ? { anchor: at(e) } : {};
+      this.#dragTo(at(e));
+    };
+    tracks.onpointermove = (e) => { if (this.#drag) this.#dragTo(at(e)); };
+    tracks.onpointerup = tracks.onpointercancel = () => { this.#drag = null; };
     this.addEventListener("keydown", (e) => this.#key(e));
     requestAnimationFrame((now) => this.#frame(now));
   }
@@ -90,6 +101,7 @@ class FastanimPlayer extends HTMLElement {
         bundleUrl && fetch(bundleUrl).then((r) => r.ok ? r.text() : undefined, () => undefined),
       ]);
       this.#t = 0;
+      this.#region = null;
       this.load(script, bundle ?? undefined);
       return script;
     } catch (e) {
@@ -139,29 +151,42 @@ class FastanimPlayer extends HTMLElement {
     this.dispatchEvent(new CustomEvent("bakeerror", { detail: message }));
   }
 
-  // One block per event, `lane` rows deep, plus the playhead and a tick per marker.
+  #dragTo(t) {
+    const a = this.#drag.anchor;
+    if (a === undefined) return this.#seek(t);
+    // A Shift+click without a drag selects nothing, so it leaves the region alone.
+    if (Math.abs(t - a) <= 1 / 60) return;
+    this.#setRegion([Math.min(a, t), Math.max(a, t)]);
+    this.#seek(Math.min(a, t));
+  }
+
+  #setRegion(r) {
+    this.#region = r;
+    const loop = this.#ui.loop;
+    loop.hidden = !r;
+    if (r) Object.assign(loop.style, { left: this.#pct(r[0]), width: this.#pct(r[1] - r[0]) });
+  }
+
+  #pct(t) {
+    return `${this.#duration > 0 ? t / this.#duration * 100 : 0}%`;
+  }
+
+  // One block per event, `lane` rows deep, plus the loop region, the playhead and a tick per marker.
   #tracks(events) {
-    const pct = (t) => `${this.#duration > 0 ? t / this.#duration * 100 : 0}%`;
+    const pct = (t) => this.#pct(t);
     const lanes = Math.max(0, ...events.map((e) => e.lane + 1));
     const tracks = this.#ui.tracks;
     tracks.hidden = events.length === 0;
     tracks.style.height = `${lanes * LANE}px`;
-    this.#selected = null;
-    this.#blocks = events.map((e, i) => {
-      const btn = document.createElement("button");
-      btn.className = `ev ${e.kind}`;
-      btn.textContent = e.label;
-      btn.title = `${e.label}  ${e.start.toFixed(2)}–${e.end.toFixed(2)} s`;
-      Object.assign(btn.style, {
+    const blocks = events.map((e) => {
+      const div = document.createElement("div");
+      div.className = `ev ${e.kind}`;
+      div.textContent = e.label;
+      div.title = `${e.label}  ${e.start.toFixed(2)}–${e.end.toFixed(2)} s`;
+      Object.assign(div.style, {
         left: pct(e.start), width: pct(e.end - e.start), top: `${e.lane * LANE + 2}px`,
       });
-      btn.onclick = (ev) => {
-        ev.stopPropagation();
-        if (this.#selected === i) return this.#select(null);
-        this.#select(i);
-        this.#seek(e.start);
-      };
-      return btn;
+      return div;
     });
     const tick = (m) => {
       const d = document.createElement("div");
@@ -171,34 +196,35 @@ class FastanimPlayer extends HTMLElement {
     };
     this.#ui.head = document.createElement("div");
     this.#ui.head.className = "head";
-    tracks.replaceChildren(...this.#blocks, ...this.#markers.map(tick), this.#ui.head);
-  }
-
-  #select(i) {
-    this.#blocks[this.#selected]?.classList.remove("sel");
-    this.#selected = i;
-    this.#blocks[i]?.classList.add("sel");
-    this.#worker.postMessage({ select: i });
+    this.#ui.loop = document.createElement("div");
+    this.#ui.loop.className = "loop";
+    // The region survives re-bakes, cut to the new duration.
+    const r = this.#region?.map((t) => Math.min(t, this.#duration));
+    this.#setRegion(r && r[1] > r[0] ? r : null);
+    tracks.replaceChildren(...blocks, this.#ui.loop, ...this.#markers.map(tick), this.#ui.head);
   }
 
   #seek(t) {
     this.#t = Math.min(Math.max(t, 0), this.#duration);
     this.#worker.postMessage({ t: this.#t });
     this.#ui.scrub.value = this.#t;
-    if (this.#ui.head) this.#ui.head.style.left = `${this.#duration > 0 ? this.#t / this.#duration * 100 : 0}%`;
+    if (this.#ui.head) this.#ui.head.style.left = this.#pct(this.#t);
     this.#ui.time.textContent = `${this.#t.toFixed(2)} / ${this.#duration.toFixed(2)}`;
   }
 
   #setPlaying(p) {
     this.#playing = p;
-    if (p && this.#t >= this.#duration) this.#seek(0);
+    if (p && !this.#region && this.#t >= this.#duration) this.#seek(0);
     this.#ui.play.textContent = p ? "Pause" : "Play";
   }
 
   #frame(now) {
     if (this.#playing) {
-      this.#seek(this.#t + (now - (this.#last ?? now)) / 1000);
-      if (this.#t >= this.#duration) this.#setPlaying(false);
+      let t = this.#t + (now - (this.#last ?? now)) / 1000;
+      const r = this.#region;
+      if (r && (t < r[0] || t >= r[1])) t = r[0];
+      this.#seek(t);
+      if (!r && this.#t >= this.#duration) this.#setPlaying(false);
     }
     this.#last = now;
     requestAnimationFrame((now) => this.#frame(now));
@@ -214,7 +240,7 @@ class FastanimPlayer extends HTMLElement {
     const next = ts.find((t) => t > this.#t + 1e-3) ?? this.#duration;
     const go = { ArrowRight: this.#t + 1 / 60, ArrowLeft: this.#t - 1 / 60, "[": prev, "]": next }[e.key];
     if (e.key === " ") this.#setPlaying(!this.#playing);
-    else if (e.key === "Escape" && this.#selected !== null) this.#select(null);
+    else if (e.key === "Escape" && this.#region) this.#setRegion(null);
     else if (go !== undefined) this.#seek(go);
     else return;
     e.preventDefault();

@@ -601,10 +601,6 @@ fn events_record_what_each_clip_touches() {
             ("FadeOut + Shift", EventKind::Play, 4.0, 5.0, 0, vec![a, b]),
         ]
     );
-    // Before the create has drawn anything, the box is where the circle ends up.
-    let r = tl.highlight_box(&ev[0], 0.0).unwrap();
-    assert!((r.width() - 2.0).abs() < 1e-6 && r.center().distance(Point::ORIGIN) < 1e-6);
-    assert_eq!(tl.highlight_box(&ev[1], 1.0), None);
 }
 
 fn red_blue() -> Image {

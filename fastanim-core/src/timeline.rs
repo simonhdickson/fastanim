@@ -3,8 +3,6 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
 
-use kurbo::Rect;
-
 use crate::anim::{Animation, RateFn};
 use crate::audio::{Sound, SoundEvent};
 use crate::color::{BLACK, Color};
@@ -347,19 +345,6 @@ impl BakedTimeline {
     /// Every play, updater and sound, in start order.
     pub fn events(&self) -> &[SceneEvent] {
         &self.events
-    }
-
-    /// The box around `event`'s targets that are visible at `t`, or failing that at the event's
-    /// end (e.g. before a `create` has drawn anything).
-    pub fn highlight_box(&self, event: &SceneEvent, t: f32) -> Option<Rect> {
-        let bbox = |s: &SceneState| {
-            (event.targets.iter())
-                .filter_map(|id| s.get(id))
-                .filter(|m| m.opacity > 0.0 && m.draw_range.end > m.draw_range.start)
-                .filter_map(|m| m.path.bbox())
-                .reduce(|a, b| a.union(b))
-        };
-        bbox(&self.eval(t)).or_else(|| bbox(&self.eval(event.end)))
     }
 
     /// Time of the first marker called `name`.
