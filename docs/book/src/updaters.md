@@ -1,26 +1,39 @@
 # Updaters and closures
 
-## `scene.always`
+## `s.always`
 
-`scene.always(m, |state, t| ...)` makes shape `m` follow a function from then on. The closure is
-called every frame and returns `m`'s whole shape at time `t`, in seconds since the `always` call.
+`s.always(m, f)` makes shape `m` follow a function from then on. `f(state, t)` is called every
+frame and returns `m`'s whole shape at time `t`, in seconds since the `always` call. Without
+`f`, `s.always(m)` is a decorator, for updaters longer than a `lambda`.
 
-```rhai
-// A dot orbits the origin once every four seconds.
-let at = |t| point((TAU * t / 4.0).cos(), (TAU * t / 4.0).sin()) * 2.0;
-let d = scene.add(dot(at.call(0.0)).fill(YELLOW));
-scene.always(d, |s, t| dot(at.call(t)).fill(YELLOW));
-scene.wait(4.0);
+```python
+from math import cos, sin
+
+
+# A dot orbits the origin once every four seconds.
+def at(t: float) -> Point:
+    return point(cos(TAU * t / 4), sin(TAU * t / 4)) * 2
+
+
+d = s.add(dot(at(0)).fill(YELLOW))
+s.always(d, lambda st, t: dot(at(t)).fill(YELLOW))
+s.wait(4)
 ```
 
 Index `state` with a mobject to read another shape's current state, so one shape can follow
 another:
 
-```rhai
-let c = scene.add(circle(0.5));
-let label = scene.add(dot(ORIGIN));
-scene.always(label, |s, t| dot(ORIGIN).next_to(s[c], UP));
-scene.play(shift(c, RIGHT * 3.0));
+```python
+c = s.add(circle(0.5))
+label = s.add(dot(ORIGIN))
+
+
+@s.always(label)
+def follow(st: State, t: float) -> Shape:
+    return dot(ORIGIN).next_to(st[c], UP)
+
+
+s.play(shift(c, RIGHT * 3))
 ```
 
 ## Pure in `t`
@@ -31,35 +44,28 @@ to the next.
 
 Manim updaters often accumulate (`dot.shift(dt * v)` every frame). Rewrite them in terms of `t`:
 
-```rhai
-// Instead of moving the dot a little each frame, say where it is at time t.
-scene.always(d, |s, t| dot(point(-4.0 + t, 0.0)));
+```python
+# Instead of moving the dot a little each frame, say where it is at time t.
+s.always(d, lambda st, t: dot((-4 + t, 0)))
 ```
 
-`growing_wave.rhai` in `fastanim-script/scenes` plots f(t) = sin(2πt)·t this way: the dot and
-its trace are both functions of `t`.
+`sine_curve.py` in `fastanim-py/scenes` traces manim's SineCurveUnitCircle this way: the dot,
+the lines to it and the traced curve are all functions of `t`.
 
 ## Closures
 
-Closures are values. Call them with `.call`:
+Updaters, `apply_function`, `update`, `function_graph` and `plot` keep their Python functions in
+the baked timeline and call them while baking and playing. They can use anything in scope,
+so helpers like `at` above can be shared between updaters. Plain helper functions that take the
+scene work as in any Python code:
 
-```rhai
-let f = |x| x * 2.0;
-print(f.call(1.5));   // 3.0
+```python
+def fade_all(s: Scene, *mobs: Mobject) -> None:
+    s.play(*(fade_out(m) for m in mobs))
+    for m in mobs:
+        s.remove(m)
 ```
 
-They capture variables from where they are written, so helpers like `at` above can be shared
-between updaters. Functions declared with `fn` cannot see outer variables; pass `scene` and
-anything else in as arguments.
-
-```rhai
-fn fade_all(scene, mobs) {
-    scene.play(mobs.map(|m| fade_out(m)));
-    for m in mobs {
-        scene.remove(m);
-    }
-}
-```
-
-`scene` itself cannot be used inside a closure that runs during playback (updaters,
-`apply_function`, `update`, graph functions). Use `state` instead.
+The scene itself cannot be used inside a function that runs during playback (updaters,
+`apply_function`, `update`, graph functions); doing so raises `SceneError`. Use `state`
+instead.

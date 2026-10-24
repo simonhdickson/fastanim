@@ -19,12 +19,13 @@ fastanim-core.workspace = true
 fastanim-script = { path = "../fastanim-script", version = "0.1.0", default-features = false }
 fastanim-text.workspace = true
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
-# Rendering and the preview window, for the `fastanim-preview` wheel.
+# Rendering and the preview window; left out of the browser's (Pyodide) build.
 fastanim-bevy = { workspace = true, optional = true }
 
 [features]
-# Builds the native module of `fastanim-preview` (`pip install fastanim[preview]`), with video,
-# PNG and the preview window.
+default = ["preview"]
+# Video, PNG and the preview window. The Pyodide wheel is built without it
+# (`just pyodide-wheel`), so it only writes SVG.
 preview = ["dep:fastanim-bevy"]
 
 [dev-dependencies]

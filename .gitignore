@@ -4,5 +4,4 @@ fastanim-web/dist/
 /.venv/
 __pycache__/
 fastanim-py/python/fastanim/*.so
-fastanim-py/preview/python/fastanim_preview/*.so
 bench/*/media/

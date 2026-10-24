@@ -18,4 +18,6 @@ pyodide-wheel:
     rust="$($pyodide config get rust_toolchain)"
     rustup toolchain install "$rust" --profile minimal -t wasm32-unknown-emscripten
     rm -f fastanim-web/wheels/*.whl
-    cd fastanim-py && RUSTUP_TOOLCHAIN="$rust" $pyodide build -o ../fastanim-web/wheels
+    # Without the `preview` feature: Bevy doesn't build for the browser.
+    cd fastanim-py && RUSTUP_TOOLCHAIN="$rust" MATURIN_PEP517_ARGS="--no-default-features" \
+        $pyodide build -o ../fastanim-web/wheels

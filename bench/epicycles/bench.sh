@@ -5,7 +5,7 @@
 #
 #   QUALITY=1080p60 DURATION=10 ./bench.sh 10 50 100 200
 #
-# Needs `manim` and the `fastanim` package with its preview extra on PYTHON (default python3),
+# Needs `manim` and the `fastanim` package on PYTHON (default python3),
 # the `fastanim` CLI as FASTANIM (default: fastanim on PATH), and the Rust example as RUST
 # (`cargo build --release -p fastanim-bevy --example epicycles`).
 set -euo pipefail

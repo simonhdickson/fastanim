@@ -38,7 +38,7 @@ linear gradient), opacity, z-index and a draw range, plus an optional image and 
 shader fill. Dashes and boolean operations are geometry rather than style. There is no camera.
 Every new drawable kind or style has to be added to all three renderers: Vello
 (`fastanim-bevy/src/lib.rs`), SVG (`fastanim-core/src/svg.rs`) and Canvas 2D
-(`fastanim-web/player.js`). Shader fills are the one exception: only Vello runs them, and SVG
+(`fastanim-web/pyplayer.js`). Shader fills are the one exception: only Vello runs them, and SVG
 and Canvas draw the solid fill instead.
 
 ## Gallery checklist

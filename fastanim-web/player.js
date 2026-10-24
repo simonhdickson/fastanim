@@ -1,17 +1,15 @@
-// <fastanim-player src="scene.rhai"></fastanim-player>: a scene script played in the page,
-// with play/pause, a scrubber, marker buttons and a timeline of the scene's plays, updaters and
-// sounds (SPEC §14.4), five lanes tall and scrolling past that; drag along it to scrub,
-// Shift+drag to select a region that playback loops over. A `.bundle` beside the script, from `fastanim bundle`, is loaded too, so its text is never
-// typeset in the browser.
+// <fastanim-player src="scene.py"></fastanim-player>: a Python scene played in the page, run
+// with Pyodide (pyplayer.js), with play/pause, a scrubber, marker buttons and a timeline of the
+// scene's plays, updaters and sounds (SPEC §14.4), five lanes tall and scrolling past that; drag
+// along it to scrub, Shift+drag to select a region that playback loops over.
 // Focus it for keys: Space play/pause, ←/→ step a frame, [/] previous/next marker, Esc clear the
 // loop region.
 //
 // Baking and drawing happen in `worker.js`. Scripting the element:
-//   await el.open(url)          fetch, bake and play a script (and its bundle); returns the script.
-//                               A `.py` url is a Python scene, run with Pyodide (pyplayer.js).
-//   el.load(script, bundle?, lang?)  bake a script given as text; lang "rhai" (default) or "python"
+//   await el.open(url)          fetch, bake and play a scene; returns the script
+//   el.load(script)             bake a scene given as text
 //   el.download("svg" | "png")  save the current frame
-// It fires `baked` (detail: { duration, markers, events, bakeMs, typesetMs, planMs, snapshotMs }) and `bakeerror`
+// It fires `baked` (detail: { duration, markers, events, bakeMs }) and `bakeerror`
 // (detail: the message, also shown under the player); on error the last good scene stays.
 
 const LANE = 24;
@@ -99,16 +97,12 @@ class FastanimPlayer extends HTMLElement {
   async open(url) {
     try {
       url = new URL(url, document.baseURI);
-      const lang = url.pathname.endsWith(".py") ? "python" : "rhai";
-      const bundleUrl = url.pathname.endsWith(".rhai")
-        ? new URL(url.pathname.replace(/\.rhai$/, ".bundle"), url) : null;
-      const [script, bundle] = await Promise.all([
-        fetch(url).then((r) => r.ok ? r.text() : Promise.reject(new Error(`${url}: ${r.status}`))),
-        bundleUrl && fetch(bundleUrl).then((r) => r.ok ? r.text() : undefined, () => undefined),
-      ]);
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`${url}: ${r.status}`);
+      const script = await r.text();
       this.#t = 0;
       this.#region = null;
-      this.load(script, bundle ?? undefined, lang);
+      this.load(script);
       return script;
     } catch (e) {
       this.#error(e.message);
@@ -116,9 +110,8 @@ class FastanimPlayer extends HTMLElement {
     }
   }
 
-  load(script, bundle, lang = "rhai") {
-    const job = { src: script, lang };
-    this.#worker.postMessage(bundle === undefined ? job : { bundle, ...job });
+  load(script) {
+    this.#worker.postMessage({ src: script });
   }
 
   download(kind) {

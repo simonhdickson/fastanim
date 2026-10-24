@@ -1207,7 +1207,7 @@ impl Timeline {
 
     /// Exports the scene, or from marker `section` to the next one, to `path`; its extension
     /// picks the format: `mp4`, `webm`, `gif`, `png` or `svg` (one file per frame, in the
-    /// directory `path`). Only `svg` works without the `preview` extra.
+    /// directory `path`). Only `svg` works in the browser's build.
     #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None))]
     fn render(
         &self,
@@ -1222,7 +1222,7 @@ impl Timeline {
     }
 
     /// Writes the frame at `at` seconds, or frame number `frame` at `quality`, to `path` as
-    /// `png` or `svg`. Only `svg` works without the `preview` extra.
+    /// `png` or `svg`. Only `svg` works in the browser's build.
     #[pyo3(signature = (path = PathBuf::from("frame.png"), *, at = 0.0, frame = None, quality = "1080p60"))]
     fn still(
         &self,
@@ -1298,7 +1298,7 @@ impl SceneFn {
     }
 
     /// Opens a window that plays the scene with a scrubber, and blocks until it closes. With
-    /// `watch`, saving the scene's file runs it again. Needs the `preview` extra.
+    /// `watch`, saving the scene's file runs it again. Not in the browser's build.
     #[pyo3(signature = (*, watch = true))]
     fn preview(&self, py: Python<'_>, watch: bool) -> PyResult<()> {
         let f = self.f.bind(py);

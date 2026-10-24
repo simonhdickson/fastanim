@@ -1,7 +1,6 @@
 // Python scenes in the worker: the `fastanim` package built for Pyodide (`just pyodide-wheel`)
-// runs the script as `python -m fastanim` would, and `PyPlayer` draws the baked timeline with the
-// same methods as the wasm `Player`, so worker.js treats the two alike. Pyodide is only fetched
-// for the first Python scene.
+// runs the script as `python -m fastanim` would, and `PyPlayer` draws the baked timeline on a
+// Canvas 2D. Pyodide is only fetched for the first scene.
 
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
 // shortcut: the wheel's name is fixed to version 0.1.0; read it from a manifest when that changes.
@@ -65,10 +64,6 @@ class PyPlayer {
 
   free() { this.#tl.destroy(); }
   bake_ms() { return this.#bakeMs; }
-  // Typesetting, planning and keyframes aren't timed apart for Python.
-  typeset_ms() { return 0; }
-  plan_ms() { return undefined; }
-  snapshot_ms() { return undefined; }
   duration() { return this.#tl.duration; }
   marker_names() { return this.#markers().map(([n]) => n); }
   marker_times() { return this.#markers().map(([, t]) => t); }
@@ -83,8 +78,7 @@ class PyPlayer {
     return v;
   }
 
-  /// Draws the frame at `t`, filling the canvas width with the 16:9 frame; a port of
-  /// `Player::draw` in src/lib.rs over `Timeline.frame`.
+  /// Draws the frame at `t` from `Timeline.frame`, filling the canvas width with the 16:9 frame.
   draw(ctx, t) {
     const { width: w, height: h } = ctx.canvas;
     ctx.setTransform(1, 0, 0, 1, 0, 0);

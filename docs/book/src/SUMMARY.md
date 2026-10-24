@@ -3,7 +3,6 @@
 [Introduction](introduction.md)
 
 - [Running scenes](running.md)
-- [Python scenes](python.md)
 - [The scene](scene.md)
 - [Shapes, points and colors](shapes.md)
 - [Shader fills](shaders.md)
@@ -14,3 +13,4 @@
 - [Sound](audio.md)
 - [Gotchas](gotchas.md)
 - [API reference](reference.md)
+- [Rhai scripts](rhai.md)

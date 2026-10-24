@@ -1,22 +1,12 @@
-# `trunk serve` (or `just web`) builds the playground into dist/ and serves it with live
-# reload; `trunk build --release` is the CI build. wasm-bindgen is fetched at the version in
-# Cargo.lock.
+# `trunk serve` (or `just web`) copies the playground into dist/ and serves it with live
+# reload; `trunk build --release` is the CI build. Python scenes run on the Pyodide wheel in
+# wheels/, from `just pyodide-wheel`, which a change to the Rust crates needs rebuilding.
 
 [build]
 target = "index.html"
-# worker.js and player.js import the generated files by name.
+# worker.js and player.js import each other by name.
 filehash = false
 
 [watch]
-watch = [".", "../fastanim-core", "../fastanim-diff", "../fastanim-text", "../fastanim-script"]
+watch = [".", "../fastanim-py/scenes"]
 ignore = ["dist"]
-
-# Pre-typeset each scene (SPEC §14.5), one process each so a bundle holds only its own text.
-[[hooks]]
-stage = "post_build"
-command = "sh"
-command_arguments = ["-c", """
-set -e
-cargo build -q --release -p fastanim-web --example bundle
-for f in "$TRUNK_STAGING_DIR"/scenes/*.rhai; do ../target/release/examples/bundle "$f"; done
-"""]

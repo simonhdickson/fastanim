@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["fastanim*"]
+# The browser playground is static files, built by Trunk.
+exclude = ["fastanim-web"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,7 +17,6 @@ fastanim-core = { path = "fastanim-core", version = "0.1.0" }
 fastanim-text = { path = "fastanim-text", version = "0.1.0" }
 fastanim-bevy = { path = "fastanim-bevy", version = "0.1.0" }
 fastanim-script = { path = "fastanim-script", version = "0.1.0" }
-fastanim-web = { path = "fastanim-web", version = "0.1.0" }
 
 [workspace.lints.rust]
 missing_docs = "warn"

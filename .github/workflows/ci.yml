@@ -42,9 +42,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets
 
-      # The `fastanim-preview` wheel's build of the Python module, with rendering.
-      - name: Clippy (fastanim-py preview)
-        run: cargo clippy -p fastanim-py --all-targets --features preview
+      # The Pyodide wheel's build of the Python module, without rendering.
+      - name: Clippy (fastanim-py without preview)
+        run: cargo clippy -p fastanim-py --all-targets --no-default-features
+
+      - name: Test (fastanim-py without preview)
+        run: cargo test -p fastanim-py --no-default-features
 
       - name: Build & run tests
         run: cargo test --workspace
@@ -98,13 +101,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.11
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
 
       - uses: taiki-e/install-action@v2
         with:

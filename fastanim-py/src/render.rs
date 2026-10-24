@@ -1,6 +1,6 @@
 //! Exporting and previewing baked scenes (SPEC §15.2). Every build writes SVG stills and SVG
-//! frame sequences; video, PNG and the preview window need the `preview` feature, which the
-//! `fastanim-preview` wheel is built with, and go through `fastanim-bevy`.
+//! frame sequences; video, PNG and the preview window need the `preview` feature, on by default
+//! and off in the Pyodide wheel, and go through `fastanim-bevy`.
 
 use std::path::{Path, PathBuf};
 
@@ -135,12 +135,12 @@ fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path) -> std::io::Result<
     Ok(())
 }
 
-/// What a command that renders through Bevy raises without the `preview` extra.
+/// What a command that renders through Bevy raises without the `preview` feature.
 #[cfg(not(feature = "preview"))]
 fn needs_preview() -> PyErr {
     PyRuntimeError::new_err(
-        "rendering video or PNG and the preview window need the extra: \
-         pip install fastanim[preview]",
+        "this build of fastanim (the browser's) can't render video or PNG or open the preview \
+         window; only svg output works",
     )
 }
 

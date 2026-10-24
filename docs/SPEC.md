@@ -111,7 +111,7 @@ fastanim/
 ├── fastanim-bevy/         # Bevy plugin: sync, render, preview, export
 ├── fastanim-cli/          # `fastanim` binary
 ├── fastanim-script/       # Rhai bindings over core + text (§14)
-├── fastanim-web/          # wasm-bindgen browser player and playground (§14)
+├── fastanim-web/          # browser player and playground, Python on Pyodide (§15.6)
 ├── fastanim-py/           # pyo3 extension module, the `fastanim` Python package (§15)
 ├── fastanim-lua/          # mlua frontend over fastanim-script (§15)
 ├── fastanim/              # facade crate re-exporting a prelude
@@ -131,8 +131,8 @@ fastanim/
 | Code highlighting | `syntect` or `tree-sitter-highlight` | Token kinds for coloring & diff keys |
 | Colors | `palette` | Perceptual (Oklab) color interpolation |
 | Video | `ffmpeg` subprocess | Raw RGBA piped to stdin |
-| Scripting | `rhai` | Scenes as scripts, natively and in the browser (§14) |
-| Web | `wasm-bindgen`, `web-sys` | Browser player; Canvas 2D rendering (§14) |
+| Scripting | `rhai` | Scenes as scripts, run natively (§14) |
+| Web | Pyodide | Browser player runs Python scenes; Canvas 2D rendering (§15.6) |
 | More scripting | `pyo3` + `maturin`, `mlua` | Scenes in Python (a package) and Lua (embedded) (§15) |
 
 ---
@@ -590,7 +590,6 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 fastanim preview scene.rhai               # windowed preview with scrubber, reloads on save
 fastanim render  scene.rhai [-q 1080p60] [-o out.mp4] [--section Marker]   # mp4|webm|gif|png|svg
 fastanim still   scene.rhai [--at 3.5s | --frame N] [-o frame.png]
-fastanim bundle  scene.rhai               # pre-typeset text for the web player (§14.5)
 fastanim check   scene.rhai... [--fps 30] # run and sample scripts, reporting errors as file:line:col
 fastanim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
 fastanim script-api                       # every function a scene script can use
@@ -738,12 +737,14 @@ Rules:
 `fastanim preview|render|still scene.rhai [options]` takes the same commands and options as
 a compiled scene (§8.4, §8.5) and renders through `fastanim-bevy`. In preview it watches the file
 and re-runs and re-bakes it on save, keeping the current `t`: the hot reload of §8.4 without
-rebuilding a `cdylib`. `fastanim bundle scene.rhai` writes the pre-typeset text for the web player
-(§14.5).
+rebuilding a `cdylib`.
 
 ### 14.4 `fastanim-web`: the browser player
 
-A `wasm-bindgen` crate built with Trunk (`Trunk.toml`), without Bevy:
+> Superseded by §15.6: the browser player now runs Python scenes on Pyodide, and the Rhai wasm
+> player this section and §14.5 planned for has been removed. Rhai scenes run locally only.
+
+Static files built with Trunk (`Trunk.toml`), without Bevy:
 
 - **Rendering**: each frame calls `eval(t)` and draws to a `<canvas>` with Canvas 2D, building a
   `Path2D` from each `VPath`'s cubics, trimmed by `draw_range` with `VPath::trim`, in
@@ -752,7 +753,7 @@ A `wasm-bindgen` crate built with Trunk (`Trunk.toml`), without Bevy:
   play/pause, frame stepping, markers and dragging, as in §8.4.
 - **Playground**: an editor next to the canvas runs the script on change (debounced), re-bakes
   and keeps `t`. Baking runs in a Web Worker so long scenes don't freeze the page.
-- **Embedding**: `<fastanim-player src="scene.rhai">` (or a bundled scene, §14.5) so the docs site's
+- **Embedding**: `<fastanim-player src="scene.py">` so the docs site's
   rendered examples (M8) are live and scrubbable.
 - **Export**: SVG frames (from `to_svg`) and PNG stills (`canvas.toBlob`) as downloads. Video
   through WebCodecs `VideoEncoder` plus an MP4/WebM muxer is a stretch goal, with frames still
@@ -882,18 +883,13 @@ def pythagoras(s: Scene):
         return state[dot].move_to((cos(t), sin(t)))
 ```
 
-#### Packages and the `preview` extra
+#### The package
 
-| Install | Gives |
-|---|---|
-| `pip install fastanim` | Recording and baking, SVG stills and SVG frame sequences (`to_svg`, §8.5), the `.pyi` stubs. No GPU, window or `ffmpeg`, so it suits CI and docs builds |
-| `pip install fastanim[preview]` | Adds the preview window (§8.4) and everything that renders through Bevy: video, GIF and PNG (§8.5) |
-
-Two native modules can't share Rust objects (each is its own compilation), so the extra doesn't
-add a plugin to the base module. It installs `fastanim-preview`, a second wheel with the whole
-native module built with `fastanim-bevy` included. `fastanim` imports from it when present and
-from its own lighter module otherwise; the Python API is the same either way, and a command
-that needs the extra says to install it.
+`pip install fastanim` gives recording and baking, SVG stills and frames (`to_svg`, §8.5), the
+preview window (§8.4) and everything that renders through Bevy: video, GIF and PNG (§8.5). Its
+native module is built with the `preview` feature, on by default. The browser's Pyodide wheel
+(§15.6) is built without it, as Bevy doesn't build there: the Python API is the same, and a
+command that needs rendering says it can't in that build.
 
 #### Running
 
@@ -970,19 +966,19 @@ one thread; on free-threaded Python (3.14t) without it, on every core, as for Rh
 Each frontend raises core errors as its language's own (a Python exception, a Lua error), with
 the language's own traceback, shown as `file:line` from the CLI.
 
-### 15.6 The browser stays Rhai
+### 15.6 The browser runs Python
 
-The web player and playground (§14.4) run Rhai only. A baked timeline holds live closures, so a
-Python or Lua scene can't be bundled for the browser; it is published as video or SVG frames
-instead. The web build is for showing fastanim off and for quick experiments; serious work runs
-locally.
+The web player and playground (§14.4) run Python only. The `fastanim` package is built for
+Pyodide (`just pyodide-wheel`) and runs in the player's Web Worker, where `pyplayer.js` draws the
+baked timeline on a Canvas 2D. Rhai scenes run locally only. The web build is for showing
+fastanim off and for quick experiments; serious work runs locally.
 
 ### 15.7 Acceptance
 
 In order:
 
 1. `fastanim-script` is split (§15.1) with no change to Rhai behaviour or tests.
-2. `pip install fastanim` and `pip install fastanim[preview]` work on Linux, macOS and Windows.
+2. `pip install fastanim` works on Linux, macOS and Windows.
    The §10 examples exist as `.py` scenes using the Pythonic API (§15.2), and each bakes to
    the same timeline as its Rust and Rhai versions (compared through `to_svg` at sampled
    times, §11). The `.pyi` stubs type-check them with `mypy --strict`. Without the extra, the

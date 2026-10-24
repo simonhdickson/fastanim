@@ -1,6 +1,6 @@
 [book]
 title = "fastanim scripting"
-description = "Writing fastanim scenes as Rhai scripts"
+description = "Writing fastanim scenes in Python"
 language = "en"
 src = "src"
 

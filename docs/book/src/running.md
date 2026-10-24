@@ -1,20 +1,23 @@
 # Running scenes
 
-The `fastanim` CLI runs scripts in six ways.
+`python -m fastanim` runs scene files in three ways.
 
 | Command | What it does |
 | --- | --- |
-| `fastanim preview <script>` | Opens a window with a timeline, re-baking on save |
-| `fastanim render <script>` | Exports video or frames |
-| `fastanim still <script>` | Exports one frame |
-| `fastanim check <script>...` | Runs scripts without a window and reports their errors |
-| `fastanim bundle <script>` | Writes the scene's typeset text to a `.bundle` for the web player |
-| `fastanim profile <script> [--runs N]` | Bakes the scene cold, then N times warm, and prints time spent typesetting, planning animations, copying keyframes and running the script |
+| `python -m fastanim preview <file>` | Opens a window with a timeline, re-running the file on save |
+| `python -m fastanim render <file>` | Exports video or frames |
+| `python -m fastanim still <file>` | Exports one frame |
+
+When a file has more than one `@scene`, name the one to run: `hello.py:hello`. A plain
+`def construct(scene)` works too.
+
+The file runs with `__name__` set to something other than `"__main__"`, so code under
+`if __name__ == "__main__":` is skipped.
 
 ## Preview
 
 ```sh
-fastanim preview scene.rhai
+python -m fastanim preview hello.py
 ```
 
 | Key | Action |
@@ -27,17 +30,20 @@ fastanim preview scene.rhai
 | Esc | Clear the loop region |
 | Mouse wheel over the timeline | Scroll its rows, when there are more than five |
 
-The timeline under the scene has a block per `play`, labelled with the animation's kind or
-its [`.named`](animations.md#names) title, and rows below for updaters and sounds. It shows
-five rows at a time and scrolls through the rest. The web player has the same timeline.
+The timeline under the scene has a block per `play`, labelled with the animation's kind, and
+rows below for updaters and sounds. It shows five rows at a time and scrolls through the rest.
+The web player has the same timeline.
 
-Typeset text is cached, so a re-bake only typesets text that changed.
+Preview runs the file again whenever it is saved and keeps the current time; if the new version
+fails, the error is printed and the last good scene stays up. Modules it imports from its own
+folder are watched too, and imported afresh on each run; installed packages are not. Typeset
+text is cached, so a re-run only typesets text that changed.
 
 ## Render
 
 ```sh
-fastanim render scene.rhai -q 720p30 -o scene.mp4
-fastanim render scene.rhai --section intro -o intro.webm
+python -m fastanim render hello.py -q 720p30 -o hello.mp4
+python -m fastanim render hello.py --section intro -o intro.webm
 ```
 
 - `-q, --quality`: `480p15`, `720p30`, `1080p60` (default) or `4k60`.
@@ -46,79 +52,36 @@ fastanim render scene.rhai --section intro -o intro.webm
   [sounds](audio.md).
 - `--section <marker>`: render only from that marker to the next one.
 
+On free-threaded Python (3.14t), video export runs a scene's updaters on every core. With the
+GIL they run on one thread. maturin builds a separate 3.14t wheel for it.
+
 ## Still
 
 ```sh
-fastanim still scene.rhai --at 2.5s -o frame.png
-fastanim still scene.rhai --frame 120 -o frame.svg
+python -m fastanim still hello.py --at 2.5s -o frame.png
+python -m fastanim still hello.py --frame 120 -o frame.svg
 ```
 
 `--at` takes seconds (`3.5` or `3.5s`); `--frame` takes a frame index at the chosen quality.
 
-## Bundle
+## From code
 
-The web player typesets text slowly. `fastanim bundle scene.rhai` runs the script without a
-window and writes `scene.bundle` beside it, holding the pre-typeset text.
+A `@scene` function has the same commands as methods:
 
-## Check
-
-```sh
-fastanim check scene.rhai
-fastanim check scenes/*.rhai --fps 60
+```python
+hello.preview()                                   # blocks until the window closes
+hello.render("hello.mp4", quality="1080p60")      # also section="intro"
+hello.still("frame.svg", at=3.5)                  # or frame=210
+tl = hello.bake()                                 # the timeline: tl.duration, tl.svg(t), …
+tl.render("frames.svg", quality="480p15")         # a directory of SVG frames
 ```
 
-Runs each script without a window, then samples its timeline `--fps` times a second (30 by
-default, 0 to skip), running every [updater](updaters.md) and animation closure along the way.
-A script only tries an updater when it is added and an animation's closure at its end, so
-sampling finds closures that fail part way through. Good scripts print `path: ok` and their
-duration; errors go to stderr in the format below, and the exit status is non-zero if any
-script failed, so it suits CI and an editor's `:make`. Errors found while sampling are
-prefixed with the time, as in `scene.rhai: at 0.50s: ...`.
-
-## Editors
-
-`fastanim lsp` is a language server on stdin and stdout. Point your editor's LSP client for
-`.rhai` files at it. It bakes each open script as you type and marks the error, if any, at its
-line and column. It also completes function and constant names, and the variables, functions and
-parameters the script declares. Hover shows a function's signatures or the line declaring a name.
-Output from a script's `print` and `debug` goes to stderr.
-
-Both setups below expect `fastanim` on your `PATH` (see [Install](introduction.md#install)).
-
-### Neovim
-
-Neovim 0.11 or later. Add to your `init.lua`:
-
-```lua
-vim.filetype.add({ extension = { rhai = "rhai" } })
-vim.lsp.config("fastanim", {
-  cmd = { "fastanim", "lsp" },
-  filetypes = { "rhai" },
-  root_markers = { ".git" },
-})
-vim.lsp.enable("fastanim")
-```
-
-Errors show as diagnostics. Completion comes through `<C-x><C-o>` or your completion plugin.
-Hover is `K`. `:checkhealth vim.lsp` shows whether the server started.
-
-### Zed
-
-Zed starts a language server only when an extension declares it, so fastanim ships one in
-`editors/zed`. Zed compiles it to WebAssembly itself, which needs Rust installed through
-[rustup](https://rustup.rs).
-
-1. Install the `rhai` extension from the extensions page (`zed: extensions`). It gives Zed the
-   Rhai language that the server attaches to.
-2. Clone the fastanim repository. Run `zed: install dev extension` and pick its `editors/zed`
-   directory.
-3. Open a `.rhai` file. `dev: open language server logs` shows the server's output and any
-   error starting it.
+The preview window can be opened once per Python process. `Timeline.svg(t)` draws over the
+scene's background unless given another `background=`.
 
 ## Errors
 
-Errors are reported as `path:line:col: message`, for example:
-
-```text
-scene.rhai:3:14: Function not found: point (i64, i64)
-```
+Errors are raised as Python exceptions, with a traceback through the scene file:
+`SceneError` for misuse of the scene, such as animating a mobject that isn't in it, and
+`TypesetError` for text that doesn't typeset. An error in an [updater](updaters.md) or other
+closure is raised at the next `s.play` or `s.wait` after it.

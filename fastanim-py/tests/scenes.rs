@@ -305,7 +305,7 @@ fn run(src: &str) {
 
 #[test]
 fn exports_svg() {
-    // Without the `preview` extra, SVG is the one format; with it, Bevy writes the same files.
+    // Without the `preview` feature, SVG is the one format; with it, Bevy writes the same files.
     run(r##"
 import os, tempfile
 from fastanim import *
@@ -373,7 +373,7 @@ assert tl.image(1) is None
 
 #[cfg(not(feature = "preview"))]
 #[test]
-fn rendering_needs_the_preview_extra() {
+fn rendering_needs_the_preview_feature() {
     run(r##"
 from fastanim import *
 
@@ -385,7 +385,7 @@ for f in (lambda: s.render("out.mp4"), lambda: s.still("frame.png"), s.preview):
     try:
         f()
     except RuntimeError as e:
-        assert "pip install fastanim[preview]" in str(e), e
+        assert "only svg output works" in str(e), e
     else:
         raise AssertionError("expected RuntimeError")
 "##);

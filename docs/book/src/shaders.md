@@ -4,20 +4,21 @@
 The desktop preview and `fastanim render` draw it. SVG output and the browser player can't run
 shaders, so they draw the shape's solid fill instead.
 
-```rhai
-let plasma = `
+```python
+PLASMA = """
 fn shade(uv: vec2<f32>) -> vec4<f32> {
     let p = (uv - 0.5) * shape.size;
     let t = shape.time;
     let v = sin(p.x * 3.0 + t) + sin(p.y * 3.0 - t) + sin(length(p) * 4.0 - t * 2.0);
     let c = 0.5 + 0.5 * cos(v + vec3<f32>(0.0, 2.0, 4.0));
     return vec4<f32>(c * shape.color.rgb, 1.0);
-}`;
-let disc = scene.add(circle(1.5).fill(BLUE).shader(plasma));
-scene.play(create(disc));
+}"""
+
+disc = s.add(circle(1.5, fill=BLUE).shader(PLASMA))
+s.play(create(disc))
 ```
 
-The full scene is `fastanim-script/scenes/shader.rhai`.
+The Rhai version of this scene is `fastanim-script/scenes/shader.rhai`.
 
 ## Writing `shade`
 
@@ -63,10 +64,3 @@ a plain fill switches at the end too.
 Each shader is drawn into a texture at the output's resolution, at most 2048 pixels a side.
 The preview uses 1080p resolution whatever the window size.
 
-## Python
-
-The Python method has the same name and takes the same source string:
-
-```python
-disc = s.add(circle(1.5, fill=BLUE).shader(plasma))
-```

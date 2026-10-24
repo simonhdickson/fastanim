@@ -48,11 +48,6 @@ enum Command {
         #[command(flatten)]
         args: StillArgs,
     },
-    /// Write a Rhai scene's typeset text to a `.bundle` beside it, for the web player
-    Bundle {
-        /// The scene script
-        script: PathBuf,
-    },
     /// Run Rhai scenes without a window and report their errors as `path:line:col: message`
     Check {
         /// The scene scripts
@@ -104,11 +99,6 @@ fn run(command: Command) -> Result<(), String> {
         Command::Still { script, args } => {
             fastanim_bevy::run_command(Some(BevyCommand::Still(args)), bake(&script)?, None)
         }
-        Command::Bundle { script } => bake(&script).and_then(|_| {
-            let out = script.with_extension("bundle");
-            fs::write(&out, fastanim_text::export_bundle())
-                .map_err(|e| format!("{}: {e}", out.display()))
-        }),
         Command::Check { scripts, fps } => check(&scripts, fps),
         Command::Profile { script, runs } => profile(&script, runs),
         Command::ScriptApi => {

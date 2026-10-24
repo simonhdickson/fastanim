@@ -12,34 +12,37 @@ Each text is laid out into per-glyph shapes, split into tokens that
 | `code(src, lang)` | Syntax-highlighted source code, e.g. `code(src, "rust")` |
 | `list([v1, v2, ...])` | A row of boxed values, centered on the origin |
 
-```rhai
-let a = math_tex("a = sqrt(c^2 - b^2)");
-scene.add(a);
-scene.add(latex(`\frac{a}{b} + \sqrt{c}`).next_to(a, DOWN));
-scene.add(list([3, 1, 2]).to_edge(DOWN));
+```python
+a = math_tex("a = sqrt(c^2 - b^2)")
+s.add(a)
+s.add(latex(r"\frac{a}{b} + \sqrt{c}").next_to(a, DOWN))
+s.add(list([3, 1, 2]).to_edge(DOWN))
 ```
 
-Rhai backtick strings span lines, which suits `code`:
+`from fastanim import *` replaces Python's `list` with this one; `builtins.list` is still
+Python's. Raw strings (`r"..."`) keep LaTeX's backslashes, and
+triple-quoted strings suit `code`:
 
-```rhai
-const SRC = `fn main() {
+```python
+SRC = """fn main() {
     println!("hi");
-}`;
-let c = scene.add(code(SRC, "rust").scale(0.8));
+}"""
+
+c = s.add(code(SRC, "rust").scale(0.8))
 ```
 
 ## Fonts
 
-`text`, `math_tex`, `latex` and `code` take an options map as their last argument. Its one
-option so far is `font`, a font family name: one of the bundled fonts (Libertinus Serif,
-New Computer Modern, New Computer Modern Math, DejaVu Sans Mono), or one loaded from a file
-with `load_font(path)`. `load_font` takes a TTF, OTF, TTC or OTC file, relative to the script's
-directory, and returns the families it holds; loading the same file again does nothing.
+`text`, `math_tex`, `latex` and `code` take a `font=` keyword, a font family name: one of the
+bundled fonts (Libertinus Serif, New Computer Modern, New Computer Modern Math, DejaVu Sans
+Mono), or one loaded from a file with `load_font(path)`. `load_font` takes a TTF, OTF, TTC or OTC
+file, relative to the current directory, and returns the families it holds; loading the same
+file again does nothing.
 
-```rhai
-let families = load_font("fonts/Inter-Regular.ttf");   // ["Inter"]
-let title = scene.add(text("Hello", #{font: "Inter"}).to_edge(UP));
-scene.add(code("let x = 1;", "rust", #{font: "DejaVu Sans Mono"}));
+```python
+families = load_font("fonts/Inter-Regular.ttf")   # ["Inter"]
+title = s.add(text("Hello", font="Inter").to_edge(UP))
+s.add(code("let x = 1;", "rust", font="DejaVu Sans Mono"))
 ```
 
 An unknown family is an error rather than a silent fallback. Math in another font falls back
@@ -54,13 +57,13 @@ Texts take the [positioning methods](shapes.md#positioning), plus:
 | --- | --- |
 | `.fill(color)` | Color every glyph |
 | `.rotate(angle)` | Rotate about the center |
-| `.glyphs` | An array of the glyph shapes |
+| `.glyphs` | A list of the glyph shapes |
 
 ## Animating text
 
 Most animations apply to every glyph at once. `write` and `unwrite` draw glyph by glyph;
 `move_to`, `scale` and `rotate` move the text as a whole.
 
-A text cannot be read back with `scene.get`, used with `scene.always`, or passed to `transform`
+A text cannot be read back with `s.get`, used with `s.always`, or passed to `transform`
 or `replacement_transform`; those need shapes. Use [`transform_diff`](diffs.md) to change a
 text into another.
