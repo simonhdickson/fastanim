@@ -1,5 +1,5 @@
 # Build the browser playground and serve it on http://localhost:8080, rebuilding on change
-web:
+web: pyodide-wheel
     cd fastanim-web && trunk serve
 
 # Build the scripting docs and serve them on http://localhost:3000, rebuilding on change
@@ -21,3 +21,11 @@ pyodide-wheel:
     # Without the `preview` feature: Bevy doesn't build for the browser.
     cd fastanim-py && RUSTUP_TOOLCHAIN="$rust" MATURIN_PEP517_ARGS="--no-default-features" \
         $pyodide build -o ../fastanim-web/wheels
+
+# Build the Python package into .venv and open JupyterLab on the example scenes, for trying inline display
+jupyter:
+    uv venv --allow-existing -q .venv
+    uv pip install -q -p .venv maturin jupyterlab
+    # Release: a debug build renders video slowly.
+    VIRTUAL_ENV=.venv .venv/bin/maturin develop -q -r -m fastanim-py/Cargo.toml
+    .venv/bin/jupyter lab --notebook-dir fastanim-py/scenes

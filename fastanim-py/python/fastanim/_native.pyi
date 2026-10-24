@@ -259,6 +259,8 @@ class Timeline:
         quality: _Quality = "1080p60",
     ) -> None:
         """Writes the frame at `at` seconds, or frame index `frame`, as `png` or `svg`."""
+    def _repr_html_(self) -> str:
+        """Jupyter's rich display: the scene as an inline video."""
 
 class SceneFn:
     """A scene function, made with `@scene`."""
@@ -282,6 +284,8 @@ class SceneFn:
         quality: _Quality = "1080p60",
     ) -> None:
         """Bakes the scene and writes one frame; see `Timeline.still`."""
+    def _repr_html_(self) -> str:
+        """Jupyter's rich display: the scene as an inline video."""
     def preview(self, *, watch: bool = True) -> None:
         """Opens a window that plays the scene with a scrubber, and blocks until it closes."""
     @property

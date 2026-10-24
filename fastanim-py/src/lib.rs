@@ -1243,6 +1243,12 @@ impl Timeline {
         let t = frame.map_or(at, |n| q.frame_time(n));
         render::export(py, &self.0, path, q, (t, t))
     }
+
+    /// Jupyter's rich display: the scene as an inline video.
+    fn _repr_html_(slf: &Bound<'_, Self>) -> PyResult<String> {
+        let html = slf.py().import("fastanim._notebook")?.getattr("html")?;
+        html.call1((slf,))?.extract()
+    }
 }
 
 /// A linear gradient's start and end points and its `(offset, css)` stops.
@@ -1295,6 +1301,11 @@ impl SceneFn {
         quality: &str,
     ) -> PyResult<()> {
         bake(py, &self.f)?.still(py, path, at, frame, quality)
+    }
+
+    /// Jupyter's rich display: bakes the scene and shows it as an inline video.
+    fn _repr_html_(&self, py: Python<'_>) -> PyResult<String> {
+        Timeline::_repr_html_(&Bound::new(py, bake(py, &self.f)?)?)
     }
 
     /// Opens a window that plays the scene with a scrubber, and blocks until it closes. With

@@ -32,6 +32,8 @@ python -m fastanim render hello.py -o hello.mp4      # mp4, webm, gif, png or sv
 python -m fastanim still hello.py --at 2s -o frame.png
 ```
 
+In Jupyter, a cell ending in a scene (`hello`) or its timeline (`hello.bake()`) plays it inline.
+
 Video export needs `ffmpeg` on your `PATH`. The package ships type stubs for completion and
 type checking.
 

@@ -79,6 +79,21 @@ tl.render("frames.svg", quality="480p15")         # a directory of SVG frames
 The preview window can be opened once per Python process. `Timeline.svg(t)` draws over the
 scene's background unless given another `background=`.
 
+## Jupyter
+
+A cell that ends in a `@scene` function, or a timeline from `.bake()`, shows the scene as a
+video under the cell, rendered at `720p30` with its sounds. The video is embedded in the
+notebook, so long scenes make large `.ipynb` files; for those, `render` to a file and link it.
+In JupyterLite (Pyodide), which can't render video, the cell shows the first frame instead.
+
+```python
+@scene
+def hello(s):
+    s.play(create(s.add(circle(1))))
+
+hello
+```
+
 ## Errors
 
 Errors are raised as Python exceptions, with a traceback through the scene file:

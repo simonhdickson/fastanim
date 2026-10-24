@@ -411,6 +411,21 @@ assert tl.image(1) is None
 "##);
 }
 
+#[cfg(feature = "preview")]
+#[test]
+fn jupyter_shows_an_inline_video() {
+    run(r##"
+from fastanim import *
+
+@scene
+def s(s):
+    s.play(create(s.add(circle(1))), run_time=0.5)
+
+for html in (s._repr_html_(), s.bake()._repr_html_()):
+    assert html.startswith('<video controls') and "data:video/mp4;base64," in html, html[:200]
+"##);
+}
+
 #[cfg(not(feature = "preview"))]
 #[test]
 fn rendering_needs_the_preview_feature() {
