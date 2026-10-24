@@ -28,9 +28,9 @@ comes from the engines:
 ## Running
 
 ```sh
-# fastanim with video export, from a checkout (into a virtualenv)
+# fastanim from a checkout, to bench this code (into a virtualenv); `pip install fastanim` for
+# the released one
 (cd fastanim-py && maturin develop --release)
-(cd fastanim-py/preview && maturin develop --release)
 pip install manim
 
 ./bench.sh 10 50 100 200                  # 1080p60, 10 s per run

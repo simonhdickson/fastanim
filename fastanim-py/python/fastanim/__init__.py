@@ -6,4 +6,5 @@ The browser's build (Pyodide) has no renderer: it records, bakes and exports SVG
 """
 
 from ._native import *  # noqa: F401,F403
-from ._native import SceneError, SceneFn, TypesetError  # noqa: F401
+# Re-exported by name too, so type checkers see them as the package's own.
+from ._native import SceneError as SceneError, SceneFn as SceneFn, TypesetError as TypesetError

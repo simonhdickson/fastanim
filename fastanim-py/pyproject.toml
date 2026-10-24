@@ -7,7 +7,24 @@ name = "fastanim"
 description = "Animated math and code scenes, recorded once and played anywhere"
 requires-python = ">=3.10"
 license = "MIT"
+readme = "README.md"
+keywords = ["animation", "manim", "math", "diff", "typst"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Free Threading",
+    "Programming Language :: Rust",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Typing :: Typed",
+]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/simonhdickson/fastanim"
+Documentation = "https://simonhdickson.github.io/fastanim/docs/"
+Playground = "https://simonhdickson.github.io/fastanim/"
+Source = "https://github.com/simonhdickson/fastanim"
+Issues = "https://github.com/simonhdickson/fastanim/issues"
 
 [tool.maturin]
 python-source = "python"

@@ -309,6 +309,41 @@ fn run(src: &str) {
 }
 
 #[test]
+fn stubs_match_the_module() {
+    // `_native.pyi` names every public function, class, method and constant, and nothing else.
+    run(&format!(
+        r##"
+import ast, inspect
+from fastanim import _native
+
+stub = ast.parse(open("{}/python/fastanim/_native.pyi").read())
+public = lambda names: {{n for n in names if not n.startswith("_")}}
+
+def names(body):
+    out = set()
+    for node in body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, ast.AnnAssign):
+            out.add(node.target.id)
+    return out
+
+classes = {{c.name: c for c in stub.body if isinstance(c, ast.ClassDef)}}
+assert public(names(stub.body)) == public(dir(_native)), \
+    public(names(stub.body)) ^ public(dir(_native))
+base = names(classes["_Positioned"].body)
+for name, c in classes.items():
+    if name.startswith("_") or issubclass(getattr(_native, name), BaseException):
+        continue
+    stubbed = public(names(c.body) | (base if c.bases else set()))
+    actual = public(vars(getattr(_native, name)))
+    assert stubbed == actual, (name, stubbed ^ actual)
+"##,
+        env!("CARGO_MANIFEST_DIR")
+    ));
+}
+
+#[test]
 fn exports_svg() {
     // Without the `preview` feature, SVG is the one format; with it, Bevy writes the same files.
     run(r##"

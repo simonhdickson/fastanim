@@ -36,6 +36,10 @@ again every time you save it.
 pip install fastanim
 ```
 
+[`fastanim` on PyPI](https://pypi.org/project/fastanim/) has wheels for Linux (x86_64), macOS
+(Apple Silicon) and Windows (x86_64), for CPython 3.10+ and free-threaded 3.14t. On other
+platforms pip builds it from source, which needs Rust 1.92+.
+
 From a checkout, build it into a virtualenv with [maturin](https://www.maturin.rs):
 
 ```sh
@@ -43,6 +47,9 @@ maturin develop -m fastanim-py/pyproject.toml
 ```
 
 Video export also needs `ffmpeg` on your `PATH`.
+
+The package ships type stubs, so editors complete the API and type checkers such as mypy and
+pyright check scenes against it.
 
 ## Try it in the browser
 

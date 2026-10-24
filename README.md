@@ -1,5 +1,7 @@
 # fastanim
 
+[![PyPI](https://img.shields.io/pypi/v/fastanim)](https://pypi.org/project/fastanim/)
+
 A programmatic mathematical-animation engine in Rust, built on [Bevy](https://bevyengine.org),
 inspired by [manim](https://github.com/ManimCommunity/manim).
 
@@ -13,7 +15,8 @@ real changes fade or morph.
 pip install fastanim
 ```
 
-Video export also needs `ffmpeg` on your `PATH`. Or try it with no install in the
+[`fastanim` on PyPI](https://pypi.org/project/fastanim/) has wheels for Linux (x86_64), macOS
+(Apple Silicon) and Windows (x86_64), for CPython 3.10+ and free-threaded 3.14t. Video export also needs `ffmpeg` on your `PATH`. Or try it with no install in the
 [browser playground](https://simonhdickson.github.io/fastanim/), which runs Python scenes on
 [Pyodide](https://pyodide.org).
 
