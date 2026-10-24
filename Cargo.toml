@@ -5,18 +5,18 @@ members = ["fastanim*"]
 exclude = ["fastanim-web"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/simonhdickson/fastanim"
 
 [workspace.dependencies]
-fastanim-diff = { path = "fastanim-diff", version = "0.1.1" }
-fastanim-core = { path = "fastanim-core", version = "0.1.1" }
-fastanim-text = { path = "fastanim-text", version = "0.1.1" }
-fastanim-bevy = { path = "fastanim-bevy", version = "0.1.1" }
-fastanim-script = { path = "fastanim-script", version = "0.1.1" }
+fastanim-diff = { path = "fastanim-diff", version = "0.1.2" }
+fastanim-core = { path = "fastanim-core", version = "0.1.2" }
+fastanim-text = { path = "fastanim-text", version = "0.1.2" }
+fastanim-bevy = { path = "fastanim-bevy", version = "0.1.2" }
+fastanim-script = { path = "fastanim-script", version = "0.1.2" }
 
 [workspace.lints.rust]
 missing_docs = "warn"
