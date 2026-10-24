@@ -2618,7 +2618,7 @@ dependencies = [
 
 [[package]]
 name = "fastanim"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fastanim-core",
  "fastanim-diff",
@@ -2627,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "fastanim-bevy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bevy",
  "bevy_vello",
@@ -2639,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "fastanim-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -2654,7 +2654,7 @@ dependencies = [
 
 [[package]]
 name = "fastanim-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fastanim-diff",
  "hound",
@@ -2666,14 +2666,14 @@ dependencies = [
 
 [[package]]
 name = "fastanim-diff"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "fastanim-py"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fastanim-bevy",
  "fastanim-core",
@@ -2685,7 +2685,7 @@ dependencies = [
 
 [[package]]
 name = "fastanim-script"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fastanim-bevy",
  "fastanim-core",
@@ -2696,7 +2696,7 @@ dependencies = [
 
 [[package]]
 name = "fastanim-text"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fastanim-core",
  "mitex",
