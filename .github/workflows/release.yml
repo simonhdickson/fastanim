@@ -45,7 +45,8 @@ jobs:
 
       - name: Deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev libwayland-dev libxkbcommon-dev libasound2-dev
+        # clang and mold: .cargo/config.toml links with them on Linux.
+        run: sudo apt-get update && sudo apt-get install -y clang mold libudev-dev libwayland-dev libxkbcommon-dev libasound2-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -87,6 +88,11 @@ jobs:
             3.14t
 
       - uses: PyO3/maturin-action@v1
+        env:
+          # The manylinux container has neither the clang nor the mold that .cargo/config.toml
+          # links with on Linux; RUSTFLAGS replaces its rustflags.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: gcc
+          RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-fuse-ld=bfd' || '' }}
         with:
           args: --release --out dist -m fastanim-py/Cargo.toml -i python3.10 python3.14t
           manylinux: "2_28"
