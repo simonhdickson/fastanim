@@ -69,6 +69,7 @@ Style methods return a new shape, so they chain.
 | `.line_join(join)` | Corners: `"round"` (default), `"miter"` or `"bevel"` |
 | `.dashed()` | The outline cut into 15 dashes, each half its period |
 | `.dashed(n)` / `.dashed(n, ratio)` | `n` dashes, each `ratio` (0–1) of its period |
+| `.shader(wgsl)` | Paint the fill with a WGSL shader; see [Shader fills](shaders.md) |
 | `.z_index(n)` | Draw order; higher draws on top |
 | `.rotate(angle)` | Rotate by `angle` radians |
 
