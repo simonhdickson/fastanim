@@ -40,8 +40,15 @@ jobs:
     permissions:
       contents: write
 
+    env:
+      RUSTC_WRAPPER: "sccache"
+      SCCACHE_GHA_ENABLED: "true"
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Deps
         if: runner.os == 'Linux'
@@ -95,6 +102,8 @@ jobs:
           RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-fuse-ld=bfd' || '' }}
         with:
           args: --release --out dist -m fastanim-py/Cargo.toml -i python3.10 python3.14t
+          # Set up inside the manylinux container too, on the GitHub Actions cache.
+          sccache: "true"
           manylinux: "2_28"
           # Bevy links audio, input and windowing libraries.
           before-script-linux: dnf install -y systemd-devel libxkbcommon-devel wayland-devel alsa-lib-devel
