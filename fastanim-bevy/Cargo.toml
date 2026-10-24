@@ -22,5 +22,10 @@ audio = ["dep:rodio"]
 [dev-dependencies]
 fastanim-text.workspace = true
 
+# The plain-Rust baseline of `bench/epicycles`, kept beside the other versions of the scene.
+[[example]]
+name = "epicycles"
+path = "../bench/epicycles/epicycles.rs"
+
 [lints]
 workspace = true

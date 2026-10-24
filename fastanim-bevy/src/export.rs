@@ -289,7 +289,16 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
     }
     let codec: &[&str] = match ext {
         "mp4" => &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"],
-        "webm" => &["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "30"],
+        "webm" => &[
+            "-c:v",
+            "libvpx-vp9",
+            "-pix_fmt",
+            "yuva420p",
+            "-b:v",
+            "0",
+            "-crf",
+            "30",
+        ],
         "gif" => &["-vf", "split[a][b];[a]palettegen[p];[b][p]paletteuse"],
         "png" if still => &["-frames:v", "1", "-update", "1"],
         "png" => &[],

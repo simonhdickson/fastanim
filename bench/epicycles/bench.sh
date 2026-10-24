@@ -6,12 +6,14 @@
 #   QUALITY=1080p60 DURATION=10 ./bench.sh 10 50 100 200
 #
 # Needs `manim` and the `fastanim` package with its preview extra on PYTHON (default python3),
-# and the `fastanim` CLI as FASTANIM (default: fastanim on PATH).
+# the `fastanim` CLI as FASTANIM (default: fastanim on PATH), and the Rust example as RUST
+# (`cargo build --release -p fastanim-bevy --example epicycles`).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PYTHON=${PYTHON:-python3}
 FASTANIM=${FASTANIM:-fastanim}
+RUST=${RUST:-../../target/release/examples/epicycles}
 QUALITY=${QUALITY:-1080p60}
 export DURATION=${DURATION:-10}
 out=$(mktemp -d)
@@ -31,7 +33,7 @@ seconds() {
     echo "$(date +%s.%N) - $start" | bc
 }
 
-printf '%6s %10s %10s %10s %8s\n' N manim fastanim rhai speedup
+printf '%6s %10s %10s %10s %10s %8s\n' N manim fastanim rhai rust speedup
 [ $# -gt 0 ] || set -- 10 50 100 200
 for N in "$@"; do
     export N
@@ -41,5 +43,6 @@ for N in "$@"; do
     [[ $DURATION == *.* ]] && d=$DURATION || d=$DURATION.0
     sed "s/^let n = .*;/let n = $N;/; s/^let duration = .*;/let duration = $d;/" epicycles.rhai >"$out/epicycles.rhai"
     r=$(seconds "$FASTANIM" render "$out/epicycles.rhai" -q "$QUALITY" -o "$out/rhai.mp4")
-    printf '%6d %9.1fs %9.1fs %9.1fs %7.1fx\n' "$N" "$m" "$f" "$r" "$(echo "$m / $f" | bc -l)"
+    x=$(seconds "$RUST" render -q "$QUALITY" -o "$out/rust.mp4")
+    printf '%6d %9.1fs %9.1fs %9.1fs %9.1fs %7.1fx\n' "$N" "$m" "$f" "$r" "$x" "$(echo "$m / $f" | bc -l)"
 done

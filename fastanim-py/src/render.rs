@@ -108,7 +108,9 @@ pub(crate) fn export(
 #[cfg(feature = "preview")]
 fn gil_enabled(py: Python<'_>) -> bool {
     let is_enabled = py.import("sys").and_then(|s| s.getattr("_is_gil_enabled"));
-    is_enabled.and_then(|f| f.call0()?.extract()).unwrap_or(true)
+    is_enabled
+        .and_then(|f| f.call0()?.extract())
+        .unwrap_or(true)
 }
 
 /// Times of the frames covering `range` at `fps`, on the global frame grid.
