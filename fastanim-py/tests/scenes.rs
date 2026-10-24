@@ -115,6 +115,11 @@ fn square_to_circle_matches_rhai() {
 }
 
 #[test]
+fn boolean_operations_matches_rhai() {
+    assert_same(&rhai("boolean_operations"), &script("boolean_operations"));
+}
+
+#[test]
 fn styles_matches_rhai() {
     assert_same(&rhai("styles"), &script("styles"));
 }
