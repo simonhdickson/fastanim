@@ -5,3 +5,4 @@ fastanim-web/dist/
 __pycache__/
 fastanim-py/python/fastanim/*.so
 bench/*/media/
+.ipynb_checkpoints/
