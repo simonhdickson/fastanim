@@ -4,7 +4,7 @@
 
 const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
 // shortcut: the wheel's name is fixed to the workspace version, so bump it with Cargo.toml; read it from a manifest if that gets missed.
-const WHEEL = new URL("wheels/fastanim-0.1.2-cp310-abi3-pyemscripten_2026_0_wasm32.whl", import.meta.url);
+const WHEEL = new URL("wheels/fastanim-0.1.3-cp310-abi3-pyemscripten_2026_0_wasm32.whl", import.meta.url);
 
 let pyodide = null;
 
