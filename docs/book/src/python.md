@@ -49,8 +49,8 @@ python -m fastanim still hello.py --at 2.5s -o frame.png
 When a file has more than one `@scene`, name the one to run: `hello.py:hello`.
 
 Preview runs the file again whenever it is saved and keeps the current time; if the new version
-fails, the error is printed and the last good scene stays up. Modules the scene imports are not
-reloaded. The file runs with `__name__` set to something other than `"__main__"`, so code under
+fails, the error is printed and the last good scene stays up. Modules it imports from its own
+folder are watched too, and imported afresh on each run; installed packages are not. The file runs with `__name__` set to something other than `"__main__"`, so code under
 `if __name__ == "__main__":` is skipped.
 
 ## From code

@@ -37,8 +37,9 @@ writer thread piping raw RGBA into ffmpeg.
 | `--hw --gpu-yuv` | 3.7 s | 240% |
 
 - **Double-buffered readback** (3 readback buffers in flight, wait per submission index):
-  output byte-identical, ~2% faster. Readback was never the bottleneck. Only worth adding once
-  the ffmpeg feed is no longer the limit.
+  output byte-identical, ~2% faster. Readback was never the bottleneck here. Merged since
+  (`FrameRenderer::submit`/`finish`) for GPU-heavy scenes; on `bench/epicycles` at N=400 it
+  made no measurable difference either, as the GIL-bound Python updaters were the limit.
 - **Bigger pipe buffer:** small win, needs `libc` and `unsafe`. Not kept.
 - **`--hw`:** `h264_vaapi` instead of `libx264`, with
   `-vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -rc_mode CQP -qp 18`.
@@ -60,4 +61,3 @@ writer thread piping raw RGBA into ffmpeg.
 
 1. Cherry-pick `--gpu-yuv` from the branch. It works on any GPU and gives most of the gain.
 2. Add `--hw` on top for the remaining ~1.3×, ideally with a device option and NVENC.
-3. After that, double-buffered readback may start to pay off. Re-measure first.

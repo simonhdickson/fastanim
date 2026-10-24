@@ -1,7 +1,7 @@
 // <fastanim-player src="scene.rhai"></fastanim-player>: a scene script played in the page,
 // with play/pause, a scrubber, marker buttons and a timeline of the scene's plays, updaters and
-// sounds (SPEC §14.4); drag along it to scrub, Shift+drag to select a region that playback loops
-// over. A `.bundle` beside the script, from `fastanim bundle`, is loaded too, so its text is never
+// sounds (SPEC §14.4), five lanes tall and scrolling past that; drag along it to scrub,
+// Shift+drag to select a region that playback loops over. A `.bundle` beside the script, from `fastanim bundle`, is loaded too, so its text is never
 // typeset in the browser.
 // Focus it for keys: Space play/pause, ←/→ step a frame, [/] previous/next marker, Esc clear the
 // loop region.
@@ -14,6 +14,10 @@
 // It fires `baked` (detail: { duration, markers, events, bakeMs, typesetMs, planMs, snapshotMs }) and `bakeerror`
 // (detail: the message, also shown under the player); on error the last good scene stays.
 
+const LANE = 24;
+// Lanes the timeline shows at once; it scrolls through the rest.
+const MAX_LANES = 5;
+
 const STYLE = `
   :host { display: block; color: #ddd; font: 14px system-ui, sans-serif; outline: none; }
   canvas { width: 100%; aspect-ratio: 16 / 9; display: block; background: #000; }
@@ -24,7 +28,8 @@ const STYLE = `
   .time { font-variant-numeric: tabular-nums; }
   .error { color: #f77; white-space: pre-wrap; font-family: ui-monospace, monospace; }
   .error:empty { display: none; }
-  .tracks { position: relative; margin-top: 8px; background: #111; cursor: pointer; user-select: none; }
+  .tracks { margin-top: 8px; background: #111; max-height: ${MAX_LANES * LANE}px; overflow-y: auto; }
+  .lanes { position: relative; cursor: pointer; user-select: none; }
   .tracks .ev { position: absolute; height: 20px; min-width: 3px; padding: 0 4px; box-sizing: border-box;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 18px;
     background: #1e3d4a; border: 1px solid #3a7990; border-radius: 3px; }
@@ -35,7 +40,6 @@ const STYLE = `
   .tracks .head { width: 2px; margin-left: -1px; background: #58c4dd; }
   .tracks .tick { width: 1px; background: #fff6; }
 `;
-const LANE = 24;
 
 class FastanimPlayer extends HTMLElement {
   static observedAttributes = ["src"];
@@ -52,10 +56,10 @@ class FastanimPlayer extends HTMLElement {
         <input class="scrub" type="range" min="0" max="0" step="0.001" value="0" aria-label="Time">
         <span class="time">0.00 / 0.00</span>
       </div>
-      <div class="tracks" hidden></div>
+      <div class="tracks" hidden><div class="lanes"></div></div>
       <div class="bar markers"></div>
       <div class="error" role="alert"></div>`;
-    for (const c of ["play", "scrub", "time", "tracks", "markers", "error"]) {
+    for (const c of ["play", "scrub", "time", "tracks", "lanes", "markers", "error"]) {
       this.#ui[c] = root.querySelector("." + c);
     }
     if (!this.hasAttribute("tabindex")) this.tabIndex = 0;
@@ -69,7 +73,8 @@ class FastanimPlayer extends HTMLElement {
 
     this.#ui.play.onclick = () => this.#setPlaying(!this.#playing);
     this.#ui.scrub.oninput = (e) => this.#seek(+e.target.value);
-    const tracks = this.#ui.tracks;
+    // On the lanes rather than the scrolling box, so its scrollbar neither scrubs nor counts.
+    const tracks = this.#ui.lanes;
     const at = (e) => {
       const r = tracks.getBoundingClientRect();
       return Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * this.#duration;
@@ -175,8 +180,8 @@ class FastanimPlayer extends HTMLElement {
   #tracks(events) {
     const pct = (t) => this.#pct(t);
     const lanes = Math.max(0, ...events.map((e) => e.lane + 1));
-    const tracks = this.#ui.tracks;
-    tracks.hidden = events.length === 0;
+    this.#ui.tracks.hidden = events.length === 0;
+    const tracks = this.#ui.lanes;
     tracks.style.height = `${lanes * LANE}px`;
     const blocks = events.map((e) => {
       const div = document.createElement("div");

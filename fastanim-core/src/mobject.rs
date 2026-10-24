@@ -249,6 +249,11 @@ impl VState {
         Self::new(VPath::polyline(points, true))
     }
 
+    /// Open path of straight segments through `points`.
+    pub fn polyline(points: &[Point]) -> Self {
+        Self::new(VPath::polyline(points, false))
+    }
+
     /// Line segment.
     pub fn line(a: Point, b: Point) -> Self {
         Self::new(VPath::polyline(&[a, b], false))

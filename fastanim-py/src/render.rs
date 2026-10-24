@@ -84,6 +84,9 @@ pub(crate) fn export(
             },
             output,
             range,
+            // Python updaters run one at a time under the GIL, and more threads only fight
+            // over it: on bench/epicycles one is ~20% faster than sixteen.
+            workers: tl.has_updaters().then_some(1),
         };
         py.detach(|| fastanim_bevy::export::export(tl, &ex))
             .map_err(PyRuntimeError::new_err)
@@ -161,22 +164,45 @@ pub(crate) fn preview(
 
 #[cfg(feature = "preview")]
 fn reloader(path: PathBuf, name: String) -> fastanim_bevy::Reload {
-    let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    let mut seen = mtime(&path);
+    let (mut files, mut seen) = watched(&path);
     Box::new(move || {
-        let now = mtime(&path);
-        if now == seen {
+        if files.iter().map(|p| mtime(p)).eq(seen.iter().copied()) {
             return None;
         }
-        seen = now;
-        Python::attach(|py| {
+        let reloaded = Python::attach(|py| {
             let load = py.import("fastanim._load")?.getattr("load")?;
             crate::bake_scene(&load.call1((&path, &name))?)
         })
         .inspect(|_| eprintln!("reloaded {}", path.display()))
         .inspect_err(|e| Python::attach(|py| e.print(py)))
-        .ok()
+        .ok();
+        // A failed run may not have imported every module, so keep watching the last good set.
+        // Either way a broken scene isn't retried until the next save.
+        if reloaded.is_some() {
+            (files, seen) = watched(&path);
+        } else {
+            seen = files.iter().map(|p| mtime(p)).collect();
+        }
+        reloaded
     })
+}
+
+/// The scene file at `path` and the modules next to it that it imports, with their
+/// modification times.
+#[cfg(feature = "preview")]
+fn watched(path: &Path) -> (Vec<PathBuf>, Vec<Option<std::time::SystemTime>>) {
+    let files = Python::attach(|py| {
+        let watched = py.import("fastanim._load")?.getattr("watched")?;
+        watched.call1((path,))?.extract::<Vec<PathBuf>>()
+    })
+    .unwrap_or_else(|_| vec![path.to_owned()]);
+    let mtimes = files.iter().map(|p| mtime(p)).collect();
+    (files, mtimes)
+}
+
+#[cfg(feature = "preview")]
+fn mtime(p: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
 }
 
 /// The file and name of scene function `f`, if it was defined in a file that exists.

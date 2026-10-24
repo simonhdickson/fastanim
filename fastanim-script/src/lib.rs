@@ -320,10 +320,10 @@ impl Ctx {
     pub fn always(
         &mut self,
         m: &Mob,
-        f: impl Fn(&SceneState, f32) -> Result<VState, String> + Send + Sync + 'static,
+        f: impl Fn(&Arc<SceneState>, f32) -> Result<VState, String> + Send + Sync + 'static,
     ) -> Result<(), String> {
         let id = self.shape(m)?;
-        f(self.scene.state(), 0.0)?;
+        f(&self.scene.shared_state(), 0.0)?;
         let err = self.err.clone();
         self.scene.always(id, move |st, t| {
             f(st, t).unwrap_or_else(|e| {

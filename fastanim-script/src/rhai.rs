@@ -199,7 +199,7 @@ impl SceneHandle {
 
 /// The scene as an updater sees it; index it with a shape.
 #[derive(Clone)]
-struct State(fastanim_core::SceneState);
+struct State(Arc<fastanim_core::SceneState>);
 
 fn anims(a: Array) -> Res<Vec<Anim>> {
     (a.into_iter())
@@ -460,6 +460,9 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("dot", |p: Vec2| VState::dot(p.to_point()))
         .register_fn("polygon", |a: Array| {
             Ok(VState::polygon(&points(a)?)) as Res<_>
+        })
+        .register_fn("polyline", |a: Array| {
+            Ok(VState::polyline(&points(a)?)) as Res<_>
         })
         .register_fn(
             "function_graph",
@@ -744,8 +747,6 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
             move |s: &mut SceneHandle, m: Mob, f: FnPtr| -> Res<()> {
                 let rt = rt(&slot);
                 Ok(s.lock()?.always(&m, move |st, t| {
-                    // shortcut: clones the scene per updater per frame; pass a shared handle
-                    // if scenes with many updaters get slow.
                     rt.call(&f, "a shape", (State(st.clone()), f64::from(t)))
                 })?)
             }

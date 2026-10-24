@@ -34,6 +34,7 @@ All shapes are centered on the origin unless they take points.
 | `line(a, b)` | Line from point `a` to point `b` |
 | `dot(p)` | Small filled white dot at `p` |
 | `polygon([p1, p2, ...])` | Closed polygon through the points |
+| `polyline([p1, p2, ...])` | Open path of straight segments through the points |
 | `dashed_line(a, b)` | Dashed line from `a` to `b`, dashes about 0.05 long |
 | `dashed_line(a, b, dash_length)` | The same, dashes about `dash_length` long |
 | `function_graph(f, x0, x1, segments)` | Graph of `y = f(x)` for `x` in `x0..x1`, in scene units |

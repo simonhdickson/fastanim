@@ -31,6 +31,9 @@ def load(path: str | os.PathLike[str], name: str | None = None) -> Callable[...,
     folder = os.path.dirname(os.path.abspath(path))
     if folder not in sys.path:
         sys.path.insert(0, folder)
+    # Forget the file's neighbours, so a reload imports them again with any edits.
+    for module in _local_modules(folder):
+        del sys.modules[module]
     ns = runpy.run_path(path, run_name=RUN_NAME)
     found = scenes(ns)
     if name is not None:
@@ -47,6 +50,27 @@ def load(path: str | os.PathLike[str], name: str | None = None) -> Callable[...,
     if not found:
         raise LookupError(f"{path}: no `@scene` function or `construct(scene)`")
     raise LookupError(f"{path}: pick a scene with {path}:NAME{_listing(found)}")
+
+
+def watched(path: str | os.PathLike[str]) -> list[str]:
+    """The files whose edits should reload the scene at `path`: the file itself and the modules
+    from its folder that are imported."""
+    path = os.path.abspath(path)
+    return [path, *_local_modules(os.path.dirname(path)).values()]
+
+
+def _local_modules(folder: str) -> dict[str, str]:
+    """Imported modules whose source lives under `folder`, outside installed packages."""
+    found = {}
+    for name, m in list(sys.modules.items()):
+        file = getattr(m, "__file__", None)
+        if not file or not file.endswith(".py"):
+            continue
+        file = os.path.abspath(file)
+        installed = "site-packages" in file or "dist-packages" in file
+        if file.startswith(folder + os.sep) and not installed:
+            found[name] = file
+    return found
 
 
 def _listing(found: dict[str, Any]) -> str:

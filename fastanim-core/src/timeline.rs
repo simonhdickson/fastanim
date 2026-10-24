@@ -78,7 +78,7 @@ pub struct SceneEvent {
     pub lane: usize,
 }
 
-type UpdaterFn = Arc<dyn Fn(&SceneState, f32) -> VState + Send + Sync>;
+type UpdaterFn = Arc<dyn Fn(&Arc<SceneState>, f32) -> VState + Send + Sync>;
 
 /// Sets one mobject from the scene and the time since it was registered (SPEC §4.4).
 #[derive(Clone)]
@@ -91,7 +91,8 @@ struct Updater {
 /// Records a scene imperatively, manim-style: `add`, `play`, `wait`. Nothing renders here.
 #[derive(Default)]
 pub struct Scene {
-    state: SceneState,
+    // Shared so updaters can try themselves on it without a copy; see `shared_state`.
+    state: Arc<SceneState>,
     clips: Vec<Clip>,
     cursor: f32,
     next_id: u32,
@@ -113,18 +114,24 @@ impl Scene {
     pub fn add(&mut self, m: VState) -> MobjectId {
         let id = MobjectId(self.next_id);
         self.next_id += 1;
-        self.state.insert(id, m);
+        Arc::make_mut(&mut self.state).insert(id, m);
         id
     }
 
     /// Removes a mobject at the current time.
     pub fn remove(&mut self, id: MobjectId) {
-        self.state.remove(&id);
+        Arc::make_mut(&mut self.state).remove(&id);
     }
 
     /// The scene as of the current time, e.g. for positioning relative to other mobjects.
     pub fn state(&self) -> &SceneState {
         &self.state
+    }
+
+    /// [`Self::state`] without copying it, for calling an updater on. Drop it before changing
+    /// the scene, or the change copies the state.
+    pub fn shared_state(&self) -> Arc<SceneState> {
+        self.state.clone()
     }
 
     /// Current time in seconds.
@@ -143,7 +150,7 @@ impl Scene {
             anim.sample(rate.apply(0.5), &mut mid);
             mid
         });
-        anim.sample(rate.apply(1.0), &mut self.state);
+        anim.sample(rate.apply(1.0), Arc::make_mut(&mut self.state));
         let targets = timed(&mut self.stats.snapshot_ms, || {
             changed(&before, [&mid, &self.state])
         });
@@ -208,11 +215,12 @@ impl Scene {
     /// From now on, mobject `id` is `f(scene, secs_since_now)` at every frame, until removed.
     ///
     /// `f` sees the scene as animated plus the output of updaters registered before it, so
-    /// register in dependency order. Animations still plan against the un-updated state.
+    /// register in dependency order. Animations still plan against the un-updated state. The
+    /// scene comes shared, so a script binding can keep it without copying it.
     pub fn always(
         &mut self,
         id: MobjectId,
-        f: impl Fn(&SceneState, f32) -> VState + Send + Sync + 'static,
+        f: impl Fn(&Arc<SceneState>, f32) -> VState + Send + Sync + 'static,
     ) {
         // Ends with the scene; `bake` fills it in.
         let t = self.cursor;
@@ -257,7 +265,9 @@ impl Scene {
     fn snapshot(&mut self) -> SceneState {
         self.stats.clips += 1;
         self.stats.snapshot_mobjects += self.state.len();
-        timed(&mut self.stats.snapshot_ms, || self.state.clone())
+        timed(&mut self.stats.snapshot_ms, || {
+            SceneState::clone(&self.state)
+        })
     }
 
     /// Finishes recording.
@@ -268,7 +278,7 @@ impl Scene {
         let tail = Clip {
             start: self.cursor,
             end: self.cursor,
-            before: self.state,
+            before: Arc::unwrap_or_clone(self.state),
             anim: None,
         };
         self.clips.push(tail);
@@ -355,6 +365,11 @@ impl BakedTimeline {
             .map(|&(_, t)| t)
     }
 
+    /// Whether any shape has an updater, which `eval` calls every frame.
+    pub fn has_updaters(&self) -> bool {
+        !self.updaters.is_empty()
+    }
+
     /// The scene at time `t`: the keyframe of the clip containing `t`, plus that clip sampled.
     /// Costs one clip regardless of position or evaluation order.
     pub fn eval(&self, t: f32) -> SceneState {
@@ -364,7 +379,7 @@ impl BakedTimeline {
             .partition_point(|c| c.start <= t)
             .saturating_sub(1);
         let clip = &self.clips[i];
-        let mut out = clip.before.clone();
+        let mut out = Arc::new(clip.before.clone());
         if let Some((anim, rate)) = &clip.anim {
             let len = clip.end - clip.start;
             let p = if len > 0.0 {
@@ -372,15 +387,16 @@ impl BakedTimeline {
             } else {
                 1.0
             };
-            anim.sample(rate.apply(p), &mut out);
+            anim.sample(rate.apply(p), Arc::make_mut(&mut out));
         }
         for u in self.updaters.iter().filter(|u| u.start <= t) {
             if out.contains_key(&u.id) {
                 let m = (u.f)(&out, t - u.start);
-                out.insert(u.id, m);
+                // Copies only if the updater kept the scene it was given.
+                Arc::make_mut(&mut out).insert(u.id, m);
             }
         }
-        out
+        Arc::unwrap_or_clone(out)
     }
 }
 

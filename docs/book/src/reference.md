@@ -180,6 +180,7 @@ plot(_: &mut Axes, _: Fn, _: f64, _: f64) -> Shape
 plot(_: &mut Axes, _: Fn, _: f64, _: f64, _: i64) -> Shape
 point(_: f64, _: f64) -> Point
 polygon(_: array) -> Shape
+polyline(_: array) -> Shape
 rate(_: Animation, _: Rate) -> Animation
 rectangle(_: f64, _: f64) -> Shape
 remove(_: &mut Scene, _: Mobject) -> ()

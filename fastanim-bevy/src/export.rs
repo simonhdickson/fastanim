@@ -5,6 +5,7 @@
 //! This drives Vello on its own wgpu device rather than a windowless Bevy app: the encoding is
 //! the same [`encode`] the preview uses, and nothing else in Bevy is needed to make a frame.
 
+use std::collections::VecDeque;
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -71,6 +72,12 @@ pub fn frame_times(start: f32, end: f32, fps: u32) -> impl Iterator<Item = f32> 
     (first..=last).map(move |i| i as f32 / fps as f32)
 }
 
+/// Readback buffers, so this many frames can be in flight on the GPU.
+const READBACKS: usize = 3;
+
+/// Says when a readback buffer has been mapped.
+type Mapped = mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>;
+
 /// Renders scene states to RGBA pixels on an offscreen GPU texture.
 pub struct FrameRenderer {
     ctx: RenderContext,
@@ -78,7 +85,10 @@ pub struct FrameRenderer {
     renderer: vello::Renderer,
     texture: wgpu::Texture,
     view: wgpu::TextureView,
-    buffer: wgpu::Buffer,
+    buffers: Vec<wgpu::Buffer>,
+    /// Frames submitted but not yet read back, oldest first: slot, submission and map result.
+    pending: VecDeque<(usize, wgpu::SubmissionIndex, Mapped)>,
+    next: usize,
     padded_row: u32,
     width: u32,
     height: u32,
@@ -117,19 +127,25 @@ impl FrameRenderer {
         });
         let view = texture.create_view(&Default::default());
         let padded_row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fastanim readback"),
-            size: u64::from(padded_row * height),
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let buffers = (0..READBACKS)
+            .map(|_| {
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("fastanim readback"),
+                    size: u64::from(padded_row * height),
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+            })
+            .collect();
         Ok(Self {
             ctx,
             dev,
             renderer,
             texture,
             view,
-            buffer,
+            buffers,
+            pending: VecDeque::new(),
+            next: 0,
             padded_row,
             width,
             height,
@@ -139,15 +155,33 @@ impl FrameRenderer {
         })
     }
 
-    /// Renders the frame at time `t` over `background` and returns tightly packed RGBA rows, top to bottom.
-    // shortcut: one blocking readback per frame; the RGBA feed to ffmpeg limits export, not this.
-    // See docs/export-performance.md before optimising.
+    /// Renders the frame at time `t` over `background` and returns tightly packed RGBA rows, top
+    /// to bottom. Expects no frames in flight from [`Self::submit`].
     pub fn render(
         &mut self,
         state: &SceneState,
         t: f32,
         background: fastanim_core::Color,
     ) -> Result<Vec<u8>, String> {
+        debug_assert!(self.pending.is_empty());
+        self.submit(state, t, background)?;
+        Ok(self.finish()?.expect("a frame was just submitted"))
+    }
+
+    /// Queues the frame at time `t` on the GPU without waiting for it, so the CPU can encode the
+    /// next frame while the GPU draws this one. When every readback buffer is busy it first
+    /// waits for the oldest frame and returns its pixels, as [`Self::finish`] would.
+    pub fn submit(
+        &mut self,
+        state: &SceneState,
+        t: f32,
+        background: fastanim_core::Color,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let done = if self.pending.len() == READBACKS {
+            self.finish()?
+        } else {
+            None
+        };
         let (w, h) = (f64::from(self.width), f64::from(self.height));
         let scale = (w / FRAME_WIDTH).min(h / FRAME_HEIGHT);
         self.frame.reset();
@@ -174,11 +208,14 @@ impl FrameRenderer {
             )
             .map_err(|e| format!("vello: {e}"))?;
 
+        let slot = self.next;
+        self.next = (slot + 1) % READBACKS;
+        let buffer = &self.buffers[slot];
         let mut enc = device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
             self.texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
-                buffer: &self.buffer,
+                buffer,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(self.padded_row),
@@ -187,25 +224,39 @@ impl FrameRenderer {
             },
             self.texture.size(),
         );
-        queue.submit([enc.finish()]);
+        let index = queue.submit([enc.finish()]);
+        let (tx, rx) = mpsc::channel();
+        (buffer.slice(..)).map_async(wgpu::MapMode::Read, move |r| drop(tx.send(r)));
+        self.pending.push_back((slot, index, rx));
+        Ok(done)
+    }
 
-        let slice = self.buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| drop(tx.send(r)));
-        device
-            .poll(wgpu::PollType::wait_indefinitely())
+    /// Waits for the oldest frame in flight and returns its pixels, or `None` if there is none.
+    pub fn finish(&mut self) -> Result<Option<Vec<u8>>, String> {
+        let Some((slot, index, rx)) = self.pending.pop_front() else {
+            return Ok(None);
+        };
+        self.ctx.devices[self.dev]
+            .device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(index),
+                timeout: None,
+            })
             .map_err(|e| format!("readback: {e}"))?;
         rx.recv()
             .map_err(|e| e.to_string())?
             .map_err(|e| format!("readback: {e}"))?;
         let row = self.width as usize * 4;
         // Row-wise memcpy: a byte iterator over mapped memory is several ms per 1080p frame.
+        let buffer = &self.buffers[slot];
         let mut pixels = Vec::with_capacity(row * self.height as usize);
-        for r in slice.get_mapped_range().chunks(self.padded_row as usize) {
+        let mapped = buffer.slice(..).get_mapped_range();
+        for r in mapped.chunks(self.padded_row as usize) {
             pixels.extend_from_slice(&r[..row]);
         }
-        self.buffer.unmap();
-        Ok(pixels)
+        drop(mapped);
+        buffer.unmap();
+        Ok(Some(pixels))
     }
 }
 
@@ -219,6 +270,8 @@ pub struct Export {
     pub output: PathBuf,
     /// First and last time to render, in seconds.
     pub range: (f32, f32),
+    /// Threads evaluating frames; `None` uses every core.
+    pub workers: Option<usize>,
 }
 
 /// Renders `tl` over `ex.range` and writes it to `ex.output`.
@@ -236,7 +289,7 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
     }
     let codec: &[&str] = match ext {
         "mp4" => &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"],
-        "webm" => &["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30"],
+        "webm" => &["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "30"],
         "gif" => &["-vf", "split[a][b];[a]palettegen[p];[b][p]paletteuse"],
         "png" if still => &["-frames:v", "1", "-update", "1"],
         "png" => &[],
@@ -278,7 +331,9 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
     let start = Instant::now();
     // Pipeline: `eval` (CPU-bound, pure) fans out across cores, the GPU renders on this thread in
     // frame order, and a writer thread feeds ffmpeg. Bounded channels cap frames in flight.
-    let workers = thread::available_parallelism().map_or(1, |n| n.get());
+    let workers = ex
+        .workers
+        .unwrap_or_else(|| thread::available_parallelism().map_or(1, |n| n.get()));
     let (times, total) = (&times, times.len());
     let rendered = thread::scope(|s| {
         let states: Vec<_> = (0..workers)
@@ -307,11 +362,15 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         });
         for i in 0..total {
             let state = states[i % workers].recv().map_err(|e| e.to_string())?;
-            if px_tx
-                .send(renderer.render(&state, times[i], tl.background())?)
-                .is_err()
+            if let Some(pixels) = renderer.submit(&state, times[i], tl.background())?
+                && px_tx.send(pixels).is_err()
             {
                 break; // writer failed; its error is reported below
+            }
+        }
+        while let Some(pixels) = renderer.finish()? {
+            if px_tx.send(pixels).is_err() {
+                break;
             }
         }
         drop(px_tx);

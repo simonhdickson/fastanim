@@ -25,10 +25,11 @@ fastanim preview scene.rhai
 | Drag along the timeline | Scrub |
 | Shift + drag along the timeline | Select a region; playback loops over it |
 | Esc | Clear the loop region |
+| Mouse wheel over the timeline | Scroll its rows, when there are more than five |
 
 The timeline under the scene has a block per `play`, labelled with the animation's kind or
-its [`.named`](animations.md#names) title, and rows below for updaters and sounds. The web
-player has the same timeline.
+its [`.named`](animations.md#names) title, and rows below for updaters and sounds. It shows
+five rows at a time and scrolls through the rest. The web player has the same timeline.
 
 Typeset text is cached, so a re-bake only typesets text that changed.
 

@@ -386,6 +386,27 @@ assert "no scene `nope` (scenes: parity)" in err.getvalue(), err.getvalue()
 }
 
 #[test]
+fn reloading_reimports_the_scene_files_neighbours() {
+    run(r##"
+import os, tempfile
+from fastanim._load import load, watched
+
+d = tempfile.mkdtemp()
+scene_py, helper_py = os.path.join(d, "s.py"), os.path.join(d, "helper_for_reload.py")
+with open(scene_py, "w") as f:
+    f.write("from fastanim import *\nfrom helper_for_reload import R\n"
+            "@scene\ndef s(s):\n    s.add(circle(R))\n    s.wait(R)\n")
+# Different sizes: a .pyc is trusted when its source has the same size and mtime in seconds.
+for r in (1, 20):
+    with open(helper_py, "w") as f:
+        f.write(f"R = {r}\n")
+    assert load(scene_py).bake().duration == r, "an edited neighbour is imported again"
+assert watched(scene_py) == [scene_py, helper_py], watched(scene_py)
+assert not any("site-packages" in p for p in watched(scene_py))
+"##);
+}
+
+#[test]
 fn sounds_match_rhai() {
     let wav = std::env::temp_dir().join("fastanim-py-tone.wav");
     let spec = hound::WavSpec {

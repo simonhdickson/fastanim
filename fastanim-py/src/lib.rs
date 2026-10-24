@@ -872,7 +872,7 @@ fn anims(a: Vec<A>) -> Vec<Anim> {
 
 /// What an updater sees: index it with a shape's mobject to get its shape now.
 #[pyclass(frozen, name = "State", module = "fastanim")]
-struct State(SceneState);
+struct State(Arc<SceneState>);
 
 #[pymethods]
 impl State {
@@ -1236,6 +1236,8 @@ shapes! {
     /// A small filled dot at `p`.
     fn dot(p: P) => VState::dot(p.pt());
     fn polygon(points: Vec<P>) => VState::polygon(&points.iter().map(P::pt).collect::<Vec<_>>());
+    /// Straight segments through `points`, left open.
+    fn polyline(points: Vec<P>) => VState::polyline(&points.iter().map(P::pt).collect::<Vec<_>>());
 }
 
 /// A dashed line from `a` to `b`, with dashes about `dash_length` long and `ratio` of each
@@ -1690,6 +1692,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         line,
         dot,
         polygon,
+        polyline,
         dashed_line,
         function_graph,
         image,

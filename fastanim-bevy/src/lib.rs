@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use bevy::camera::ScalingMode;
+use bevy::input::mouse::{AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 use bevy::render::renderer::{RenderDevice, RenderQueue};
@@ -169,6 +170,7 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
         quality,
         output,
         range,
+        workers: None,
     }))
 }
 
@@ -218,7 +220,7 @@ fn reload_timeline(
 /// Plays a [`BakedTimeline`] in a window above a timeline of its plays, updaters and sounds, with
 /// keyboard and mouse controls: Space play/pause, ←/→ step a frame, `[`/`]` previous/next marker,
 /// drag along the timeline to scrub, Shift+drag to select a region that playback loops over, Esc
-/// to clear it.
+/// to clear it, and the mouse wheel over the timeline to scroll lanes past the first five.
 pub struct FastanimPlugin {
     timeline: Arc<BakedTimeline>,
 }
@@ -250,6 +252,10 @@ pub struct SceneClock {
 /// The `(start, end)` seconds playback loops over, if a region of the timeline is selected.
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct LoopRegion(pub Option<(f32, f32)>);
+
+/// The first timeline lane shown; the panel shows [`MAX_LANES`] from here.
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq)]
+struct LaneScroll(usize);
 
 /// The shader fills [`draw`] left for the render world to draw before Vello.
 #[derive(Resource, Clone, Default, ExtractResource)]
@@ -289,6 +295,8 @@ const TRACK_X0: f64 = -FRAME_WIDTH / 2.0 + 0.2;
 const TRACK_W: f64 = FRAME_WIDTH - 0.4;
 const PANEL_TOP: f64 = -FRAME_HEIGHT / 2.0;
 const LANE_H: f64 = 0.4;
+/// Lanes the timeline panel shows at once; the mouse wheel scrolls through the rest.
+const MAX_LANES: usize = 5;
 const PAD: f64 = 0.1;
 /// Labels are typeset at this many pixels and scaled down to scene units, so they stay sharp.
 const LABEL_PX: f32 = 20.0;
@@ -305,14 +313,18 @@ impl Plugin for FastanimPlugin {
                 speed: 1.0,
             })
             .init_resource::<LoopRegion>()
+            .init_resource::<LaneScroll>()
             .init_resource::<ShaderJobs>()
             .add_plugins(ExtractResourcePlugin::<ShaderJobs>::default())
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
                 (
-                    (fit_camera, label_blocks).run_if(resource_changed::<Timeline>),
+                    fit_camera.run_if(resource_changed::<Timeline>),
                     controls,
+                    label_blocks.run_if(
+                        resource_changed::<Timeline>.or_else(resource_changed::<LaneScroll>),
+                    ),
                     advance_clock,
                     draw,
                 )
@@ -348,10 +360,20 @@ fn setup(mut commands: Commands) {
     commands.spawn((Canvas, VelloScene2d::new()));
 }
 
-/// Height of the timeline panel: one lane per row of blocks, at least one.
+/// Rows of blocks on the timeline, at least one.
+fn lanes(tl: &BakedTimeline) -> usize {
+    tl.events().iter().map(|e| e.lane + 1).max().unwrap_or(1)
+}
+
+/// Height of the timeline panel: one lane per row of blocks, at most [`MAX_LANES`].
 fn panel_height(tl: &BakedTimeline) -> f64 {
-    let lanes = tl.events().iter().map(|e| e.lane + 1).max().unwrap_or(1);
-    lanes as f64 * LANE_H + 2.0 * PAD
+    lanes(tl).min(MAX_LANES) as f64 * LANE_H + 2.0 * PAD
+}
+
+/// The first lane to show when scrolled to `scroll`, so the last lane never scrolls past the
+/// bottom.
+fn first_lane(tl: &BakedTimeline, scroll: usize) -> usize {
+    scroll.min(lanes(tl).saturating_sub(MAX_LANES))
 }
 
 /// World units are scene units: the whole 16:9 frame and the panel under it always fit.
@@ -369,11 +391,18 @@ fn fit_camera(tl: Res<Timeline>, mut cams: Query<(&mut Projection, &mut Transfor
     }
 }
 
-/// Where event `e` is drawn on the timeline, in scene units.
-fn block_rect(e: &SceneEvent, dur: f32) -> Rect {
-    let top = PANEL_TOP - PAD - e.lane as f64 * LANE_H;
+/// Where event `e` is drawn on the timeline scrolled to lane `first`, in scene units; `None`
+/// if its lane is scrolled out of view.
+fn block_rect(e: &SceneEvent, dur: f32, first: usize) -> Option<Rect> {
+    let row = e.lane.checked_sub(first).filter(|&r| r < MAX_LANES)?;
+    let top = PANEL_TOP - PAD - row as f64 * LANE_H;
     let (x0, x1) = (track_x(e.start, dur), track_x(e.end, dur));
-    Rect::new(x0, top - LANE_H + 0.04, x1.max(x0 + 0.03), top - 0.04)
+    Some(Rect::new(
+        x0,
+        top - LANE_H + 0.04,
+        x1.max(x0 + 0.03),
+        top - 0.04,
+    ))
 }
 
 fn track_x(t: f32, dur: f32) -> f64 {
@@ -386,13 +415,21 @@ fn track_t(x: f64, dur: f32) -> f32 {
 }
 
 /// One label per timeline block, rebuilt with the timeline.
-fn label_blocks(mut commands: Commands, tl: Res<Timeline>, old: Query<Entity, With<BlockLabel>>) {
+fn label_blocks(
+    mut commands: Commands,
+    tl: Res<Timeline>,
+    scroll: Res<LaneScroll>,
+    old: Query<Entity, With<BlockLabel>>,
+) {
     for e in &old {
         commands.entity(e).despawn();
     }
     let dur = tl.0.duration();
+    let first = first_lane(&tl.0, scroll.0);
     for e in tl.0.events() {
-        let r = block_rect(e, dur);
+        let Some(r) = block_rect(e, dur, first) else {
+            continue;
+        };
         let text = fit_label(&e.label, r.width() - 0.1);
         if text.is_empty() {
             continue;
@@ -437,11 +474,15 @@ fn advance_clock(
 fn controls(
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    wheel: Res<AccumulatedMouseScroll>,
     windows: Query<&Window>,
     camera: Query<(&Camera, &GlobalTransform)>,
     tl: Res<Timeline>,
     mut clock: ResMut<SceneClock>,
     mut region: ResMut<LoopRegion>,
+    mut scroll: ResMut<LaneScroll>,
+    // Wheel movement not yet a whole lane, in lanes.
+    mut wheeled: Local<f32>,
     // Whether the current drag started on the timeline, so it scrubs even off it.
     mut scrubbing: Local<bool>,
     // Where the current Shift+drag started, in seconds.
@@ -489,6 +530,17 @@ fn controls(
     {
         let (x, y) = (f64::from(p.x), f64::from(p.y));
         let t = track_t(x, dur).clamp(0.0, dur);
+        if y <= PANEL_TOP {
+            // Wheel down shows later lanes. Touchpads report pixels; take 20 as a line.
+            *wheeled -= match wheel.unit {
+                MouseScrollUnit::Line => wheel.delta.y,
+                MouseScrollUnit::Pixel => wheel.delta.y / 20.0,
+            };
+            let lanes = wheeled.trunc();
+            *wheeled -= lanes;
+            let first = first_lane(&tl.0, scroll.0) as f32 + lanes;
+            scroll.set_if_neq(LaneScroll(first_lane(&tl.0, first.max(0.0) as usize)));
+        }
         if mouse.just_pressed(MouseButton::Left) && y <= PANEL_TOP {
             if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
                 *anchor = Some(t);
@@ -517,6 +569,7 @@ fn draw(
     tl: Res<Timeline>,
     clock: Res<SceneClock>,
     region: Res<LoopRegion>,
+    scroll: Res<LaneScroll>,
     mut canvas: Query<&mut VelloScene2d, With<Canvas>>,
     mut jobs: ResMut<ShaderJobs>,
 ) {
@@ -535,7 +588,8 @@ fn draw(
     let bg = color(tl.background(), 1.0);
     scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &frame);
     jobs.0 = encode(&mut scene, &tl.eval(clock.t), clock.t, PREVIEW_PX_PER_UNIT);
-    draw_timeline(&mut scene, tl, clock.t, region.0);
+    let first = first_lane(tl, scroll.0);
+    draw_timeline(&mut scene, tl, clock.t, region.0, first);
 }
 
 /// Encodes one frame at scene time `t` in scene units (y up) into a Vello scene, in draw
@@ -612,8 +666,71 @@ fn encode_one(scene: &mut vello::Scene, m: &VState, shader: Option<&ShaderJob>) 
                 LineCap::Square => Cap::Square,
             });
         let brush = paint(m.stroke.color, m.stroke_gradient.as_deref(), m.opacity);
-        scene.stroke(&stroke, flip, &brush, None, &path);
+        match small_stroke(&path, &stroke) {
+            Some(outline) => scene.fill(Fill::NonZero, flip, &brush, None, &outline),
+            None => scene.stroke(&stroke, flip, &brush, None, &path),
+        }
     }
+}
+
+/// The outline of `path` stroked with `stroke`, worked out on the CPU, when `path` is smaller
+/// than the stroke is wide; `None` for any other path, which Vello strokes itself.
+///
+/// Vello's GPU stroker gets curves tighter than half the stroke width wrong: a circle of radius
+/// 1e-6 under a 0.01 stroke comes out as a stray dash, one of radius 1e-3 under a 0.05 stroke as
+/// a hollow ring instead of a disk: the inner offset contour turns inside out and cuts a hole.
+/// kurbo's CPU stroker does the same, but a closed path smaller than the stroke has nothing
+/// inside its outer contour farther than half the width from the curve, so that contour alone
+/// is the outline. Below kurbo's tolerance its outline is wrong too (ten times the area); a
+/// subpath that small is a point.
+fn small_stroke(path: &BezPath, stroke: &kurbo::Stroke) -> Option<BezPath> {
+    use kurbo::Shape as _;
+    let b = path.bounding_box();
+    let w = stroke.width;
+    if b.width().max(b.height()) >= w {
+        return None;
+    }
+    let (opts, tolerance) = (kurbo::StrokeOpts::default(), 1e-3 * w);
+    let area = |p: &BezPath| p.bounding_box().area();
+    let mut out = BezPath::new();
+    for sp in contours(path) {
+        let closed = sp.elements().last() == Some(&kurbo::PathEl::ClosePath);
+        let b = sp.bounding_box();
+        if b.width().max(b.height()) < tolerance {
+            let dot = kurbo::Circle::new(b.center(), w / 2.0).to_path(tolerance);
+            out.extend(match stroke.start_cap {
+                _ if closed => dot,
+                Cap::Round => dot,
+                Cap::Square => Rect::from_center_size(b.center(), (w, w)).to_path(0.0),
+                Cap::Butt => BezPath::new(),
+            });
+            continue;
+        }
+        let outline = kurbo::stroke(sp.iter(), stroke, &opts, tolerance);
+        if closed {
+            let outer = contours(&outline).into_iter();
+            out.extend(
+                outer
+                    .max_by(|a, b| area(a).total_cmp(&area(b)))
+                    .unwrap_or_default(),
+            );
+        } else {
+            out.extend(outline);
+        }
+    }
+    Some(out)
+}
+
+/// `p`'s subpaths, one path each.
+fn contours(p: &BezPath) -> Vec<BezPath> {
+    let mut out: Vec<BezPath> = Vec::new();
+    for &el in p.elements() {
+        match (el, out.last_mut()) {
+            (kurbo::PathEl::MoveTo(_), _) | (_, None) => out.push(BezPath::from_vec(vec![el])),
+            (_, Some(c)) => c.push(el),
+        }
+    }
+    out
 }
 
 fn color(c: fastanim_core::Color, alpha: f32) -> Color {
@@ -701,9 +818,15 @@ fn bez_path(p: &fastanim_core::VPath) -> BezPath {
     out
 }
 
-/// The timeline panel under the frame: a block per event, a tick per marker, the loop region and
-/// the playhead.
-fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, region: Option<(f32, f32)>) {
+/// The timeline panel under the frame, scrolled to lane `first`: a block per event, a tick per
+/// marker, the loop region, the playhead and, with more lanes than fit, a scrollbar.
+fn draw_timeline(
+    scene: &mut vello::Scene,
+    tl: &BakedTimeline,
+    t: f32,
+    region: Option<(f32, f32)>,
+    first: usize,
+) {
     let flip = Affine::FLIP_Y;
     let dur = tl.duration();
     let bottom = PANEL_TOP - panel_height(tl);
@@ -724,9 +847,31 @@ fn draw_timeline(scene: &mut vello::Scene, tl: &BakedTimeline, t: f32, region: O
             EventKind::Sound => ((59, 42, 74), (122, 90, 150)),
         };
         let rgb = |(r, g, b)| Color::from_rgb8(r, g, b);
-        let r = block_rect(e, dur).to_rounded_rect(0.04);
+        let Some(r) = block_rect(e, dur, first) else {
+            continue;
+        };
+        let r = r.to_rounded_rect(0.04);
         scene.fill(Fill::NonZero, flip, rgb(fill), None, &r);
         scene.stroke(&edge, flip, rgb(line), None, &r);
+    }
+    let lanes = lanes(tl);
+    if lanes > MAX_LANES {
+        // In the margin right of the track: the visible lanes' share of all of them.
+        let (x, h) = (FRAME_WIDTH / 2.0 - 0.09, PANEL_TOP - PAD - (bottom + PAD));
+        let bar = |from: usize, to: usize| {
+            let y = |lane: usize| PANEL_TOP - PAD - h * lane as f64 / lanes as f64;
+            Rect::new(x - 0.02, y(to), x + 0.02, y(from)).to_rounded_rect(0.02)
+        };
+        let track = Color::new([1.0, 1.0, 1.0, 0.1]);
+        scene.fill(Fill::NonZero, flip, track, None, &bar(0, lanes));
+        let thumb = Color::new([1.0, 1.0, 1.0, 0.4]);
+        scene.fill(
+            Fill::NonZero,
+            flip,
+            thumb,
+            None,
+            &bar(first, first + MAX_LANES),
+        );
     }
     let line = |x: f64, w: f64| Rect::new(x - w, bottom, x + w, PANEL_TOP);
     if let Some((a, b)) = region {
@@ -819,6 +964,70 @@ mod tests {
     }
 
     #[test]
+    fn small_strokes_are_outlined_on_the_cpu() {
+        use kurbo::Shape as _;
+        let stroke = kurbo::Stroke::new(0.05);
+        let outline = |r: f64| small_stroke(&bez_path(&VState::circle(r).path), &stroke);
+        // A stroked circle smaller than the stroke is a disk: its centre is covered.
+        for r in [0.0, 1e-12, 1e-8, 1e-7, 1e-6, 1e-4, 1e-3, 0.02] {
+            let o = outline(r).unwrap();
+            let disk = std::f64::consts::PI * (r + 0.025) * (r + 0.025);
+            assert!(
+                (o.area().abs() - disk).abs() < 1e-2 * disk,
+                "{r}: {}",
+                o.area()
+            );
+            assert_ne!(o.winding(kurbo::Point::ORIGIN), 0, "{r}");
+        }
+        assert_eq!(outline(0.1), None);
+        // A short arc with round caps is a dot too.
+        let arc = bez_path(&VState::arc(1e-4, 0.0, 1.0).path);
+        let dot = small_stroke(&arc, &stroke.clone().with_caps(Cap::Round)).unwrap();
+        assert_ne!(dot.winding(kurbo::Point::new(1e-4, 0.0)), 0);
+        assert!((dot.area().abs() - std::f64::consts::PI * 0.025 * 0.025).abs() < 1e-5);
+        // A line too short to see takes its caps' shape.
+        let point =
+            bez_path(&VState::line(kurbo::Point::ORIGIN, kurbo::Point::new(1e-9, 0.0)).path);
+        let capped = |cap| small_stroke(&point, &stroke.clone().with_caps(cap)).unwrap();
+        assert!(capped(Cap::Butt).is_empty());
+        assert!((capped(Cap::Square).area().abs() - 0.05 * 0.05).abs() < 1e-9);
+        // Each subpath keeps its own outer contour.
+        let mut two = bez_path(&VState::circle(1e-3).path);
+        two.extend(bez_path(
+            &VState::circle(1e-3)
+                .shift(fastanim_core::Vec2::new(0.0, 0.03))
+                .path,
+        ));
+        let both = small_stroke(&two, &stroke).unwrap();
+        assert_ne!(both.winding(kurbo::Point::ORIGIN), 0);
+        assert_ne!(both.winding(kurbo::Point::new(0.0, 0.03)), 0);
+    }
+
+    #[test]
+    fn the_timeline_shows_five_lanes_and_scrolls_through_the_rest() {
+        let mut s = Scene::new();
+        let ids: Vec<_> = (0..8).map(|_| s.add(VState::circle(1.0))).collect();
+        for &id in &ids {
+            s.always(id, move |st, _| st[&id].clone());
+        }
+        s.play(fastanim_core::create(ids[0]));
+        let tl = s.bake();
+        assert!(lanes(&tl) > MAX_LANES);
+        assert_eq!(panel_height(&tl), MAX_LANES as f64 * LANE_H + 2.0 * PAD);
+        let last = lanes(&tl) - MAX_LANES;
+        assert_eq!(first_lane(&tl, 100), last);
+        let shown = |first| {
+            (tl.events().iter())
+                .filter(|e| block_rect(e, tl.duration(), first).is_some())
+                .map(|e| e.lane)
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        assert_eq!(shown(0), (0..MAX_LANES).collect());
+        assert_eq!(shown(last), (last..lanes(&tl)).collect());
+        assert_eq!(first_lane(&timeline(), 3), 0);
+    }
+
+    #[test]
     fn frames_sit_on_the_global_grid() {
         let t: Vec<f32> = export::frame_times(1.0, 1.1, 30).collect();
         assert_eq!(t, [1.0, 31.0 / 30.0, 32.0 / 30.0, 1.1]);
@@ -875,6 +1084,27 @@ mod tests {
         assert_eq!(a.len(), 64 * 36 * 4);
         assert_eq!(a, r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap());
         assert_ne!(a, r.render(&tl.eval(0.0), 0.0, tl.background()).unwrap());
+    }
+
+    #[test]
+    fn frames_in_flight_come_back_in_order_and_unchanged() {
+        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
+            eprintln!("skipping: no GPU adapter");
+            return;
+        };
+        let tl = timeline();
+        let times: Vec<f32> = (0..7).map(|i| i as f32 / 6.0).collect();
+        let one_by_one: Vec<_> = (times.iter())
+            .map(|&t| r.render(&tl.eval(t), t, tl.background()).unwrap())
+            .collect();
+        let mut queued = Vec::new();
+        for &t in &times {
+            queued.extend(r.submit(&tl.eval(t), t, tl.background()).unwrap());
+        }
+        while let Some(px) = r.finish().unwrap() {
+            queued.push(px);
+        }
+        assert_eq!(queued, one_by_one);
     }
 
     #[test]
