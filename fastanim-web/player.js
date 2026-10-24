@@ -7,10 +7,10 @@
 // loop region.
 //
 // Baking and drawing happen in `worker.js`. Scripting the element:
-//   await el.open(url)          fetch, bake and play a script (and its bundle); returns the script
-//   el.load(script, bundle?)    bake a script given as text
+//   await el.open(url)          fetch, bake and play a script (and its bundle); returns the script.
+//                               A `.py` url is a Python scene, run with Pyodide (pyplayer.js).
+//   el.load(script, bundle?, lang?)  bake a script given as text; lang "rhai" (default) or "python"
 //   el.download("svg" | "png")  save the current frame
-//   el.download("video")        save the whole scene as WebM (fires `recorded` when saved)
 // It fires `baked` (detail: { duration, markers, events, bakeMs, typesetMs, planMs, snapshotMs }) and `bakeerror`
 // (detail: the message, also shown under the player); on error the last good scene stays.
 
@@ -99,6 +99,7 @@ class FastanimPlayer extends HTMLElement {
   async open(url) {
     try {
       url = new URL(url, document.baseURI);
+      const lang = url.pathname.endsWith(".py") ? "python" : "rhai";
       const bundleUrl = url.pathname.endsWith(".rhai")
         ? new URL(url.pathname.replace(/\.rhai$/, ".bundle"), url) : null;
       const [script, bundle] = await Promise.all([
@@ -107,7 +108,7 @@ class FastanimPlayer extends HTMLElement {
       ]);
       this.#t = 0;
       this.#region = null;
-      this.load(script, bundle ?? undefined);
+      this.load(script, bundle ?? undefined, lang);
       return script;
     } catch (e) {
       this.#error(e.message);
@@ -115,8 +116,9 @@ class FastanimPlayer extends HTMLElement {
     }
   }
 
-  load(script, bundle) {
-    this.#worker.postMessage(bundle === undefined ? { src: script } : { bundle, src: script });
+  load(script, bundle, lang = "rhai") {
+    const job = { src: script, lang };
+    this.#worker.postMessage(bundle === undefined ? job : { bundle, ...job });
   }
 
   download(kind) {
@@ -145,9 +147,6 @@ class FastanimPlayer extends HTMLElement {
       save(new Blob([data.svg], { type: "image/svg+xml" }), `frame-${this.#t.toFixed(2)}.svg`);
     } else if (data.png) {
       save(data.png, `frame-${this.#t.toFixed(2)}.png`);
-    } else if (data.video) {
-      save(data.video, "scene.webm");
-      this.dispatchEvent(new CustomEvent("recorded"));
     }
   }
 

@@ -4,13 +4,15 @@
 
 mod render;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, BinaryOp, Color as CoreColor,
-    DEFAULT_BUFF, DiffStyle, LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
+    DEFAULT_BUFF, DiffStyle, EventKind, Gradient, Image, ImageFill, LineCap, LineJoin,
+    LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
 use fastanim_text::{TextMobject, TextStyle};
@@ -1066,7 +1068,7 @@ impl PyScene {
 
 /// A baked scene: what playback and export read.
 #[pyclass(frozen, name = "Timeline", module = "fastanim")]
-pub struct Timeline(pub BakedTimeline);
+pub struct Timeline(pub BakedTimeline, Mutex<HashMap<usize, Image>>);
 
 #[pymethods]
 impl Timeline {
@@ -1090,6 +1092,117 @@ impl Timeline {
     fn svg(&self, t: f32, background: Option<C>) -> String {
         let bg = background.map_or(self.0.background(), |c| c.0);
         fastanim_core::to_svg(&self.0.eval(t), bg)
+    }
+
+    /// The background as an opaque CSS color, for [`Timeline::frame`]'s canvas.
+    #[getter]
+    fn background_css(&self) -> String {
+        css(self.0.background().with_alpha(1.0))
+    }
+
+    /// Every play, updater and sound, in start order, as dicts of `start`, `end`, `label`,
+    /// `kind` (`"play"`, `"updater"` or `"sound"`) and `lane`.
+    #[getter]
+    fn events<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        (self.0.events().iter())
+            .map(|e| {
+                let d = PyDict::new(py);
+                d.set_item("start", e.start)?;
+                d.set_item("end", e.end)?;
+                d.set_item("label", &e.label)?;
+                let kind = match e.kind {
+                    EventKind::Play => "play",
+                    EventKind::Updater => "updater",
+                    EventKind::Sound => "sound",
+                };
+                d.set_item("kind", kind)?;
+                d.set_item("lane", e.lane)?;
+                Ok(d)
+            })
+            .collect()
+    }
+
+    /// What to draw at `t`, back to front, for a canvas player such as the browser's (SPEC
+    /// §14.4): per mobject a dict of `opacity`; `d`, SVG path data; `fill` and `stroke`, CSS
+    /// colors or `None` when not drawn, with `width`, `join` and `cap`; `fill_gradient` and
+    /// `stroke_gradient`, `(x0, y0, x1, y1, [(offset, css), ...])` or `None`; and `image`,
+    /// `(key, [a, b, c, d, e, f], smooth, alpha)` or `None`, its pixels from `image(key)`.
+    fn frame<'py>(&self, py: Python<'py>, t: f32) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let state = self.0.eval(t);
+        let mut order: Vec<_> = state.iter().collect();
+        order.sort_by_key(|(id, m)| (m.z_index, **id));
+        let mut out = Vec::new();
+        for (_, m) in order {
+            if m.opacity <= 0.0 {
+                continue;
+            }
+            let d = PyDict::new(py);
+            d.set_item("opacity", m.opacity)?;
+            let image = match &m.image {
+                Some(i) => {
+                    self.1
+                        .lock()
+                        .unwrap()
+                        .entry(i.image.key())
+                        .or_insert_with(|| i.image.clone());
+                    let alpha = ImageFill::alpha(m.opacity, &m.draw_range);
+                    Some((i.image.key(), i.transform.as_coeffs(), i.smooth, alpha))
+                }
+                None => None,
+            };
+            d.set_item("image", image)?;
+            d.set_item(
+                "d",
+                fastanim_core::svg::path_data(&m.path.trim(m.draw_range.clone())),
+            )?;
+            let fill = m.fill.a > 0.0;
+            d.set_item("fill", fill.then(|| css(m.fill)))?;
+            let fill_gradient = (m.fill_gradient.as_ref()).filter(|_| fill);
+            d.set_item(
+                "fill_gradient",
+                fill_gradient.map(|g| gradient(g, m.fill.a)),
+            )?;
+            let c = m.stroke.color;
+            let stroke = m.stroke.width > 0.0 && c.a > 0.0;
+            d.set_item("stroke", stroke.then(|| css(c)))?;
+            let stroke_gradient = (m.stroke_gradient.as_ref()).filter(|_| stroke);
+            d.set_item("stroke_gradient", stroke_gradient.map(|g| gradient(g, c.a)))?;
+            d.set_item("width", m.stroke.width)?;
+            d.set_item(
+                "join",
+                match m.stroke.join {
+                    LineJoin::Miter => "miter",
+                    LineJoin::Round => "round",
+                    LineJoin::Bevel => "bevel",
+                },
+            )?;
+            d.set_item(
+                "cap",
+                match m.stroke.cap {
+                    LineCap::Butt => "butt",
+                    LineCap::Round => "round",
+                    LineCap::Square => "square",
+                },
+            )?;
+            out.push(d);
+        }
+        Ok(out)
+    }
+
+    /// The image `key` from [`Timeline::frame`] as `(width, height, rgba)`, or `None` if no
+    /// frame drawn so far showed it.
+    fn image<'py>(
+        &self,
+        py: Python<'py>,
+        key: usize,
+    ) -> Option<(u32, u32, Bound<'py, pyo3::types::PyBytes>)> {
+        let images = self.1.lock().unwrap();
+        let i = images.get(&key)?;
+        Some((
+            i.width(),
+            i.height(),
+            pyo3::types::PyBytes::new(py, i.pixels()),
+        ))
     }
 
     /// Exports the scene, or from marker `section` to the next one, to `path`; its extension
@@ -1130,6 +1243,20 @@ impl Timeline {
         let t = frame.map_or(at, |n| q.frame_time(n));
         render::export(py, &self.0, path, q, (t, t))
     }
+}
+
+/// A linear gradient's start and end points and its `(offset, css)` stops.
+type CssGradient = (f64, f64, f64, f64, Vec<(f32, String)>);
+
+/// `g` in scene units for a canvas, its alpha scaled by `alpha`.
+fn gradient(g: &Gradient, alpha: f32) -> CssGradient {
+    let stops = g.stops(alpha).map(|(o, c)| (o, css(c))).collect();
+    (g.from.x, g.from.y, g.to.x, g.to.y, stops)
+}
+
+fn css(c: CoreColor) -> String {
+    let v = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round();
+    format!("rgba({},{},{},{})", v(c.r), v(c.g), v(c.b), c.a)
 }
 
 /// A scene function, made with `@scene`.
@@ -1192,7 +1319,7 @@ impl SceneFn {
 
 /// Runs scene function `f` with a fresh scene and bakes it.
 fn bake(py: Python<'_>, f: &Py<PyAny>) -> PyResult<Timeline> {
-    bake_scene(f.bind(py)).map(Timeline)
+    bake_scene(f.bind(py)).map(|tl| Timeline(tl, Mutex::default()))
 }
 
 /// Runs a scene, an `@scene` function or a plain `def construct(scene)`, and bakes what it

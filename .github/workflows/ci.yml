@@ -49,9 +49,42 @@ jobs:
       - name: Build & run tests
         run: cargo test --workspace
 
+  # The Python package built for Pyodide, which the playground runs Python scenes with.
+  pyodide:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.11
+
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      # The cross-build environment and Emscripten, a few hundred MB.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyodide-build
+          key: pyodide-build-${{ hashFiles('justfile') }}
+
+      - name: Build wheel
+        run: just pyodide-wheel
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pyodide-wheel
+          path: fastanim-web/wheels/*.whl
+          if-no-files-found: error
+
   pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: check
+    needs: [check, pyodide]
 
     runs-on: ubuntu-latest
 
@@ -76,6 +109,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: trunk,mdbook
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pyodide-wheel
+          path: fastanim-web/wheels
 
       - name: Trunk
         run: trunk build --release --public-url ./

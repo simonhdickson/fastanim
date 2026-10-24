@@ -343,6 +343,34 @@ raises(ValueError, "unsupported still", s.still, os.path.join(out, "x.mp4"))
 "##);
 }
 
+#[test]
+fn frame_draw_list() {
+    // What the browser's Python player draws (fastanim-web/pyplayer.js).
+    run(r##"
+from fastanim import *
+
+@scene
+def s(s):
+    s.background(hex(0x102030))
+    s.add(square(2).fill(RED, 0.5).z_index(1))
+    b = s.add(circle(1))
+    gone = s.add(circle(2))
+    s.add(image([[0, 255], [255, 0]]))
+    s.play(create(b), fade_out(gone), run_time=1)
+
+tl = s.bake()
+assert tl.background_css == "rgba(16,32,48,1)", tl.background_css
+assert [(e["kind"], e["label"]) for e in tl.events] == [("play", "Create + FadeOut")], tl.events
+f = tl.frame(1)
+assert len(f) == 3, "the faded circle is left out"
+assert f[-1]["fill"].endswith(",0.5)"), ("z order, back to front", f[-1])
+img = next(m["image"] for m in f if m["image"])
+w, h, rgba = tl.image(img[0])
+assert (w, h, len(rgba)) == (2, 2, 16), (w, h, len(rgba))
+assert tl.image(1) is None
+"##);
+}
+
 #[cfg(not(feature = "preview"))]
 #[test]
 fn rendering_needs_the_preview_extra() {
