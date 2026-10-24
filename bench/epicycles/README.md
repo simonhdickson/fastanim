@@ -48,24 +48,27 @@ N=100 python -m fastanim preview fastanim_epicycles.py
 
 ## Results
 
-Ryzen laptop (16 threads, Radeon 780M iGPU), Python 3.14, manim 0.22 (Cairo), 1080p60, 10 s:
+Ryzen laptop (16 threads, Radeon 780M iGPU), manim 0.22 (Cairo), 1080p60, 10 s. fastanim from
+Python 3.14 and free-threaded 3.14t; speedup is manim over fastanim on 3.14:
 
-| N | manim | fastanim | speedup | fastanim (Rhai) |
-|---:|---:|---:|---:|---:|
-| 10 | 5.4 s | 2.9 s | 1.9x | 3.0 s |
-| 50 | 10.6 s | 3.0 s | 3.5x | 3.0 s |
-| 100 | 16.1 s | 3.0 s | 5.3x | 3.1 s |
-| 200 | 26.7 s | 3.4 s | 7.9x | 3.2 s |
-| 400 | 47.2 s | 5.3 s | 9.0x | 3.4 s |
-| 2000 | 210.3 s | 21.2 s | 9.9x | 6.4 s |
+| N | manim | fastanim | speedup | fastanim (3.14t) | fastanim (Rhai) |
+|---:|---:|---:|---:|---:|---:|
+| 10 | 5.4 s | 3.5 s | 1.5x | 3.5 s | 3.5 s |
+| 50 | 10.6 s | 3.1 s | 3.4x | 3.1 s | 3.2 s |
+| 100 | 16.1 s | 3.6 s | 4.5x | 3.6 s | 3.5 s |
+| 200 | 26.7 s | 3.3 s | 8.1x | 3.3 s | 3.4 s |
+| 400 | 47.2 s | 3.6 s | 13.1x | 3.6 s | 3.7 s |
+| 2000 | 210.3 s | 8.4 s | 25.0x | 6.8 s | 7.5 s |
+| 5000 | | 18.5 s | | 15.1 s | 16.9 s |
 
 fastanim's floor of about 3 s is starting the GPU and encoding 600 frames. One frame at 9.5 s
 (`python -m fastanim still fastanim_epicycles.py --at 9.5`) takes 0.35 s at N=200 and 0.46 s
 at N=400. manim can only get there by rendering the 570 frames before it.
 
-What growth fastanim has above N=200 is the Python updaters, 2N+1 calls per frame, and the GPU
-drawing 2N+1 strokes (about 5 ms a frame at N=400 on this iGPU). The updaters run under the
-GIL, so export evaluates frames of a Python scene with updaters on one thread; sixteen threads
-fighting over the GIL were slower (6.8 s at N=400). Rhai has no GIL, so the Rhai scene
-evaluates frames on every core: at N=5000 it renders in 15 s at ~900% CPU, against 50 s at
-~140% from Python.
+What growth fastanim has above N=400 is the Python updaters, 2N+1 calls per frame, and the GPU
+drawing 2N+1 strokes (about 5 ms a frame at N=400 on this iGPU). With the GIL, export evaluates
+frames of a Python scene with updaters on one thread; sixteen threads fighting over the GIL
+were slower. Rhai has no GIL, and neither has free-threaded Python (3.14t, unless
+`PYTHON_GIL=1`), so their frames are evaluated on every core: 3.14t is ~20% faster than 3.14
+above N=400, and a little faster than Rhai. For 3.14t, build both wheels into a 3.14t
+virtualenv and pass its python as `PYTHON`.

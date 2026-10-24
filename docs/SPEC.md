@@ -960,8 +960,10 @@ kept in the baked timeline and called every frame, as with Rhai (§14.2): they m
 functions of their arguments. Each frontend holds them in the form its runtime allows to cross
 threads (a `Py<PyAny>` in Python, a registry key in Lua with `mlua`'s `send` feature) behind a
 `Mutex`, to keep `Animation: Send + Sync`. A closure error during playback is recorded and the
-frame uses the input unchanged. Python takes the GIL once per updater per frame; that is
-measured on `sine_curve` before the API is final (§15.7).
+frame uses the input unchanged. Python attaches once per updater per frame, on a Python
+thread state each Rust thread makes once and keeps (one per call cost more than the updaters
+on `bench/epicycles`). With the GIL, export evaluates the frames of a scene with updaters on
+one thread; on free-threaded Python (3.14t) without it, on every core, as for Rhai.
 
 ### 15.5 Errors
 

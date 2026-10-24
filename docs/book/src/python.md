@@ -35,6 +35,9 @@ maturin develop -m fastanim-py/pyproject.toml
 maturin develop -m fastanim-py/preview/pyproject.toml
 ```
 
+On free-threaded Python (3.14t), video export runs a scene's updaters on every core, as it does
+for Rhai. With the GIL they run on one thread. maturin builds a separate 3.14t wheel for it.
+
 ## From the command line
 
 `python -m fastanim` takes the commands and options of [the `fastanim` CLI](running.md):

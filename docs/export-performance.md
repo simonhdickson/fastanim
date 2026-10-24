@@ -40,6 +40,8 @@ writer thread piping raw RGBA into ffmpeg.
   output byte-identical, ~2% faster. Readback was never the bottleneck here. Merged since
   (`FrameRenderer::submit`/`finish`) for GPU-heavy scenes; on `bench/epicycles` at N=400 it
   made no measurable difference either, as the GIL-bound Python updaters were the limit.
+  Those were later sped up by keeping each thread's Python thread state between calls, and
+  run on every core on free-threaded Python; see `bench/epicycles/README.md`.
 - **Bigger pipe buffer:** small win, needs `libc` and `unsafe`. Not kept.
 - **`--hw`:** `h264_vaapi` instead of `libx264`, with
   `-vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -rc_mode CQP -qp 18`.

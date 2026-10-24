@@ -85,8 +85,9 @@ pub(crate) fn export(
             output,
             range,
             // Python updaters run one at a time under the GIL, and more threads only fight
-            // over it: on bench/epicycles one is ~20% faster than sixteen.
-            workers: tl.has_updaters().then_some(1),
+            // over it: on bench/epicycles one is ~20% faster than sixteen. Free-threaded
+            // Python (3.14t) without the GIL runs them on every core.
+            workers: (tl.has_updaters() && gil_enabled(py)).then_some(1),
         };
         py.detach(|| fastanim_bevy::export::export(tl, &ex))
             .map_err(PyRuntimeError::new_err)
@@ -100,6 +101,14 @@ pub(crate) fn export(
         py.detach(|| write_svgs(tl, &times, &output))
             .map_err(|e| PyRuntimeError::new_err(format!("{}: {e}", output.display())))
     }
+}
+
+/// Whether this interpreter runs with the GIL: always before 3.13, and on a free-threaded
+/// build unless it was turned back on (`PYTHON_GIL=1`, or a module that needs it).
+#[cfg(feature = "preview")]
+fn gil_enabled(py: Python<'_>) -> bool {
+    let is_enabled = py.import("sys").and_then(|s| s.getattr("_is_gil_enabled"));
+    is_enabled.and_then(|f| f.call0()?.extract()).unwrap_or(true)
 }
 
 /// Times of the frames covering `range` at `fps`, on the global frame grid.

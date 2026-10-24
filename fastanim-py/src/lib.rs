@@ -40,6 +40,42 @@ fn typeset_err(e: String) -> PyErr {
     TypesetError::new_err(e)
 }
 
+/// `Python::attach` for calling a scene's Python closures from Rust threads (export's frame
+/// workers, the preview). A thread Python didn't start gets a fresh Python thread state on
+/// every attach, and drops it after; that cost dominates small updaters, most of all on
+/// free-threaded Python, and loses their `threading.local`. This makes one per thread and
+/// keeps it until the thread ends.
+fn attach<R>(f: impl for<'py> FnOnce(Python<'py>) -> R) -> R {
+    use pyo3::ffi;
+
+    struct Kept(Option<(ffi::PyGILState_STATE, *mut ffi::PyThreadState)>);
+    impl Drop for Kept {
+        fn drop(&mut self) {
+            // SAFETY: undoes `new` below on the same thread, while the interpreter is alive.
+            if let Some((gil, ts)) = self.0.take()
+                && unsafe { ffi::Py_IsInitialized() } != 0
+            {
+                unsafe {
+                    ffi::PyEval_RestoreThread(ts);
+                    ffi::PyGILState_Release(gil);
+                }
+            }
+        }
+    }
+    thread_local! {
+        static KEPT: Kept = Kept(
+            // SAFETY: this thread has no Python thread state (checked), so isn't attached;
+            // `Ensure` makes one and attaches, `SaveThread` detaches and keeps it.
+            (unsafe { ffi::PyGILState_GetThisThreadState() }.is_null()).then(|| unsafe {
+                let gil = ffi::PyGILState_Ensure();
+                (gil, ffi::PyEval_SaveThread())
+            }),
+        );
+    }
+    KEPT.with(|_| {});
+    Python::attach(f)
+}
+
 /// A Python exception as a core error, keeping its traceback.
 fn closure_err(py: Python<'_>, e: PyErr) -> String {
     let tb = (e.traceback(py)).and_then(|tb| tb.format().ok());
@@ -923,7 +959,7 @@ impl Always {
 fn always(s: &PyScene, m: PyMob, f: Py<PyAny>) -> PyResult<()> {
     s.lock()?
         .always(&m.0, move |st, t| {
-            Python::attach(|py| {
+            attach(|py| {
                 let r = (f.call1(py, (State(st.clone()), t))).map_err(|e| closure_err(py, e))?;
                 returned::<Shape>(r.bind(py), "a shape").map(|s| s.0)
             })
@@ -1523,7 +1559,7 @@ fn replacement_transform(m: PyMob, target: PyMob) -> PyAnim {
 #[pyfunction]
 fn apply_function(m: PyMob, f: Py<PyAny>) -> PyAnim {
     PyAnim(fastanim_script::apply_function(m.0, move |p| {
-        Python::attach(|py| {
+        attach(|py| {
             let r = (f.call1(py, (PyPoint(p.to_vec2()),))).map_err(|e| closure_err(py, e))?;
             returned::<P>(r.bind(py), "a point").map(|p| p.pt())
         })
@@ -1534,7 +1570,7 @@ fn apply_function(m: PyMob, f: Py<PyAny>) -> PyAnim {
 #[pyfunction]
 fn update(m: PyMob, f: Py<PyAny>) -> PyAnim {
     PyAnim(fastanim_script::update(m.0, move |s, a| {
-        Python::attach(|py| {
+        attach(|py| {
             let r = (f.call1(py, (Shape(s.clone()), a))).map_err(|e| closure_err(py, e))?;
             returned::<Shape>(r.bind(py), "a shape").map(|s| s.0)
         })
