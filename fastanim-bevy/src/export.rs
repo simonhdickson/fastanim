@@ -1,11 +1,11 @@
 //! Headless export (SPEC §8.5): frames are rendered offscreen with Vello, read back to the CPU
-//! and piped as raw RGBA into `ffmpeg`. Time comes from the frame index only, so output is
-//! deterministic.
+//! and piped as raw RGBA into `ffmpeg`. Without a GPU (or with `--cpu`) `vello_cpu` renders them.
+//! Time comes from the frame index only, so output is deterministic.
 //!
 //! This drives Vello on its own wgpu device rather than a windowless Bevy app: the encoding is
 //! the same [`encode`] the preview uses, and nothing else in Bevy is needed to make a frame.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -15,14 +15,14 @@ use std::thread;
 use std::time::Instant;
 
 use bevy::tasks::futures_lite::future::block_on;
-use bevy_vello::vello::kurbo::Affine;
-use bevy_vello::vello::peniko::Color;
+use bevy_vello::vello::kurbo::{self, Affine, BezPath, Rect};
+use bevy_vello::vello::peniko::{Brush, Color, ImageBrush};
 use bevy_vello::vello::util::RenderContext;
 use bevy_vello::vello::{self, AaConfig, AaSupport, RenderParams, RendererOptions, wgpu};
 use fastanim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, SoundEvent, to_svg};
 
-use crate::encode;
 use crate::shader::ShaderFills;
+use crate::{DrawTarget, encode};
 
 /// Output resolution and frame rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,8 +78,63 @@ const READBACKS: usize = 3;
 /// Says when a readback buffer has been mapped.
 type Mapped = mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>;
 
+/// Renders scene states to RGBA pixels, on the GPU or on the CPU.
+pub enum FrameRenderer {
+    /// On an offscreen GPU texture, with Vello.
+    Gpu(Box<Gpu>),
+    /// In memory, with `vello_cpu`.
+    Cpu(Box<Cpu>),
+}
+
+impl FrameRenderer {
+    /// A `width × height` renderer: on the CPU if `cpu`, else on the GPU, failing without one.
+    pub fn new(width: u32, height: u32, cpu: bool) -> Result<Self, String> {
+        Ok(if cpu {
+            Self::Cpu(Box::new(Cpu::new(width, height)?))
+        } else {
+            Self::Gpu(Box::new(Gpu::new(width, height)?))
+        })
+    }
+
+    /// Renders the frame at time `t` over `background` and returns tightly packed RGBA rows, top
+    /// to bottom. Expects no frames in flight from [`Self::submit`].
+    pub fn render(
+        &mut self,
+        state: &SceneState,
+        t: f32,
+        background: fastanim_core::Color,
+    ) -> Result<Vec<u8>, String> {
+        match self {
+            Self::Gpu(g) => g.render(state, t, background),
+            Self::Cpu(c) => Ok(c.render(state, t, background)),
+        }
+    }
+
+    /// Queues the frame at time `t`, and returns the oldest frame's pixels once they are ready
+    /// (see [`Gpu::submit`]). The CPU renders at once and returns this frame's pixels.
+    pub fn submit(
+        &mut self,
+        state: &SceneState,
+        t: f32,
+        background: fastanim_core::Color,
+    ) -> Result<Option<Vec<u8>>, String> {
+        match self {
+            Self::Gpu(g) => g.submit(state, t, background),
+            Self::Cpu(c) => Ok(Some(c.render(state, t, background))),
+        }
+    }
+
+    /// Waits for the oldest frame in flight and returns its pixels, or `None` if there is none.
+    pub fn finish(&mut self) -> Result<Option<Vec<u8>>, String> {
+        match self {
+            Self::Gpu(g) => g.finish(),
+            Self::Cpu(_) => Ok(None),
+        }
+    }
+}
+
 /// Renders scene states to RGBA pixels on an offscreen GPU texture.
-pub struct FrameRenderer {
+pub struct Gpu {
     ctx: RenderContext,
     dev: usize,
     renderer: vello::Renderer,
@@ -97,7 +152,7 @@ pub struct FrameRenderer {
     shaders: ShaderFills,
 }
 
-impl FrameRenderer {
+impl Gpu {
     /// Opens a GPU device and allocates a `width × height` target.
     pub fn new(width: u32, height: u32) -> Result<Self, String> {
         let mut ctx = RenderContext::new();
@@ -260,6 +315,112 @@ impl FrameRenderer {
     }
 }
 
+/// Renders scene states to RGBA pixels in memory with `vello_cpu`, for machines without a GPU.
+/// Shader fills draw their solid fill.
+pub struct Cpu {
+    ctx: vello_cpu::RenderContext,
+    resources: vello_cpu::Resources,
+    pixmap: vello_cpu::Pixmap,
+    /// Takes scene units to pixels.
+    to_pixels: Affine,
+    scale: f64,
+    /// Each image's pixels, premultiplied as `vello_cpu` wants them, by blob id.
+    // shortcut: never evicts, so an export holds every image it has drawn; evict by blob
+    // liveness if scenes ever stream many large images.
+    images: HashMap<u64, vello_cpu::ImageSource>,
+    warned: bool,
+}
+
+impl Cpu {
+    /// A `width × height` target.
+    pub fn new(width: u32, height: u32) -> Result<Self, String> {
+        let size = |v: u32| u16::try_from(v).map_err(|_| format!("{width}×{height} is too big"));
+        let (w, h) = (size(width)?, size(height)?);
+        let (fw, fh) = (f64::from(width), f64::from(height));
+        let scale = (fw / FRAME_WIDTH).min(fh / FRAME_HEIGHT);
+        Ok(Self {
+            ctx: vello_cpu::RenderContext::new(w, h),
+            resources: vello_cpu::Resources::new(),
+            pixmap: vello_cpu::Pixmap::new(w, h),
+            to_pixels: Affine::translate((fw / 2.0, fh / 2.0)) * Affine::scale(scale),
+            scale,
+            images: HashMap::new(),
+            warned: false,
+        })
+    }
+
+    /// Renders the frame at time `t` over `background` and returns tightly packed RGBA rows, top
+    /// to bottom.
+    pub fn render(
+        &mut self,
+        state: &SceneState,
+        t: f32,
+        background: fastanim_core::Color,
+    ) -> Vec<u8> {
+        if !self.warned && state.iter().any(|(_, m)| m.shader.is_some()) {
+            eprintln!("note: shader fills need a GPU; on the CPU they draw their solid fill");
+            self.warned = true;
+        }
+        let (w, h) = (
+            f64::from(self.pixmap.width()),
+            f64::from(self.pixmap.height()),
+        );
+        self.ctx.reset();
+        self.ctx
+            .set_paint(Color::new([background.r, background.g, background.b, 1.0]));
+        self.ctx.fill_rect(&Rect::new(0.0, 0.0, w, h));
+        encode(self, state, t, self.scale);
+        self.ctx.flush();
+        self.ctx
+            .render_to_pixmap(&mut self.resources, &mut self.pixmap);
+        // The opaque background makes every pixel opaque, so premultiplied RGBA is plain RGBA.
+        self.pixmap.data_as_u8_slice().to_vec()
+    }
+
+    fn paint(&mut self, brush: &Brush) -> vello_cpu::PaintType {
+        match brush {
+            Brush::Solid(c) => Brush::Solid(*c),
+            Brush::Gradient(g) => Brush::Gradient(g.clone()),
+            Brush::Image(i) => Brush::Image(ImageBrush {
+                image: (self.images.entry(i.image.data.id()))
+                    .or_insert_with(|| vello_cpu::ImageSource::from_peniko_image_data(&i.image))
+                    .clone(),
+                sampler: i.sampler,
+            }),
+        }
+    }
+}
+
+impl DrawTarget for Cpu {
+    fn fill(
+        &mut self,
+        transform: Affine,
+        brush: &Brush,
+        brush_transform: Option<Affine>,
+        path: &BezPath,
+    ) {
+        let paint = self.paint(brush);
+        self.ctx.set_paint(paint);
+        self.ctx.set_transform(self.to_pixels * transform);
+        self.ctx
+            .set_paint_transform(brush_transform.unwrap_or(Affine::IDENTITY));
+        self.ctx.fill_path(path);
+    }
+
+    fn stroke(&mut self, stroke: &kurbo::Stroke, transform: Affine, brush: &Brush, path: &BezPath) {
+        let paint = self.paint(brush);
+        self.ctx.set_paint(paint);
+        self.ctx.set_transform(self.to_pixels * transform);
+        self.ctx.reset_paint_transform();
+        self.ctx.set_stroke(stroke.clone());
+        self.ctx.stroke_path(path);
+    }
+
+    fn shaders(&self) -> bool {
+        false
+    }
+}
+
 /// What to export.
 #[derive(Debug, Clone)]
 pub struct Export {
@@ -272,6 +433,8 @@ pub struct Export {
     pub range: (f32, f32),
     /// Threads evaluating frames; `None` uses every core.
     pub workers: Option<usize>,
+    /// Render on the CPU even when a GPU is available.
+    pub cpu: bool,
 }
 
 /// Renders `tl` over `ex.range` and writes it to `ex.output`.
@@ -316,7 +479,11 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
         eprintln!("note: {ext} has no sound; the scene's sounds are left out");
     }
 
-    let mut renderer = FrameRenderer::new(ex.quality.width, ex.quality.height)?;
+    let (w, h) = (ex.quality.width, ex.quality.height);
+    let mut renderer = FrameRenderer::new(w, h, ex.cpu).or_else(|e| {
+        eprintln!("note: {e}; rendering on the CPU");
+        FrameRenderer::new(w, h, true)
+    })?;
     let q = ex.quality;
     let mut ffmpeg = Command::new("ffmpeg")
         .args([

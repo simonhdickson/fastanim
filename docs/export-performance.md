@@ -59,6 +59,21 @@ writer thread piping raw RGBA into ffmpeg.
     colour metadata, the shader has to follow.
   - The branch has a test checking every output byte against a CPU conversion.
 
+## CPU rendering (`--cpu`)
+
+Export falls back to `vello_cpu` without a GPU, and `--cpu` forces it (2026-10-25). On the same
+laptop, the `bench/epicycles` Rust example at 1080p60 (601 frames) took:
+
+| Renderer | Time | CPU |
+|---|---|---|
+| GPU (Vello) | 27.8–30.6 s | ~220% |
+| CPU (`vello_cpu`, multithreaded) | 14.1–14.7 s | ~385% |
+
+- A still at t = 3 s differs from the GPU render by 57.5 dB PSNR, so the two match visually.
+- This scene has hundreds of small strokes and no shader fills. On the iGPU, the CPU path wins
+  here. Don't assume it wins on a discrete GPU or on fill-heavy scenes; measure first.
+- Shader fills (WGSL) can't run on the CPU. They draw their solid fill, with a note on stderr.
+
 ## If export speed matters again
 
 1. Cherry-pick `--gpu-yuv` from the branch. It works on any GPU and gives most of the gain.

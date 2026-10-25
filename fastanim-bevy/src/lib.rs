@@ -75,6 +75,9 @@ pub struct RenderArgs {
     /// Only render from <MARKER> to the next marker
     #[arg(long, value_name = "MARKER")]
     pub section: Option<String>,
+    /// Render on the CPU even when a GPU is available
+    #[arg(long)]
+    pub cpu: bool,
 }
 
 /// Options for [`Command::Still`].
@@ -92,6 +95,9 @@ pub struct StillArgs {
     /// Frame index to render
     #[arg(long, value_name = "N", conflicts_with = "at")]
     pub frame: Option<u32>,
+    /// Render on the CPU even when a GPU is available
+    #[arg(long)]
+    pub cpu: bool,
 }
 
 fn parse_secs(v: &str) -> Result<f32, String> {
@@ -132,12 +138,13 @@ pub fn run_command(
 
 /// Turns a command into what to export, or `None` to preview.
 fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Export>, String> {
-    let (quality, output, range) = match cmd {
+    let (quality, output, range, cpu) = match cmd {
         None | Some(Command::Preview) => return Ok(None),
         Some(Command::Render(RenderArgs {
             quality,
             output,
             section,
+            cpu,
         })) => {
             let dur = tl.duration();
             let range = match section {
@@ -154,16 +161,17 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
                     (start, end)
                 }
             };
-            (quality, output, range)
+            (quality, output, range, cpu)
         }
         Some(Command::Still(StillArgs {
             quality,
             output,
             at,
             frame,
+            cpu,
         })) => {
             let t = frame.map_or(at, |n| n as f32 / quality.fps as f32);
-            (quality, output, (t, t))
+            (quality, output, (t, t), cpu)
         }
     };
     Ok(Some(export::Export {
@@ -171,6 +179,7 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
         output,
         range,
         workers: None,
+        cpu,
     }))
 }
 
@@ -587,15 +596,55 @@ fn draw(
     );
     let bg = color(tl.background(), 1.0);
     scene.fill(Fill::NonZero, Affine::IDENTITY, bg, None, &frame);
-    jobs.0 = encode(&mut scene, &tl.eval(clock.t), clock.t, PREVIEW_PX_PER_UNIT);
+    jobs.0 = encode(
+        &mut ***scene,
+        &tl.eval(clock.t),
+        clock.t,
+        PREVIEW_PX_PER_UNIT,
+    );
     let first = first_lane(tl, scroll.0);
     draw_timeline(&mut scene, tl, clock.t, region.0, first);
 }
 
-/// Encodes one frame at scene time `t` in scene units (y up) into a Vello scene, in draw
-/// order, and returns the shader fills to render at `px_per_unit` before Vello draws it.
+/// What [`encode`] draws into: a Vello scene for the GPU, or the CPU renderer of
+/// [`export::FrameRenderer`].
+pub trait DrawTarget {
+    /// Fills `path`, placed by `transform`, with `brush`, placed by `brush_transform` within it.
+    fn fill(
+        &mut self,
+        transform: Affine,
+        brush: &Brush,
+        brush_transform: Option<Affine>,
+        path: &BezPath,
+    );
+    /// Strokes `path`, placed by `transform`, with `brush`.
+    fn stroke(&mut self, stroke: &kurbo::Stroke, transform: Affine, brush: &Brush, path: &BezPath);
+    /// Whether this target can draw shader fills; where not, they draw their solid fill.
+    fn shaders(&self) -> bool {
+        true
+    }
+}
+
+impl DrawTarget for vello::Scene {
+    fn fill(
+        &mut self,
+        transform: Affine,
+        brush: &Brush,
+        brush_transform: Option<Affine>,
+        path: &BezPath,
+    ) {
+        self.fill(Fill::NonZero, transform, brush, brush_transform, path);
+    }
+
+    fn stroke(&mut self, stroke: &kurbo::Stroke, transform: Affine, brush: &Brush, path: &BezPath) {
+        self.stroke(stroke, transform, brush, None, path);
+    }
+}
+
+/// Encodes one frame at scene time `t` in scene units (y up) into `scene`, in draw order, and
+/// returns the shader fills to render at `px_per_unit` before Vello draws it.
 pub fn encode(
-    scene: &mut vello::Scene,
+    scene: &mut impl DrawTarget,
     state: &SceneState,
     t: f32,
     px_per_unit: f64,
@@ -603,8 +652,9 @@ pub fn encode(
     let mut order: Vec<_> = state.iter().collect();
     order.sort_by_key(|(id, m)| (m.z_index, **id));
     let mut jobs = Vec::new();
+    let shaders = scene.shaders();
     for (id, m) in order {
-        let job = m.shader.as_ref().map(|f| {
+        let job = m.shader.as_ref().filter(|_| shaders).map(|f| {
             let a = f.transform.as_coeffs();
             let size = (a[0].hypot(a[1]), a[2].hypot(a[3]));
             let c = m.fill;
@@ -625,7 +675,7 @@ pub fn encode(
 
 // ponytail: opacity multiplies fill and stroke alpha separately, so overlapping fill and
 // stroke show through each other while fading; use a Vello layer per mobject if that shows.
-fn encode_one(scene: &mut vello::Scene, m: &VState, shader: Option<&ShaderJob>) {
+fn encode_one(scene: &mut impl DrawTarget, m: &VState, shader: Option<&ShaderJob>) {
     if m.opacity <= 0.0 {
         return;
     }
@@ -639,19 +689,13 @@ fn encode_one(scene: &mut vello::Scene, m: &VState, shader: Option<&ShaderJob>) 
     let flip = Affine::FLIP_Y;
     if let (Some(job), Some(f)) = (shader, &m.shader) {
         let img = &job.image;
-        let brush = ImageBrush::new(img.clone()).with_alpha(m.fill.a * m.opacity);
+        let brush = Brush::Image(ImageBrush::new(img.clone()).with_alpha(m.fill.a * m.opacity));
         let to_unit =
             Affine::scale_non_uniform(1.0 / f64::from(img.width), 1.0 / f64::from(img.height));
-        scene.fill(
-            Fill::NonZero,
-            flip,
-            &brush,
-            Some(f.transform * to_unit),
-            &path,
-        );
+        scene.fill(flip, &brush, Some(f.transform * to_unit), &path);
     } else if m.fill.a > 0.0 {
         let brush = paint(m.fill, m.fill_gradient.as_deref(), m.opacity);
-        scene.fill(Fill::NonZero, flip, &brush, None, &path);
+        scene.fill(flip, &brush, None, &path);
     }
     if m.stroke.color.a > 0.0 && m.stroke.width > 0.0 {
         let stroke = kurbo::Stroke::new(m.stroke.width)
@@ -667,8 +711,8 @@ fn encode_one(scene: &mut vello::Scene, m: &VState, shader: Option<&ShaderJob>) 
             });
         let brush = paint(m.stroke.color, m.stroke_gradient.as_deref(), m.opacity);
         match small_stroke(&path, &stroke) {
-            Some(outline) => scene.fill(Fill::NonZero, flip, &brush, None, &outline),
-            None => scene.stroke(&stroke, flip, &brush, None, &path),
+            Some(outline) => scene.fill(flip, &brush, None, &outline),
+            None => scene.stroke(&stroke, flip, &brush, &path),
         }
     }
 }
@@ -757,7 +801,7 @@ fn paint(
 }
 
 /// Draws `i`'s pixels over the unit square its transform places.
-fn encode_image(scene: &mut vello::Scene, i: &ImageFill, alpha: f32) {
+fn encode_image(scene: &mut impl DrawTarget, i: &ImageFill, alpha: f32) {
     if alpha <= 0.0 {
         return;
     }
@@ -778,9 +822,12 @@ fn encode_image(scene: &mut vello::Scene, i: &ImageFill, alpha: f32) {
     let brush = ImageBrush::new(data)
         .with_quality(quality)
         .with_alpha(alpha);
-    let to_unit =
-        Affine::scale_non_uniform(1.0 / f64::from(img.width()), 1.0 / f64::from(img.height()));
-    scene.draw_image(&brush, Affine::FLIP_Y * i.transform * to_unit);
+    let (w, h) = (f64::from(img.width()), f64::from(img.height()));
+    let to_unit = Affine::scale_non_uniform(1.0 / w, 1.0 / h);
+    // What `vello::Scene::draw_image` does: fill the image's pixel rectangle with it.
+    let rect = kurbo::Shape::to_path(&Rect::new(0.0, 0.0, w, h), 0.1);
+    let transform = Affine::FLIP_Y * i.transform * to_unit;
+    scene.fill(transform, &Brush::Image(brush), None, &rect);
 }
 
 /// One Vello blob per image, so the renderer sees the same image id every frame instead of a
@@ -950,6 +997,9 @@ mod tests {
         assert_eq!(export("still --at 1.5s").range, (1.5, 1.5));
         assert_eq!(export("still --frame 30 -q 720p30").range, (1.0, 1.0));
         assert_eq!(export("still").output, PathBuf::from("frame.png"));
+        assert!(!export("render").cpu);
+        assert!(export("render --cpu").cpu);
+        assert!(export("still --cpu").cpu);
         for bad in [
             "render --help",
             "render -q 8k",
@@ -1073,43 +1123,85 @@ mod tests {
         assert_eq!(fit_label("Create", 0.1), "");
     }
 
+    /// 64×36 renderers: the CPU one, and the GPU one if there is a GPU.
+    fn renderers() -> Vec<export::FrameRenderer> {
+        let gpu = export::FrameRenderer::new(64, 36, false);
+        if gpu.is_err() {
+            eprintln!("no GPU adapter: testing the CPU renderer only");
+        }
+        let cpu = export::FrameRenderer::new(64, 36, true).unwrap();
+        gpu.into_iter().chain([cpu]).collect()
+    }
+
     #[test]
-    fn gpu_render_is_deterministic() {
-        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
-            eprintln!("skipping: no GPU adapter");
-            return;
-        };
+    fn render_is_deterministic() {
         let tl = timeline();
-        let a = r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap();
-        assert_eq!(a.len(), 64 * 36 * 4);
-        assert_eq!(a, r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap());
-        assert_ne!(a, r.render(&tl.eval(0.0), 0.0, tl.background()).unwrap());
+        for mut r in renderers() {
+            let a = r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap();
+            assert_eq!(a.len(), 64 * 36 * 4);
+            assert_eq!(a, r.render(&tl.eval(0.5), 0.5, tl.background()).unwrap());
+            assert_ne!(a, r.render(&tl.eval(0.0), 0.0, tl.background()).unwrap());
+        }
     }
 
     #[test]
     fn frames_in_flight_come_back_in_order_and_unchanged() {
-        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
-            eprintln!("skipping: no GPU adapter");
-            return;
-        };
         let tl = timeline();
         let times: Vec<f32> = (0..7).map(|i| i as f32 / 6.0).collect();
-        let one_by_one: Vec<_> = (times.iter())
-            .map(|&t| r.render(&tl.eval(t), t, tl.background()).unwrap())
-            .collect();
-        let mut queued = Vec::new();
-        for &t in &times {
-            queued.extend(r.submit(&tl.eval(t), t, tl.background()).unwrap());
+        for mut r in renderers() {
+            let one_by_one: Vec<_> = (times.iter())
+                .map(|&t| r.render(&tl.eval(t), t, tl.background()).unwrap())
+                .collect();
+            let mut queued = Vec::new();
+            for &t in &times {
+                queued.extend(r.submit(&tl.eval(t), t, tl.background()).unwrap());
+            }
+            while let Some(px) = r.finish().unwrap() {
+                queued.push(px);
+            }
+            assert_eq!(queued, one_by_one);
         }
-        while let Some(px) = r.finish().unwrap() {
-            queued.push(px);
+    }
+
+    #[test]
+    fn cpu_draws_shapes_where_the_gpu_does() {
+        use fastanim_core::color::{BLUE, RED};
+        let mut s = Scene::new();
+        // Red over the top half of the frame (y up), blue over the bottom half by a shader the
+        // CPU can't run, so it draws the solid fill.
+        let half = || VState::rectangle(FRAME_WIDTH, FRAME_HEIGHT / 2.0);
+        s.add(
+            half()
+                .fill(RED)
+                .shift(fastanim_core::Vec2::new(0.0, FRAME_HEIGHT / 4.0)),
+        );
+        let wgsl = "fn shade(uv: vec2<f32>) -> vec4<f32> { return shape.color; }";
+        s.add(
+            half()
+                .fill(BLUE)
+                .shift(fastanim_core::Vec2::new(0.0, -FRAME_HEIGHT / 4.0))
+                .shader(wgsl),
+        );
+        let tl = s.bake();
+        for mut r in renderers() {
+            let px = r.render(&tl.eval(0.0), 0.0, tl.background()).unwrap();
+            let near = |x: usize, y: usize, c: fastanim_core::Color| {
+                let i = (y * 64 + x) * 4;
+                let want = [c.r, c.g, c.b, 1.0].map(|v| (v * 255.0).round() as u8);
+                let got = &px[i..i + 4];
+                assert!(
+                    got.iter().zip(want).all(|(g, w)| g.abs_diff(w) <= 2),
+                    "{got:?} {want:?}"
+                );
+            };
+            near(32, 4, RED);
+            near(32, 31, BLUE);
         }
-        assert_eq!(queued, one_by_one);
     }
 
     #[test]
     fn shader_fills_render_on_the_gpu() {
-        let Ok(mut r) = export::FrameRenderer::new(64, 36) else {
+        let Ok(mut r) = export::FrameRenderer::new(64, 36, false) else {
             eprintln!("skipping: no GPU adapter");
             return;
         };

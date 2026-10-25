@@ -88,6 +88,7 @@ pub(crate) fn export(
             // over it: on bench/epicycles one is ~20% faster than sixteen. Free-threaded
             // Python (3.14t) without the GIL runs them on every core.
             workers: (tl.has_updaters() && gil_enabled(py)).then_some(1),
+            cpu: false,
         };
         py.detach(|| fastanim_bevy::export::export(tl, &ex))
             .map_err(PyRuntimeError::new_err)
