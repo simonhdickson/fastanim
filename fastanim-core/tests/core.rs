@@ -121,6 +121,47 @@ fn svg_still() {
 }
 
 #[test]
+fn svg_animated() {
+    let (tl, ..) = demo();
+    let frames: Vec<_> = (0..=35).map(|i| tl.eval(i as f32 / 10.0)).collect();
+    let svg = to_animated_svg(&frames, 10, WHITE);
+    assert!(svg.starts_with("<svg") && svg.ends_with("</svg>\n"));
+    // One group per run of identical frames: the waits are written once.
+    let stills: Vec<_> = frames.iter().map(|f| to_svg(f, WHITE)).collect();
+    let runs = 1 + stills.windows(2).filter(|w| w[0] != w[1]).count();
+    assert!(runs < frames.len());
+    assert_eq!(svg.matches("<animate ").count(), runs);
+    assert_eq!(svg.matches(r#"<g display="inline">"#).count(), 1);
+    assert!(svg.contains(r#"dur="3.6s""#));
+    // Each run shows from its first frame to the next run's.
+    let mut last = 0.0;
+    for times in svg.split(r#"keyTimes=""#).skip(1) {
+        let times: Vec<f64> = (times.split('"').next().unwrap().split(';'))
+            .map(|k| k.parse().unwrap())
+            .collect();
+        assert_eq!(times[0], 0.0);
+        assert!(times.windows(2).all(|w| w[0] < w[1]) && times[times.len() - 1] < 1.0);
+        assert!(times.len() == 2 || times[1] == last);
+        last = times[times.len() - 1];
+    }
+    // A scene that never changes is a still.
+    assert_eq!(to_animated_svg(&frames[12..18], 10, WHITE), stills[12]);
+    assert_eq!(to_animated_svg(&[], 10, WHITE).matches("<path").count(), 0);
+}
+
+#[test]
+fn svg_animated_gradient_ids_are_unique() {
+    let mut s = Scene::new();
+    let m = s.add(VState::square(2.0).fill_gradient(&[RED, BLUE], RIGHT));
+    s.play(shift(m, RIGHT));
+    let tl = s.bake();
+    let frames = [tl.eval(0.0), tl.eval(0.5)];
+    let svg = to_animated_svg(&frames, 2, WHITE);
+    assert!(svg.contains(r#"id="f0g1""#) && svg.contains(r#"fill="url(#f0g1)""#));
+    assert!(svg.contains(r#"id="f1g1""#) && svg.contains(r#"fill="url(#f1g1)""#));
+}
+
+#[test]
 fn updaters_follow_time_and_order() {
     let mut s = Scene::new();
     let lead = s.add(VState::dot(Point::ORIGIN));

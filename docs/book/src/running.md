@@ -44,6 +44,7 @@ text is cached, so a re-run only typesets text that changed.
 ```sh
 python -m fastanim render hello.py -q 720p30 -o hello.mp4
 python -m fastanim render hello.py --section intro -o intro.webm
+python -m fastanim render hello.py -q 480p15 --animated -o hello.svg
 ```
 
 - `-q, --quality`: `480p15`, `720p30`, `1080p60` (default) or `4k60`.
@@ -51,6 +52,10 @@ python -m fastanim render hello.py --section intro -o intro.webm
   `png` and `svg` write one file per frame. `mp4` and `webm` include the scene's
   [sounds](audio.md).
 - `--section <marker>`: render only from that marker to the next one.
+- `--animated`: write `svg` as one file that plays the scene and loops, instead of a directory
+  of frames. Browsers play it, inline or in an `<img>`, with no script. It has no sound or
+  shader fills, as with SVG frames. Frames that don't change are written once, but every
+  moving frame adds the whole scene to the file, so a low frame rate (`480p15`) keeps it small.
 
 On free-threaded Python (3.14t), video export runs a scene's updaters on every core. With the
 GIL they run on one thread. maturin builds a separate 3.14t wheel for it.
@@ -74,6 +79,7 @@ hello.render("hello.mp4", quality="1080p60")      # also section="intro"
 hello.still("frame.svg", at=3.5)                  # or frame=210
 tl = hello.bake()                                 # the timeline: tl.duration, tl.svg(t), …
 tl.render("frames.svg", quality="480p15")         # a directory of SVG frames
+tl.render("hello.svg", quality="480p15", animated=True)  # one SVG that plays them
 ```
 
 The preview window can be opened once per Python process. `Timeline.svg(t)` draws over the

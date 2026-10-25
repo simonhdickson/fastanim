@@ -1207,18 +1207,20 @@ impl Timeline {
 
     /// Exports the scene, or from marker `section` to the next one, to `path`; its extension
     /// picks the format: `mp4`, `webm`, `gif`, `png` or `svg` (one file per frame, in the
-    /// directory `path`). Only `svg` works in the browser's build.
-    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None))]
+    /// directory `path`, or with `animated` one SVG that plays them). Only `svg` works in the
+    /// browser's build.
+    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None, animated = false))]
     fn render(
         &self,
         py: Python<'_>,
         path: PathBuf,
         quality: &str,
         section: Option<&str>,
+        animated: bool,
     ) -> PyResult<()> {
         let q = render::Quality::parse(quality)?;
         let range = render::section(&self.0, section)?;
-        render::export(py, &self.0, path, q, range)
+        render::export(py, &self.0, path, q, range, animated)
     }
 
     /// Writes the frame at `at` seconds, or frame number `frame` at `quality`, to `path` as
@@ -1241,7 +1243,7 @@ impl Timeline {
         }
         let q = render::Quality::parse(quality)?;
         let t = frame.map_or(at, |n| q.frame_time(n));
-        render::export(py, &self.0, path, q, (t, t))
+        render::export(py, &self.0, path, q, (t, t), false)
     }
 
     /// Jupyter's rich display: the scene as an inline video.
@@ -1279,15 +1281,16 @@ impl SceneFn {
     }
 
     /// Bakes the scene and exports it; see `Timeline.render`.
-    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None))]
+    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None, animated = false))]
     fn render(
         &self,
         py: Python<'_>,
         path: PathBuf,
         quality: &str,
         section: Option<&str>,
+        animated: bool,
     ) -> PyResult<()> {
-        bake(py, &self.f)?.render(py, path, quality, section)
+        bake(py, &self.f)?.render(py, path, quality, section, animated)
     }
 
     /// Bakes the scene and writes one frame; see `Timeline.still`.

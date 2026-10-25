@@ -37,6 +37,8 @@ def parser() -> argparse.ArgumentParser:
     ren.add_argument("-o", "--output", type=Path, default=Path("out.mp4"), metavar="PATH",
                      help="output; its extension picks the format: mp4, webm, gif, png or svg")
     ren.add_argument("--section", metavar="MARKER", help="only render from MARKER to the next marker")
+    ren.add_argument("--animated", action="store_true",
+                     help="write svg as one animated file instead of a directory of frames")
 
     still = sub.add_parser("still", help="Export one frame of the scene")
     still.add_argument("scene", metavar="FILE[:NAME]", help=target)
@@ -68,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "preview":
             s.preview()
         elif args.command == "render":
-            s.render(args.output, quality=args.quality, section=args.section)
+            s.render(args.output, quality=args.quality, section=args.section, animated=args.animated)
         else:
             s.still(args.output, at=args.at, frame=args.frame, quality=args.quality)
     except (OSError, LookupError, RuntimeError, ValueError) as e:

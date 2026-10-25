@@ -29,6 +29,7 @@ def hello(s: Scene) -> None:
 ```sh
 python -m fastanim preview hello.py                  # a window with a scrubber, reloads on save
 python -m fastanim render hello.py -o hello.mp4      # mp4, webm, gif, png or svg frames
+python -m fastanim render hello.py --animated -o hello.svg   # one animated svg
 python -m fastanim still hello.py --at 2s -o frame.png
 ```
 

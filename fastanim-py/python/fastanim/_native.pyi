@@ -247,9 +247,11 @@ class Timeline:
         *,
         quality: _Quality = "1080p60",
         section: str | None = None,
+        animated: bool = False,
     ) -> None:
         """Exports the scene, or from marker `section` to the next one; the extension picks the
-        format: `mp4`, `webm`, `gif`, `png` or `svg`."""
+        format: `mp4`, `webm`, `gif`, `png` or `svg`. With `animated`, `svg` is one file that
+        plays the scene instead of a directory of frames."""
     def still(
         self,
         path: _Path = "frame.png",
@@ -273,6 +275,7 @@ class SceneFn:
         *,
         quality: _Quality = "1080p60",
         section: str | None = None,
+        animated: bool = False,
     ) -> None:
         """Bakes the scene and exports it; see `Timeline.render`."""
     def still(

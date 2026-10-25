@@ -19,7 +19,9 @@ use bevy_vello::vello::kurbo::{self, Affine, BezPath, Rect};
 use bevy_vello::vello::peniko::{Brush, Color, ImageBrush};
 use bevy_vello::vello::util::RenderContext;
 use bevy_vello::vello::{self, AaConfig, AaSupport, RenderParams, RendererOptions, wgpu};
-use fastanim_core::{BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, SoundEvent, to_svg};
+use fastanim_core::{
+    BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, SoundEvent, to_animated_svg, to_svg,
+};
 
 use crate::shader::ShaderFills;
 use crate::{DrawTarget, encode};
@@ -434,10 +436,13 @@ pub struct Export {
     /// Resolution and frame rate.
     pub quality: Quality,
     /// Output file; its extension picks the format: `mp4`, `webm`, `gif`, `png` or `svg`.
-    /// For `png` and `svg` with more than one frame it names a directory of numbered frames.
+    /// For `png` and `svg` with more than one frame it names a directory of numbered frames,
+    /// unless `animated`.
     pub output: PathBuf,
     /// First and last time to render, in seconds.
     pub range: (f32, f32),
+    /// Write more than one frame of `svg` as one animated SVG file instead of a directory.
+    pub animated: bool,
     /// Threads evaluating frames; `None` uses every core.
     pub workers: Option<usize>,
     /// Render on the CPU even when a GPU is available.
@@ -455,7 +460,14 @@ pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
     let still = times.len() == 1;
     if ext == "svg" {
         // SVG bypasses the GPU and ffmpeg entirely.
-        return write_svgs(tl, &times, &ex.output, still).map_err(|e| e.to_string());
+        let fps = ex.animated.then_some(ex.quality.fps);
+        return write_svgs(tl, &times, &ex.output, still, fps).map_err(|e| e.to_string());
+    }
+    if ex.animated {
+        return Err(format!(
+            "only svg can be animated, not `{}`",
+            ex.output.display()
+        ));
     }
     let codec: &[&str] = match ext {
         "mp4" => &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"],
@@ -620,13 +632,31 @@ pub fn audio_args(sounds: &[SoundEvent], range: (f32, f32), ext: &str) -> Vec<St
     args
 }
 
-fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path, still: bool) -> io::Result<()> {
+/// One SVG file for one frame; with `animated` at that many fps, one animated SVG file for
+/// more; otherwise a directory of numbered frames.
+fn write_svgs(
+    tl: &BakedTimeline,
+    times: &[f32],
+    out: &Path,
+    still: bool,
+    animated: Option<u32>,
+) -> io::Result<()> {
     let bg = tl.background();
     if still {
         return std::fs::write(out, to_svg(&tl.eval(times[0]), bg));
     }
-    std::fs::create_dir_all(out)?;
     let start = Instant::now();
+    if let Some(fps) = animated {
+        let frames: Vec<_> = (times.iter().enumerate())
+            .map(|(i, &t)| {
+                let state = tl.eval(t);
+                progress(i + 1, times.len(), start);
+                state
+            })
+            .collect();
+        return std::fs::write(out, to_animated_svg(&frames, fps, bg));
+    }
+    std::fs::create_dir_all(out)?;
     for (i, &t) in times.iter().enumerate() {
         std::fs::write(out.join(format!("{i:04}.svg")), to_svg(&tl.eval(t), bg))?;
         progress(i + 1, times.len(), start);

@@ -55,7 +55,7 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - **Diff engine**: Myers (greedy and linear-space) and patience diff, with move detection,
   replace pairing and semantic cleanup.
 - **Core model**: cubic-Bézier paths and shapes, path alignment, Oklab colors, a `Scene` builder
-  baked into a seekable `BakedTimeline`, and SVG still export.
+  baked into a seekable `BakedTimeline`, and SVG export of stills or whole animations.
 - **Animations**: `create`, `write`, `fade_in`/`fade_out` (optionally shifting or scaling),
   `transform`, `replacement_transform`, `grow_from_center`, `spin_in`, `draw_border_then_fill`, `uncreate`,
   `unwrite`, `shrink_to_center`, `move_to`, `apply_function`, `indicate`, `wiggle`,

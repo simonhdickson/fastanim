@@ -36,7 +36,7 @@ pub use geom::{BinaryOp, SubPath, VPath, align};
 pub use lottie::{Lottie, LottieMobject, PlayLottie, play_lottie};
 pub use mobject::{Gradient, LineCap, LineJoin, MobjectId, SceneState, ShaderFill, Stroke, VState};
 pub use position::{DEFAULT_BUFF, EDGE_BUFF, Position, arrange};
-pub use svg::to_svg;
+pub use svg::{to_animated_svg, to_svg};
 pub use timeline::{BakeStats, BakedTimeline, EventKind, Scene, SceneEvent, time_baking};
 pub use transform_diff::{DiffStyle, Group, Layout, Phasing, ReplaceStyle, TransformDiff};
 pub use video::{PlayVideo, Video, play_video};

@@ -75,6 +75,9 @@ pub struct RenderArgs {
     /// Only render from <MARKER> to the next marker
     #[arg(long, value_name = "MARKER")]
     pub section: Option<String>,
+    /// Write svg as one animated file instead of a directory of frames
+    #[arg(long)]
+    pub animated: bool,
     /// Render on the CPU even when a GPU is available
     #[arg(long)]
     pub cpu: bool,
@@ -138,12 +141,13 @@ pub fn run_command(
 
 /// Turns a command into what to export, or `None` to preview.
 fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Export>, String> {
-    let (quality, output, range, cpu) = match cmd {
+    let (quality, output, range, animated, cpu) = match cmd {
         None | Some(Command::Preview) => return Ok(None),
         Some(Command::Render(RenderArgs {
             quality,
             output,
             section,
+            animated,
             cpu,
         })) => {
             let dur = tl.duration();
@@ -161,7 +165,7 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
                     (start, end)
                 }
             };
-            (quality, output, range, cpu)
+            (quality, output, range, animated, cpu)
         }
         Some(Command::Still(StillArgs {
             quality,
@@ -171,13 +175,14 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
             cpu,
         })) => {
             let t = frame.map_or(at, |n| n as f32 / quality.fps as f32);
-            (quality, output, (t, t), cpu)
+            (quality, output, (t, t), false, cpu)
         }
     };
     Ok(Some(export::Export {
         quality,
         output,
         range,
+        animated,
         workers: None,
         cpu,
     }))
@@ -998,6 +1003,8 @@ mod tests {
         assert_eq!(export("still --frame 30 -q 720p30").range, (1.0, 1.0));
         assert_eq!(export("still").output, PathBuf::from("frame.png"));
         assert!(!export("render").cpu);
+        assert!(export("render --animated -o x.svg").animated);
+        assert!(!export("render -o x.svg").animated);
         assert!(export("render --cpu").cpu);
         assert!(export("still --cpu").cpu);
         for bad in [

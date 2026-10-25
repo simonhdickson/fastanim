@@ -58,18 +58,26 @@ pub(crate) fn section(tl: &BakedTimeline, section: Option<&str>) -> PyResult<(f3
 
 /// Renders `tl` from `range.0` to `range.1` and writes it to `output`, whose extension picks the
 /// format: `mp4`, `webm`, `gif`, `png` or `svg`. A single frame of `png` or `svg` is written to
-/// `output` itself, more to numbered files in the directory `output`.
+/// `output` itself, more to numbered files in the directory `output`, or with `animated` to one
+/// SVG that plays them.
 pub(crate) fn export(
     py: Python<'_>,
     tl: &BakedTimeline,
     output: PathBuf,
     quality: Quality,
     range: (f32, f32),
+    animated: bool,
 ) -> PyResult<()> {
     let ext = (output.extension().and_then(|e| e.to_str())).unwrap_or_default();
     if !["mp4", "webm", "gif", "png", "svg"].contains(&ext) {
         return Err(PyValueError::new_err(format!(
             "unsupported output `{}`: use mp4, webm, gif, png or svg",
+            output.display()
+        )));
+    }
+    if animated && ext != "svg" {
+        return Err(PyValueError::new_err(format!(
+            "only svg can be animated, not `{}`",
             output.display()
         )));
     }
@@ -84,6 +92,7 @@ pub(crate) fn export(
             },
             output,
             range,
+            animated,
             // Python updaters run one at a time under the GIL, and more threads only fight
             // over it: on bench/epicycles one is ~20% faster than sixteen. Free-threaded
             // Python (3.14t) without the GIL runs them on every core.
@@ -99,7 +108,8 @@ pub(crate) fn export(
             return Err(needs_preview());
         }
         let times = frame_times(range, quality.fps);
-        py.detach(|| write_svgs(tl, &times, &output))
+        let fps = animated.then_some(quality.fps);
+        py.detach(|| write_svgs(tl, &times, &output, fps))
             .map_err(|e| PyRuntimeError::new_err(format!("{}: {e}", output.display())))
     }
 }
@@ -122,12 +132,23 @@ fn frame_times((start, end): (f32, f32), fps: u32) -> Vec<f32> {
     (first..=last).map(|i| i as f32 / fps as f32).collect()
 }
 
-/// As `fastanim-bevy` writes SVG: one file, or a directory of `0000.svg`, `0001.svg`, ….
+/// As `fastanim-bevy` writes SVG: one file, one animated file at `animated` fps, or a directory
+/// of `0000.svg`, `0001.svg`, ….
 #[cfg(not(feature = "preview"))]
-fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path) -> std::io::Result<()> {
+fn write_svgs(
+    tl: &BakedTimeline,
+    times: &[f32],
+    out: &Path,
+    animated: Option<u32>,
+) -> std::io::Result<()> {
     let svg = |t| fastanim_core::to_svg(&tl.eval(t), tl.background());
     if let [t] = times {
         return std::fs::write(out, svg(*t));
+    }
+    if let Some(fps) = animated {
+        let frames: Vec<_> = times.iter().map(|&t| tl.eval(t)).collect();
+        let svg = fastanim_core::to_animated_svg(&frames, fps, tl.background());
+        return std::fs::write(out, svg);
     }
     std::fs::create_dir_all(out)?;
     for (i, &t) in times.iter().enumerate() {
