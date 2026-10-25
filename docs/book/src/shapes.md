@@ -158,6 +158,29 @@ s.play(rotate(group(photo, bar), PI / 8))
 `fade_out` and `fade_in` to cross-fade. Image files can't be loaded in the browser playground
 yet, but images built from pixels can.
 
+## Videos
+
+`video(path)` loads a video file (MP4, WebM, MOV or anything else `ffmpeg` reads; `ffmpeg` and
+`ffprobe` must be installed). It is an image whose pixels change as it plays: a shape that
+moves, scales, rotates, shears, fades and groups like any other, sized like an image of the
+source (or set `height=` or `width=`). It shows its first frame until `play_video(m)` plays
+it through once at its own frame rate, with its sound. Its keywords are `start=` and `end=` in
+seconds (backwards, and silent, if `end` comes first) and `loops=`:
+
+```python
+clip = s.add(video("clip.mp4", height=4))
+s.play(rotate(clip, PI / 4), play_video(clip))
+s.play(play_video(clip, start=2, end=0))
+```
+
+Like `play_lottie`, animations that move the video while it plays must come before
+`play_video` in the call. Every frame is decoded into memory when it loads, scaled down to at
+most `resolution=` pixels tall (720 by default): a 10 s, 30 fps clip at 720p takes about
+3.3 GB, so trim long clips or lower `resolution`. `run_time` changes how fast the picture
+plays but not the sound. Pixels follow affine transforms only: `apply_function` bends the
+outline, not the picture. Rotation metadata (common in phone clips) is ignored, and video
+files can't be loaded in the browser playground.
+
 ## Lottie animations
 
 `lottie(path)` loads a [Lottie](https://lottiefiles.com) file: the JSON that After Effects'

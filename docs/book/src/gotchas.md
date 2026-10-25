@@ -29,7 +29,7 @@ called during baking, not where they are written. They cannot use the scene; see
 
 ## Paths are relative to the current directory
 
-`image`, `lottie`, `audio` and `load_font` resolve a relative path against the current
+`image`, `video`, `lottie`, `audio` and `load_font` resolve a relative path against the current
 directory, not the scene file's. Build paths from `__file__` to load files beside the scene
 wherever it is run from:
 

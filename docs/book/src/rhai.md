@@ -126,6 +126,7 @@ Zed starts a language server only when an extension declares it, so fastanim shi
 | `transform_diff(m, t, highlight_changes=True)` | `transform_diff(m, t, #{ highlight_changes: true })` |
 | `text("x", font="Inter")` | `text("x", #{ font: "Inter" })` |
 | `play_lottie(m, loops=2)` | `play_lottie(m, #{ loops: 2 })` |
+| `play_video(m, start=1)` | `play_video(m, #{ start: 1.0 })` |
 | `image("a.png", height=4)` | `image("a.png").scale_to_fit_height(4.0)` |
 | `.width`, `.height` | `.width()`, `.height()` |
 | `lambda x: x * 2`, called as `f(1.5)` | `\|x\| x * 2.0`, called as `f.call(1.5)` |

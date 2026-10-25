@@ -166,6 +166,56 @@ raises(SceneError, "no/such/font.ttf", load_font, "no/such/font.ttf")
 }
 
 #[test]
+fn videos() {
+    let dir = std::env::temp_dir().join(format!("fastanim-py-video-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("clip.mp4");
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=d=1:s=64x48:r=10",
+        ])
+        .args(["-f", "lavfi", "-i", "sine=d=1", "-pix_fmt", "yuv420p"])
+        .arg(&path)
+        .status();
+    if !made.is_ok_and(|s| s.success()) {
+        eprintln!("skipped: no ffmpeg");
+        return;
+    }
+    run(&r##"
+from fastanim import *
+
+def raises(kind, text, f, *args, **kwargs):
+    try:
+        f(*args, **kwargs)
+    except kind as e:
+        assert text in str(e), e
+    else:
+        raise AssertionError(f"expected {kind.__name__}")
+
+v = video(PATH, height=3, resolution=24)
+assert abs(v.height - 3) < 1e-9
+
+@scene
+def s(s):
+    m = s.add(v.rotate(0.5))
+    s.play(rotate(m, 1), play_video(m, loops=2))
+    s.play(play_video(m, start=0.5, end=0))
+assert s.bake().duration == 2.5
+
+raises(SceneError, "missing.mp4", video, "missing.mp4")
+raises(ValueError, "not both", video, PATH, height=1, width=1)
+"##
+    .replace("PATH", &format!("{path:?}")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn lotties() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),

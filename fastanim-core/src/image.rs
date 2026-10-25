@@ -120,6 +120,8 @@ pub struct ImageFill {
     pub transform: Affine,
     /// Linear (smooth) or nearest-neighbour (pixelated) resampling.
     pub smooth: bool,
+    /// The video `image` is a frame of, which [`play_video`](crate::play_video) plays.
+    pub video: Option<Arc<crate::video::Video>>,
 }
 
 impl ImageFill {

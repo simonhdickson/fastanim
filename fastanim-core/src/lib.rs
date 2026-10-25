@@ -15,6 +15,7 @@ pub mod position;
 pub mod svg;
 pub mod timeline;
 pub mod transform_diff;
+pub mod video;
 
 pub use fastanim_diff::Op;
 pub use kurbo;
@@ -38,6 +39,7 @@ pub use position::{DEFAULT_BUFF, EDGE_BUFF, Position, arrange};
 pub use svg::to_svg;
 pub use timeline::{BakeStats, BakedTimeline, EventKind, Scene, SceneEvent, time_baking};
 pub use transform_diff::{DiffStyle, Group, Layout, Phasing, ReplaceStyle, TransformDiff};
+pub use video::{PlayVideo, Video, play_video};
 
 /// Values that can be blended; `lerp(a, b, 0) == a` and `lerp(a, b, 1) == b`.
 pub trait Interpolate: Clone {

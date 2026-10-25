@@ -1496,6 +1496,28 @@ fn image(
     Ok(Shape(if pixelated { m.pixelated() } else { m }))
 }
 
+/// A video file, decoded by `ffmpeg` at most `resolution` pixels tall, as a shape showing its
+/// first frame until played with `play_video`. As tall as an image of the source unless
+/// `height` or `width` is given.
+#[pyfunction]
+#[pyo3(signature = (path, *, height = None, width = None, resolution = 720))]
+fn video(
+    path: PathBuf,
+    height: Option<f64>,
+    width: Option<f64>,
+    resolution: u32,
+) -> PyResult<Shape> {
+    let m = fastanim_script::video(&path, Some(resolution)).map_err(scene_err)?;
+    Ok(Shape(match (height, width) {
+        (Some(h), None) => m.scale_to_fit_height(h),
+        (None, Some(w)) => m.scale_to_fit_width(w),
+        (None, None) => m,
+        (Some(_), Some(_)) => {
+            return Err(PyValueError::new_err("give height or width, not both"));
+        }
+    }))
+}
+
 /// A Lottie (Bodymovin JSON) file's animation, showing its first frame until played with
 /// `play_lottie`. As tall as an image of its size unless `height` or `width` is given.
 #[pyfunction]
@@ -1746,6 +1768,23 @@ fn transform_diff(m: PyMob, to: Text, opts: Option<&Bound<'_, PyDict>>) -> PyRes
     )))
 }
 
+/// Plays video `m` at its own frame rate, with its sound: seconds `start` to `end` (the whole
+/// video by default; backwards and silent if `end < start`), `loops` times over.
+#[pyfunction]
+#[pyo3(signature = (m, *, start = None, end = None, loops = None))]
+fn play_video(
+    m: PyMob,
+    start: Option<f64>,
+    end: Option<f64>,
+    loops: Option<u32>,
+) -> PyResult<PyAnim> {
+    if loops == Some(0) {
+        return Err(PyValueError::new_err("`loops` must be at least 1"));
+    }
+    let how = fastanim_script::VideoPlay { start, end, loops };
+    Ok(PyAnim(fastanim_script::play_video(m.0, how)))
+}
+
 /// Plays Lottie `m` at its own frame rate: frames `start` to `end` (the whole file by default;
 /// backwards if `end < start`), `loops` times over.
 #[pyfunction]
@@ -1870,6 +1909,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dashed_line,
         function_graph,
         image,
+        video,
         lottie,
         load_font,
         text,
@@ -1909,6 +1949,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         transform_diff,
         transform_list,
         play_lottie,
+        play_video,
         parallel,
         sequence,
         lagged_start,

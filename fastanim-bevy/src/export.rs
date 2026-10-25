@@ -324,10 +324,11 @@ pub struct Cpu {
     /// Takes scene units to pixels.
     to_pixels: Affine,
     scale: f64,
-    /// Each image's pixels, premultiplied as `vello_cpu` wants them, by blob id.
-    // shortcut: never evicts, so an export holds every image it has drawn; evict by blob
-    // liveness if scenes ever stream many large images.
+    /// Each image's pixels, premultiplied as `vello_cpu` wants them, by blob id: those drawn
+    /// this frame, and those drawn the frame before, kept only if drawn again, so a playing
+    /// video doesn't hold every frame it has shown.
     images: HashMap<u64, vello_cpu::ImageSource>,
+    prev_images: HashMap<u64, vello_cpu::ImageSource>,
     warned: bool,
 }
 
@@ -345,6 +346,7 @@ impl Cpu {
             to_pixels: Affine::translate((fw / 2.0, fh / 2.0)) * Affine::scale(scale),
             scale,
             images: HashMap::new(),
+            prev_images: HashMap::new(),
             warned: false,
         })
     }
@@ -365,6 +367,7 @@ impl Cpu {
             f64::from(self.pixmap.width()),
             f64::from(self.pixmap.height()),
         );
+        self.prev_images = std::mem::take(&mut self.images);
         self.ctx.reset();
         self.ctx
             .set_paint(Color::new([background.r, background.g, background.b, 1.0]));
@@ -383,7 +386,11 @@ impl Cpu {
             Brush::Gradient(g) => Brush::Gradient(g.clone()),
             Brush::Image(i) => Brush::Image(ImageBrush {
                 image: (self.images.entry(i.image.data.id()))
-                    .or_insert_with(|| vello_cpu::ImageSource::from_peniko_image_data(&i.image))
+                    .or_insert_with(|| {
+                        (self.prev_images.remove(&i.image.data.id())).unwrap_or_else(|| {
+                            vello_cpu::ImageSource::from_peniko_image_data(&i.image)
+                        })
+                    })
                     .clone(),
                 sampler: i.sampler,
             }),

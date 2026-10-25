@@ -11,6 +11,7 @@ use crate::Interpolate;
 use crate::color::{Color, WHITE};
 use crate::geom::VPath;
 use crate::image::{Image, ImageFill, lerp_affine};
+use crate::video::Video;
 
 /// Identifies a mobject within a [`Scene`](crate::Scene).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -197,9 +198,21 @@ impl VState {
                 image: img,
                 transform: place,
                 smooth: true,
+                video: None,
             })),
             ..Self::rectangle(w, h).stroke(Color::TRANSPARENT, 0.0)
         }
+    }
+
+    /// The first frame of `video`, as [`image`](Self::image) would place it at the source
+    /// video's size; [`play_video`](crate::play_video) plays it.
+    pub fn video(video: Arc<Video>) -> Self {
+        let mut m = Self::image(video.frames()[0].clone());
+        let h = video.default_height();
+        if let Some(i) = &mut m.image {
+            i.video = Some(video);
+        }
+        crate::Position::scale_to_fit_height(m, h)
     }
 
     /// Draws the image with nearest-neighbour resampling, so pixels stay sharp squares.

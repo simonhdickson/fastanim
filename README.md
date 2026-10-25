@@ -76,6 +76,8 @@ What's planned next for manim parity is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
   `load_font` adds TTF/OTF fonts from files, chosen per text with a `font` option.
 - **Images**: PNG and JPEG files, or pixel arrays (NumPy or nested lists), as shapes
   that move, scale, rotate, fade and group like any other; smooth or pixelated.
+- **Video**: any file `ffmpeg` reads, as an image shape whose frames `play_video` plays, with
+  its sound, while it moves, rotates and distorts like any other shape.
 - **Lottie**: Lottie (Bodymovin JSON) files evaluated frame by frame into shapes, so they
   render everywhere and move, fade and group like any other mobject; `play_lottie` plays all
   or part of one, looped or backwards.

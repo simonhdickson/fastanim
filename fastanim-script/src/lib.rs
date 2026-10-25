@@ -36,7 +36,7 @@ use fastanim_core::{
     Animation, AnimationExt, Audio, BakedTimeline, DEFAULT_BUFF, DOWN, DiffStyle, Ease,
     FRAME_HEIGHT, FRAME_WIDTH, Group, Image, LEFT, LineCap, LineJoin, Lottie, LottieMobject,
     MobjectId, Parallel, Position, RIGHT, RateFn, Scene, SceneState, Sequence, UP, Update,
-    UpdateGroup, VState, arrange,
+    UpdateGroup, VState, Video, arrange,
 };
 use fastanim_text::{TextMobject, TextStyle, TokenKey};
 
@@ -752,6 +752,58 @@ pub fn play_lottie(m: Mob, how: LottiePlay) -> Anim {
             how.start.unwrap_or(l.in_point()),
             how.end.unwrap_or(l.out_point()),
         );
+        Ok(Box::new(a.loops(how.loops.unwrap_or(1))))
+    })
+}
+
+/// The video file at `path`, decoded by `ffmpeg` at most `max_height` pixels tall (720 by
+/// default), as a shape showing its first frame (see [`VState::video`]).
+pub fn video(path: &Path, max_height: Option<u32>) -> Result<VState, String> {
+    if cfg!(target_arch = "wasm32") {
+        return Err("video files can't be loaded in the browser player".into());
+    }
+    let v = Video::load(path, max_height.unwrap_or(720))?;
+    Ok(VState::video(Arc::new(v)))
+}
+
+/// How [`play_video`] plays: which seconds, and how many times.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VideoPlay {
+    /// The second to start at; 0 by default.
+    pub start: Option<f64>,
+    /// The second to end at; the video's end by default. Before `start` plays backwards,
+    /// without sound.
+    pub end: Option<f64>,
+    /// How many times to play it through.
+    pub loops: Option<u32>,
+}
+
+/// Sets option `k` of a [`VideoPlay`].
+pub fn video_option(p: &mut VideoPlay, k: &str, v: f64) -> Result<(), String> {
+    match k {
+        "start" => p.start = Some(v),
+        "end" => p.end = Some(v),
+        "loops" if v >= 1.0 && v.fract() == 0.0 => p.loops = Some(v as u32),
+        "loops" => return Err(format!("`loops` must be a whole number from 1, got {v}")),
+        _ => return Err(format!("unknown option `{k}`: start, end or loops")),
+    }
+    Ok(())
+}
+
+/// Plays the video shape `m` at its own frame rate, with its sound, wherever it has been
+/// moved to.
+pub fn play_video(m: Mob, how: VideoPlay) -> Anim {
+    Anim::new(move |cx| {
+        let ids = cx.ids(&m)?;
+        let id = *ids
+            .first()
+            .filter(|_| ids.len() == 1)
+            .ok_or("expected one video")?;
+        let v = (cx.scene.state()[&id].image.as_ref())
+            .and_then(|i| i.video.clone())
+            .ok_or("expected a video: `video(...)`")?;
+        let a = fastanim_core::play_video(id, v.clone())
+            .range(how.start.unwrap_or(0.0), how.end.unwrap_or(v.duration()));
         Ok(Box::new(a.loops(how.loops.unwrap_or(1))))
     })
 }

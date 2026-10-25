@@ -445,6 +445,15 @@ def image(
 ) -> Shape:
     """An image: a PNG or JPEG file's path, or rows of pixels (a NumPy array or nested lists), each
     a grey value or `(r, g, b[, a])` from 0 to 255."""
+def video(
+    path: _Path,
+    *,
+    height: float | None = None,
+    width: float | None = None,
+    resolution: int = 720,
+) -> Shape:
+    """A video file, decoded by `ffmpeg` at most `resolution` pixels tall, as a shape showing its
+    first frame until played with `play_video`."""
 def lottie(path: _Path, *, height: float | None = None, width: float | None = None) -> Lottie: ...
 def load_font(path: _Path) -> builtins.list[str]:
     """Loads a font file, returning the families it holds."""
@@ -528,6 +537,11 @@ def play_lottie(
     m: Mobject, *, start: float | None = None, end: float | None = None, loops: int | None = None
 ) -> Animation:
     """Plays Lottie `m` at its own frame rate: frames `start` to `end`, `loops` times over."""
+def play_video(
+    m: Mobject, *, start: float | None = None, end: float | None = None, loops: int | None = None
+) -> Animation:
+    """Plays video `m` at its own frame rate, with its sound: seconds `start` to `end`, `loops`
+    times over."""
 def parallel(*anims: _Anim) -> Animation: ...
 def sequence(*anims: _Anim) -> Animation: ...
 def lagged_start(*anims: _Anim, lag_ratio: float) -> Animation:

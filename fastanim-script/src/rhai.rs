@@ -291,13 +291,14 @@ fn pixel_rows(rows: Array) -> Res<Vec<Vec<Vec<f64>>>> {
         .collect()
 }
 
-fn lottie_play(opts: Map) -> Res<crate::LottiePlay> {
-    let mut how = crate::LottiePlay::default();
+/// Playback options (`play_lottie`, `play_video`), all numbers.
+fn play_opts<T: Default>(opts: Map, set: fn(&mut T, &str, f64) -> Result<(), String>) -> Res<T> {
+    let mut how = T::default();
     for (k, v) in opts {
         let ty = v.type_name();
         let n = (v.as_float().or_else(|_| v.as_int().map(|i| i as f64)))
             .map_err(|_| format!("`{k}` must be a number, got {ty}"))?;
-        crate::lottie_option(&mut how, &k, n)?;
+        set(&mut how, &k, n)?;
     }
     Ok(how)
 }
@@ -481,6 +482,10 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         })
         .register_fn("image", |rows: Array| {
             Ok(crate::image_from_rows(&pixel_rows(rows)?)?) as Res<_>
+        })
+        .register_fn("video", {
+            let dir = dir.clone();
+            move |path: &str| Ok(crate::video(&dir.join(path), None)?) as Res<_>
         })
         .register_fn("pixelated", VState::pixelated)
         .register_fn("fill", |m: VState, c: Color| m.fill(c))
@@ -844,11 +849,20 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("transform_diff", |m: Mob, to: TextMobject, opts: Map| {
             Ok(crate::transform_diff(m, to, diff_style(opts)?, false)) as Res<_>
         })
+        .register_fn("play_video", |m: Mob| {
+            crate::play_video(m, crate::VideoPlay::default())
+        })
+        .register_fn("play_video", |m: Mob, opts: Map| {
+            Ok(crate::play_video(m, play_opts(opts, crate::video_option)?)) as Res<_>
+        })
         .register_fn("play_lottie", |m: Mob| {
             crate::play_lottie(m, crate::LottiePlay::default())
         })
         .register_fn("play_lottie", |m: Mob, opts: Map| {
-            Ok(crate::play_lottie(m, lottie_play(opts)?)) as Res<_>
+            Ok(crate::play_lottie(
+                m,
+                play_opts(opts, crate::lottie_option)?,
+            )) as Res<_>
         })
         .register_fn("transform_list", |m: Mob, to: TextMobject| {
             crate::transform_diff(m, to, DiffStyle::default(), true)

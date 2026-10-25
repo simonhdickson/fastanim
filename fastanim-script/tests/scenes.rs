@@ -333,6 +333,57 @@ fn lottie_scene_plays() {
     assert!(e(r#"lottie("lottie.rhai");"#).contains("lottie.rhai"));
 }
 
+/// A 1 s, 10 fps clip with a sine track in a fresh temp dir, or `None` without `ffmpeg`.
+fn video_clip(name: &str) -> Option<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!("fastanim-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=d=1:s=64x48:r=10",
+        ])
+        .args(["-f", "lavfi", "-i", "sine=d=1", "-pix_fmt", "yuv420p"])
+        .arg(dir.join("clip.mp4"))
+        .status();
+    made.is_ok_and(|s| s.success()).then_some(dir)
+}
+
+#[test]
+fn video_scene_plays() {
+    let Some(dir) = video_clip("rhai-video") else {
+        eprintln!("skipped: no ffmpeg");
+        return;
+    };
+    let tl = fastanim_script::bake_in(
+        r#"let v = scene.add(video("clip.mp4").rotate(0.5));
+           scene.play([rotate(v, 1.0), play_video(v, #{loops: 2})]);
+           scene.play(play_video(v, #{start: 0.5, end: 0.0}));"#,
+        &dir,
+    )
+    .unwrap();
+    assert_eq!(tl.duration(), 2.5);
+    assert_eq!(tl.sounds().len(), 2, "one per loop, none backwards");
+    let at = |t: f32| to_svg(&tl.eval(t), BLACK);
+    assert_eq!(at(0.0).matches("<image").count(), 1);
+    assert_ne!(at(0.05), at(0.55), "it animates");
+
+    let e = |src: &str| match fastanim_script::bake_in(src, &dir) {
+        Ok(_) => panic!("expected an error from {src:?}"),
+        Err(e) => e.message,
+    };
+    let c = "let c = scene.add(circle(1.0));";
+    assert!(e(&format!("{c}scene.play(play_video(c));")).contains("expected a video"));
+    let v = r#"let v = scene.add(video("clip.mp4"));"#;
+    assert!(e(&format!("{v}scene.play(play_video(v, #{{loops: 0}}));")).contains("loops"));
+    assert!(e(r#"video("missing.mp4");"#).contains("missing.mp4"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn text_in_other_fonts() {
     let tl = fastanim_script::bake(

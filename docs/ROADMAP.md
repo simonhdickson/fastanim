@@ -93,6 +93,9 @@ These items unblock the most examples, and many later items build on them.
    - Still to do: image files in the browser playground (they need fetching before the bake).
      Morphing an image into a shape is out of scope; cross-fade instead.
    - Unblocks: GradientImageFromArray and MovingZoomedSceneAround (with 21).
+   - Video (`fastanim-core/src/video.rs`): `video(path)` decodes every frame with the `ffmpeg`
+     CLI into an image shape, and `play_video` swaps its pixels frame by frame and plays the
+     audio track. Still to do: decoding on demand for long clips, rotation metadata.
 3. ✅ **Style completeness.**
    - `scene.background(color)`: one colour for the whole scene, read by every renderer and
      export. An animated background would need it in the timeline state; nothing needs that yet.
