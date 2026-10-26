@@ -1,5 +1,4 @@
-# A port of manim's SquareToCircle: the Python version of
-# fastanim-script/scenes/square_to_circle.rhai.
+# A port of manim's SquareToCircle.
 from fastanim import *
 
 

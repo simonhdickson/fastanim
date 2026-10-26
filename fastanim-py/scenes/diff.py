@@ -1,6 +1,5 @@
 # SPEC §10 examples 1-5: diff-driven transforms of equations, code and lists, and a shape
-# morph. The Python version of fastanim-bevy/examples/diff.rs and
-# fastanim-script/scenes/diff.rhai.
+# morph.
 from fastanim import *
 
 BEFORE = """fn main() {

@@ -1,6 +1,5 @@
 # A port of manim's BooleanOperations: two overlapping ellipses, then their intersection,
-# union, exclusion and difference, each shrunk into a labelled corner. The Python version of
-# fastanim-script/scenes/boolean_operations.rhai.
+# union, exclusion and difference, each shrunk into a labelled corner.
 from fastanim import *
 
 # manim's `font_size=23` against its default of 48.

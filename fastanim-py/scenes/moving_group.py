@@ -1,5 +1,4 @@
-# A port of manim's MovingGroupToDestination: the Python version of
-# fastanim-script/scenes/moving_group.rhai.
+# A port of manim's MovingGroupToDestination.
 from fastanim import *
 
 

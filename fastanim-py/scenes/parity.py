@@ -1,5 +1,4 @@
-# SPEC §10 example 6, "classic manim parity": the Python version of
-# fastanim-bevy/examples/parity.rs and fastanim-script/scenes/parity.rhai.
+# SPEC §10 example 6, "classic manim parity".
 from math import sin
 
 from fastanim import *

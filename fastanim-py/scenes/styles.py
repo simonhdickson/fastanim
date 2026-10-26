@@ -1,4 +1,4 @@
-# Style options: the Python version of fastanim-script/scenes/styles.rhai.
+# Style options.
 from fastanim import *
 
 

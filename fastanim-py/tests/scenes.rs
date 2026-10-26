@@ -125,6 +125,16 @@ fn styles_matches_rhai() {
 }
 
 #[test]
+fn growing_wave_matches_rhai() {
+    assert_same(&rhai("growing_wave"), &script("growing_wave"));
+}
+
+#[test]
+fn shader_matches_rhai() {
+    assert_same(&rhai("shader"), &script("shader"));
+}
+
+#[test]
 fn images_and_fonts() {
     run(r##"
 from fastanim import *

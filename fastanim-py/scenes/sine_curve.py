@@ -1,7 +1,6 @@
 # manim's SineCurveUnitCircle example (contributed by heejin_park,
 # https://infograph.tistory.com/230): a dot circles the unit circle and traces sin.
 # manim accumulates state in updaters; here every frame is pure in t, so scrubbing works.
-# The Python version of fastanim-script/scenes/sine_curve.rhai.
 from math import cos, sin
 
 from fastanim import *

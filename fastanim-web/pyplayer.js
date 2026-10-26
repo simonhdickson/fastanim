@@ -13,6 +13,11 @@ async function boot() {
   const py = await loadPyodide({ indexURL: PYODIDE });
   await py.loadPackage(WHEEL.href);
   py.FS.mkdirTree("/scene");
+  // shortcut: files the example scenes read from beside themselves are listed by hand; fetch them per scene if gists need their own.
+  for (const name of ["bounce.json"]) {
+    const r = await fetch(new URL(`pyscenes/${name}`, import.meta.url));
+    py.FS.writeFile(`/scene/${name}`, new Uint8Array(await r.arrayBuffer()));
+  }
   // The scene's frames only, as `python -m fastanim` would print them.
   py.runPython(`
 import traceback

@@ -1,5 +1,4 @@
-# A port of manim's GradientImageFromArray: the Python version of
-# fastanim-script/scenes/gradient_image.rhai. A NumPy array works as well as nested lists.
+# A port of manim's GradientImageFromArray. A NumPy array works as well as nested lists.
 from fastanim import *
 
 

@@ -1,5 +1,4 @@
 # manim's SinAndCosFunctionPlot example: sin and cos on labelled axes, with a marked x = 2π.
-# The Python version of fastanim-script/scenes/sin_and_cos.rhai.
 from math import cos, sin
 
 from fastanim import *
