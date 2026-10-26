@@ -429,7 +429,17 @@ def raises(kind, text, f, *args, **kwargs):
 raises(ValueError, "unknown quality", s.render, os.path.join(out, "x.svg"), quality="2k")
 raises(SceneError, "no marker `nope`", s.render, os.path.join(out, "x.svg"), section="nope")
 raises(ValueError, "unsupported output", s.render, os.path.join(out, "x.avi"))
-raises(ValueError, "unsupported still", s.still, os.path.join(out, "x.mp4"))
+raises(ValueError, "a still is png or svg", s.still, os.path.join(out, "x.mp4"))
+raises(ValueError, "unknown format", s.render, os.path.join(out, "x.svg"), format="avi")
+raises(ValueError, "isn't gif", s.render, os.path.join(out, "x.mp4"), format="gif")
+
+# `format` picks what's written; the path can leave out the extension.
+s.render(os.path.join(out, "anim.svg"), format="animated-svg", quality="480p15")
+assert open(os.path.join(out, "anim.svg")).read().count("<animate ") > 1
+s.render(os.path.join(out, "frames"), format="svg", quality="480p15", section="fade")
+assert len(os.listdir(os.path.join(out, "frames"))) == 10
+s.still(os.path.join(out, "still"), format="svg", at=0.4)
+assert open(os.path.join(out, "still")).read() == a
 "##);
 }
 
@@ -490,7 +500,7 @@ for f in (lambda: s.render("out.mp4"), lambda: s.still("frame.png"), s.preview):
     try:
         f()
     except RuntimeError as e:
-        assert "only svg output works" in str(e), e
+        assert "only svg and animated-svg output work" in str(e), e
     else:
         raise AssertionError("expected RuntimeError")
 "##);
@@ -508,6 +518,9 @@ out = os.path.join(tempfile.mkdtemp(), "f.svg")
 assert main(["still", f"{{scenes}}/parity.py", "--at", "2s", "-o", out]) == 0
 assert os.path.isfile(out)
 assert main(["still", f"{{scenes}}/diff.py:diff", "--frame", "3", "-o", out]) == 0
+anim = os.path.join(os.path.dirname(out), "anim")
+assert main(["render", f"{{scenes}}/parity.py", "-q", "480p15", "-f", "animated-svg", "-o", anim]) == 0
+assert "<animate " in open(anim).read()
 
 err = io.StringIO()
 with contextlib.redirect_stderr(err):

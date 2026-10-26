@@ -20,7 +20,8 @@ use bevy_vello::vello::peniko::{Brush, Color, ImageBrush};
 use bevy_vello::vello::util::RenderContext;
 use bevy_vello::vello::{self, AaConfig, AaSupport, RenderParams, RendererOptions, wgpu};
 use fastanim_core::{
-    BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, SceneState, SoundEvent, to_animated_svg, to_svg,
+    BakedTimeline, FRAME_HEIGHT, FRAME_WIDTH, Format, SceneState, SoundEvent, to_animated_svg,
+    to_svg,
 };
 
 use crate::shader::ShaderFills;
@@ -435,14 +436,13 @@ impl DrawTarget for Cpu {
 pub struct Export {
     /// Resolution and frame rate.
     pub quality: Quality,
-    /// Output file; its extension picks the format: `mp4`, `webm`, `gif`, `png` or `svg`.
-    /// For `png` and `svg` with more than one frame it names a directory of numbered frames,
-    /// unless `animated`.
+    /// What to write.
+    pub format: Format,
+    /// Output file; for `png` and `svg` with more than one frame, a directory of numbered
+    /// frames.
     pub output: PathBuf,
     /// First and last time to render, in seconds.
     pub range: (f32, f32),
-    /// Write more than one frame of `svg` as one animated SVG file instead of a directory.
-    pub animated: bool,
     /// Threads evaluating frames; `None` uses every core.
     pub workers: Option<usize>,
     /// Render on the CPU even when a GPU is available.
@@ -452,22 +452,12 @@ pub struct Export {
 /// Renders `tl` over `ex.range` and writes it to `ex.output`.
 pub fn export(tl: &BakedTimeline, ex: &Export) -> Result<(), String> {
     let times: Vec<f32> = frame_times(ex.range.0, ex.range.1, ex.quality.fps).collect();
-    let ext = ex
-        .output
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default();
+    let ext = ex.format.ext();
     let still = times.len() == 1;
     if ext == "svg" {
         // SVG bypasses the GPU and ffmpeg entirely.
-        let fps = ex.animated.then_some(ex.quality.fps);
+        let fps = (ex.format == Format::AnimatedSvg).then_some(ex.quality.fps);
         return write_svgs(tl, &times, &ex.output, still, fps).map_err(|e| e.to_string());
-    }
-    if ex.animated {
-        return Err(format!(
-            "only svg can be animated, not `{}`",
-            ex.output.display()
-        ));
     }
     let codec: &[&str] = match ext {
         "mp4" => &["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"],

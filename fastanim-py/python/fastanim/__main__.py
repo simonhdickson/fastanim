@@ -11,6 +11,7 @@ from . import SceneFn, scene
 from ._load import RUN_NAME, load
 
 QUALITIES = ["480p15", "720p30", "1080p60", "4k60"]
+FORMATS = ["mp4", "webm", "gif", "png", "svg", "animated-svg"]
 
 
 def seconds(v: str) -> float:
@@ -34,18 +35,21 @@ def parser() -> argparse.ArgumentParser:
     ren.add_argument("scene", metavar="FILE[:NAME]", help=target)
     ren.add_argument("-q", "--quality", choices=QUALITIES, default="1080p60", metavar="PRESET",
                      help="480p15, 720p30, 1080p60 (default) or 4k60")
-    ren.add_argument("-o", "--output", type=Path, default=Path("out.mp4"), metavar="PATH",
-                     help="output; its extension picks the format: mp4, webm, gif, png or svg")
+    ren.add_argument("-f", "--format", choices=FORMATS, metavar="FORMAT",
+                     help="mp4, webm, gif, png or svg (folders of frames), or animated-svg; "
+                     "default: from --output's extension, else mp4")
+    ren.add_argument("-o", "--output", type=Path, metavar="PATH",
+                     help="output file or frames folder (default: named after the scene, e.g. NAME.mp4)")
     ren.add_argument("--section", metavar="MARKER", help="only render from MARKER to the next marker")
-    ren.add_argument("--animated", action="store_true",
-                     help="write svg as one animated file instead of a directory of frames")
 
     still = sub.add_parser("still", help="Export one frame of the scene")
     still.add_argument("scene", metavar="FILE[:NAME]", help=target)
     still.add_argument("-q", "--quality", choices=QUALITIES, default="1080p60", metavar="PRESET",
                        help="480p15, 720p30, 1080p60 (default) or 4k60")
-    still.add_argument("-o", "--output", type=Path, default=Path("frame.png"), metavar="PATH",
-                       help="output; its extension picks the format: png or svg")
+    still.add_argument("-f", "--format", choices=["png", "svg"], metavar="FORMAT",
+                       help="png or svg; default: from --output's extension, else png")
+    still.add_argument("-o", "--output", type=Path, metavar="PATH",
+                       help="output file (default: named after the scene, e.g. NAME.png)")
     when = still.add_mutually_exclusive_group()
     when.add_argument("--at", type=seconds, default=0.0, metavar="SECS", help="time to render, e.g. 3.5 or 3.5s")
     when.add_argument("--frame", type=int, metavar="N", help="frame index to render")
@@ -70,9 +74,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "preview":
             s.preview()
         elif args.command == "render":
-            s.render(args.output, quality=args.quality, section=args.section, animated=args.animated)
+            s.render(args.output, format=args.format, quality=args.quality, section=args.section)
         else:
-            s.still(args.output, at=args.at, frame=args.frame, quality=args.quality)
+            s.still(args.output, format=args.format, at=args.at, frame=args.frame, quality=args.quality)
     except (OSError, LookupError, RuntimeError, ValueError) as e:
         # Errors raised by the scene itself keep their traceback; the CLI's own are one line.
         if _raised_in_scene(e):

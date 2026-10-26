@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use fastanim_core::kurbo::{Affine, Point, Rect, Vec2};
 use fastanim_core::{
     Audio as CoreAudio, Axes as CoreAxes, BakedTimeline, BinaryOp, Color as CoreColor,
-    DEFAULT_BUFF, DiffStyle, EventKind, Gradient, Image, ImageFill, LineCap, LineJoin,
+    DEFAULT_BUFF, DiffStyle, EventKind, Format, Gradient, Image, ImageFill, LineCap, LineJoin,
     LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
 };
 use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
@@ -1205,51 +1205,74 @@ impl Timeline {
         ))
     }
 
-    /// Exports the scene, or from marker `section` to the next one, to `path`; its extension
-    /// picks the format: `mp4`, `webm`, `gif`, `png` or `svg` (one file per frame, in the
-    /// directory `path`, or with `animated` one SVG that plays them). Only `svg` works in the
-    /// browser's build.
-    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None, animated = false))]
+    /// Exports the scene, or from marker `section` to the next one, to `path` as `format`:
+    /// `mp4`, `webm`, `gif`, `png` or `svg` (one file per frame, in the directory `path`), or
+    /// `animated-svg` (one SVG that plays them). Without `format` it comes from `path`'s
+    /// extension, else `mp4`; without `path`, `out.mp4`, `out/`, …. Only `svg` and
+    /// `animated-svg` work in the browser's build.
+    #[pyo3(signature = (path = None, *, format = None, quality = "1080p60", section = None))]
     fn render(
         &self,
         py: Python<'_>,
-        path: PathBuf,
+        path: Option<PathBuf>,
+        format: Option<&str>,
         quality: &str,
         section: Option<&str>,
-        animated: bool,
     ) -> PyResult<()> {
-        let q = render::Quality::parse(quality)?;
-        let range = render::section(&self.0, section)?;
-        render::export(py, &self.0, path, q, range, animated)
+        let out = render::output("out", path, format, false)?;
+        self.export(py, out, quality, section)
     }
 
     /// Writes the frame at `at` seconds, or frame number `frame` at `quality`, to `path` as
-    /// `png` or `svg`. Only `svg` works in the browser's build.
-    #[pyo3(signature = (path = PathBuf::from("frame.png"), *, at = 0.0, frame = None, quality = "1080p60"))]
+    /// `format`, `png` or `svg`: by default from `path`'s extension, else `png`; without `path`,
+    /// `out.png`. Only `svg` works in the browser's build.
+    #[pyo3(signature = (path = None, *, format = None, at = 0.0, frame = None, quality = "1080p60"))]
     fn still(
         &self,
         py: Python<'_>,
-        path: PathBuf,
+        path: Option<PathBuf>,
+        format: Option<&str>,
         at: f32,
         frame: Option<u32>,
         quality: &str,
     ) -> PyResult<()> {
-        let ext = (path.extension().and_then(|e| e.to_str())).unwrap_or_default();
-        if !["png", "svg"].contains(&ext) {
-            return Err(PyValueError::new_err(format!(
-                "unsupported still `{}`: use png or svg",
-                path.display()
-            )));
-        }
-        let q = render::Quality::parse(quality)?;
-        let t = frame.map_or(at, |n| q.frame_time(n));
-        render::export(py, &self.0, path, q, (t, t), false)
+        let out = render::output("out", path, format, true)?;
+        self.export_still(py, out, at, frame, quality)
     }
 
     /// Jupyter's rich display: the scene as an inline video.
     fn _repr_html_(slf: &Bound<'_, Self>) -> PyResult<String> {
         let html = slf.py().import("fastanim._notebook")?.getattr("html")?;
         html.call1((slf,))?.extract()
+    }
+}
+
+impl Timeline {
+    /// `render` to an output already resolved.
+    fn export(
+        &self,
+        py: Python<'_>,
+        out: (Format, PathBuf),
+        quality: &str,
+        section: Option<&str>,
+    ) -> PyResult<()> {
+        let q = render::Quality::parse(quality)?;
+        let range = render::section(&self.0, section)?;
+        render::export(py, &self.0, out, q, range)
+    }
+
+    /// `still` to an output already resolved.
+    fn export_still(
+        &self,
+        py: Python<'_>,
+        out: (Format, PathBuf),
+        at: f32,
+        frame: Option<u32>,
+        quality: &str,
+    ) -> PyResult<()> {
+        let q = render::Quality::parse(quality)?;
+        let t = frame.map_or(at, |n| q.frame_time(n));
+        render::export(py, &self.0, out, q, (t, t))
     }
 }
 
@@ -1280,30 +1303,35 @@ impl SceneFn {
         bake(py, &self.f)
     }
 
-    /// Bakes the scene and exports it; see `Timeline.render`.
-    #[pyo3(signature = (path = PathBuf::from("out.mp4"), *, quality = "1080p60", section = None, animated = false))]
+    /// Bakes the scene and exports it; see `Timeline.render`. Without `path` the output is
+    /// named after the function: `name.mp4`, `name/`, ….
+    #[pyo3(signature = (path = None, *, format = None, quality = "1080p60", section = None))]
     fn render(
         &self,
         py: Python<'_>,
-        path: PathBuf,
+        path: Option<PathBuf>,
+        format: Option<&str>,
         quality: &str,
         section: Option<&str>,
-        animated: bool,
     ) -> PyResult<()> {
-        bake(py, &self.f)?.render(py, path, quality, section, animated)
+        let out = render::output(&self.name(py), path, format, false)?;
+        bake(py, &self.f)?.export(py, out, quality, section)
     }
 
-    /// Bakes the scene and writes one frame; see `Timeline.still`.
-    #[pyo3(signature = (path = PathBuf::from("frame.png"), *, at = 0.0, frame = None, quality = "1080p60"))]
+    /// Bakes the scene and writes one frame; see `Timeline.still`. Without `path` the output is
+    /// named after the function: `name.png` or `name.svg`.
+    #[pyo3(signature = (path = None, *, format = None, at = 0.0, frame = None, quality = "1080p60"))]
     fn still(
         &self,
         py: Python<'_>,
-        path: PathBuf,
+        path: Option<PathBuf>,
+        format: Option<&str>,
         at: f32,
         frame: Option<u32>,
         quality: &str,
     ) -> PyResult<()> {
-        bake(py, &self.f)?.still(py, path, at, frame, quality)
+        let out = render::output(&self.name(py), path, format, true)?;
+        bake(py, &self.f)?.export_still(py, out, at, frame, quality)
     }
 
     /// Jupyter's rich display: bakes the scene and shows it as an inline video.
@@ -1347,6 +1375,15 @@ pub fn bake_scene(f: &Bound<'_, PyAny>) -> PyResult<BakedTimeline> {
     // Taken rather than unwrapped: closures in the timeline may still hold the scene.
     let scene = std::mem::take(&mut ctx.lock().unwrap().scene);
     Ok(scene.bake())
+}
+
+impl SceneFn {
+    /// The function's name, which exports are named after.
+    fn name(&self, py: Python<'_>) -> String {
+        let name = self.f.bind(py).getattr("__name__");
+        name.and_then(|n| n.extract())
+            .unwrap_or_else(|_| "out".into())
+    }
 }
 
 /// Marks `f(scene)` as a scene: `f.bake()`, `f.still(path, at=t)`, `f.render(path)`,

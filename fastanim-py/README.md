@@ -28,9 +28,9 @@ def hello(s: Scene) -> None:
 
 ```sh
 python -m fastanim preview hello.py                  # a window with a scrubber, reloads on save
-python -m fastanim render hello.py -o hello.mp4      # mp4, webm, gif, png or svg frames
-python -m fastanim render hello.py --animated -o hello.svg   # one animated svg
-python -m fastanim still hello.py --at 2s -o frame.png
+python -m fastanim render hello.py                   # hello.mp4, or -o to name it
+python -m fastanim render hello.py -f animated-svg   # also webm, gif, png or svg frames
+python -m fastanim still hello.py --at 2s            # hello.png
 ```
 
 In Jupyter, a cell ending in a scene (`hello`) or its timeline (`hello.bake()`) plays it inline.

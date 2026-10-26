@@ -33,8 +33,8 @@ use bevy_vello::prelude::*;
 use bevy_vello::render::VelloRenderer;
 use clap::{Parser, Subcommand};
 use fastanim_core::{
-    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, ImageFill, LineCap, LineJoin, Scene,
-    SceneEvent, SceneState, VState,
+    BakedTimeline, EventKind, FRAME_HEIGHT, FRAME_WIDTH, Format, ImageFill, LineCap, LineJoin,
+    Scene, SceneEvent, SceneState, VState,
 };
 use shader::{ShaderFills, ShaderJob};
 
@@ -69,15 +69,16 @@ pub struct RenderArgs {
     /// 480p15, 720p30, 1080p60 or 4k60
     #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
     pub quality: export::Quality,
-    /// Output; its extension picks the format: mp4, webm, gif, png or svg
-    #[arg(short, long, value_name = "PATH", default_value = "out.mp4")]
-    pub output: PathBuf,
+    /// mp4, webm, gif, png or svg (folders of frames), or animated-svg; default: from
+    /// --output's extension, else mp4
+    #[arg(short, long, value_name = "FORMAT")]
+    pub format: Option<Format>,
+    /// Output file or frames folder [default: the scene's name, e.g. NAME.mp4 or NAME/]
+    #[arg(short, long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
     /// Only render from <MARKER> to the next marker
     #[arg(long, value_name = "MARKER")]
     pub section: Option<String>,
-    /// Write svg as one animated file instead of a directory of frames
-    #[arg(long)]
-    pub animated: bool,
     /// Render on the CPU even when a GPU is available
     #[arg(long)]
     pub cpu: bool,
@@ -89,9 +90,12 @@ pub struct StillArgs {
     /// 480p15, 720p30, 1080p60 or 4k60
     #[arg(short, long, value_name = "PRESET", default_value = "1080p60")]
     pub quality: export::Quality,
-    /// Output; its extension picks the format: png or svg
-    #[arg(short, long, value_name = "PATH", default_value = "frame.png")]
-    pub output: PathBuf,
+    /// png or svg; default: from --output's extension, else png
+    #[arg(short, long, value_name = "FORMAT")]
+    pub format: Option<Format>,
+    /// Output file [default: the scene's name, e.g. NAME.png]
+    #[arg(short, long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
     /// Time to render, e.g. 3.5 or 3.5s
     #[arg(long, value_name = "SECS", value_parser = parse_secs, default_value = "0")]
     pub at: f32,
@@ -109,12 +113,15 @@ fn parse_secs(v: &str) -> Result<f32, String> {
 }
 
 /// Builds the scene with `construct`, then previews or exports it depending on the command-line
-/// arguments (run with `--help` for usage). Exits the process on error.
+/// arguments (run with `--help` for usage). Exports are named after the executable unless
+/// `--output` says otherwise. Exits the process on error.
 pub fn run(construct: impl FnOnce(&mut Scene)) {
     let cli = Cli::parse();
     let mut s = Scene::new();
     construct(&mut s);
-    if let Err(e) = run_command(cli.command, s.bake(), None) {
+    let exe = std::env::current_exe().ok();
+    let name = (exe.as_deref().and_then(|p| p.file_stem()?.to_str())).unwrap_or("out");
+    if let Err(e) = run_command(cli.command, name, s.bake(), None) {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
@@ -123,14 +130,16 @@ pub fn run(construct: impl FnOnce(&mut Scene)) {
 /// Polled every preview frame; a timeline it returns replaces the one shown.
 pub type Reload = Box<dyn FnMut() -> Option<BakedTimeline> + Send + Sync>;
 
-/// Previews or exports `tl` as `cmd` says (`None` previews). In preview, `reload` is polled
-/// every frame, and a timeline it returns is shown from the current time on.
+/// Previews or exports `tl` as `cmd` says (`None` previews); an export with no `--output` is
+/// named after the scene, `name`. In preview, `reload` is polled every frame, and a timeline it
+/// returns is shown from the current time on.
 pub fn run_command(
     cmd: Option<Command>,
+    name: &str,
     tl: BakedTimeline,
     reload: Option<Reload>,
 ) -> Result<(), String> {
-    match resolve(cmd, &tl)? {
+    match resolve(cmd, name, &tl)? {
         None => {
             preview_with(tl, reload);
             Ok(())
@@ -139,15 +148,19 @@ pub fn run_command(
     }
 }
 
-/// Turns a command into what to export, or `None` to preview.
-fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Export>, String> {
-    let (quality, output, range, animated, cpu) = match cmd {
+/// Turns a command for the scene `name` into what to export, or `None` to preview.
+fn resolve(
+    cmd: Option<Command>,
+    name: &str,
+    tl: &BakedTimeline,
+) -> Result<Option<export::Export>, String> {
+    let (quality, (format, output), range, cpu) = match cmd {
         None | Some(Command::Preview) => return Ok(None),
         Some(Command::Render(RenderArgs {
             quality,
+            format,
             output,
             section,
-            animated,
             cpu,
         })) => {
             let dur = tl.duration();
@@ -165,24 +178,27 @@ fn resolve(cmd: Option<Command>, tl: &BakedTimeline) -> Result<Option<export::Ex
                     (start, end)
                 }
             };
-            (quality, output, range, animated, cpu)
+            let out = fastanim_core::output::output(name, format, output, false)?;
+            (quality, out, range, cpu)
         }
         Some(Command::Still(StillArgs {
             quality,
+            format,
             output,
             at,
             frame,
             cpu,
         })) => {
             let t = frame.map_or(at, |n| n as f32 / quality.fps as f32);
-            (quality, output, (t, t), false, cpu)
+            let out = fastanim_core::output::output(name, format, output, true)?;
+            (quality, out, (t, t), cpu)
         }
     };
     Ok(Some(export::Export {
         quality,
+        format,
         output,
         range,
-        animated,
         workers: None,
         cpu,
     }))
@@ -977,7 +993,7 @@ mod tests {
     fn parse(args: &str) -> Result<Option<export::Export>, String> {
         let cli = Cli::try_parse_from(["scene"].into_iter().chain(args.split_whitespace()))
             .map_err(|e| e.to_string())?;
-        resolve(cli.command, &timeline())
+        resolve(cli.command, "scene", &timeline())
     }
 
     fn export(args: &str) -> export::Export {
@@ -996,20 +1012,34 @@ mod tests {
         let ex = export("render -q 720p30 -o x.webm");
         assert_eq!((ex.range, ex.output), ((0.0, 3.0), "x.webm".into()));
         assert_eq!(ex.quality.fps, 30);
-        assert_eq!(export("render").output, PathBuf::from("out.mp4"));
+        assert_eq!(ex.format, Format::Webm);
+        assert_eq!(export("render").output, PathBuf::from("scene.mp4"));
+        let ex = export("render -f png");
+        assert_eq!((ex.format, ex.output), (Format::Png, "scene".into()));
+        let ex = export("render --format animated-svg");
+        assert_eq!(
+            (ex.format, ex.output),
+            (Format::AnimatedSvg, "scene.svg".into())
+        );
+        assert_eq!(
+            export("render -f gif -o a/b.gif").output,
+            PathBuf::from("a/b.gif")
+        );
         assert_eq!(export("render --section a").range, (1.0, 2.0));
         assert_eq!(export("render --section b").range, (2.0, 3.0));
         assert_eq!(export("still --at 1.5s").range, (1.5, 1.5));
         assert_eq!(export("still --frame 30 -q 720p30").range, (1.0, 1.0));
-        assert_eq!(export("still").output, PathBuf::from("frame.png"));
+        assert_eq!(export("still").output, PathBuf::from("scene.png"));
+        assert_eq!(export("still -f svg").output, PathBuf::from("scene.svg"));
         assert!(!export("render").cpu);
-        assert!(export("render --animated -o x.svg").animated);
-        assert!(!export("render -o x.svg").animated);
         assert!(export("render --cpu").cpu);
         assert!(export("still --cpu").cpu);
         for bad in [
             "render --help",
             "render -q 8k",
+            "render -f avi",
+            "render -f gif -o x.mp4",
+            "still -f mp4",
             "render --section zz",
             "still --at x",
             "still --at 1 --frame 2",

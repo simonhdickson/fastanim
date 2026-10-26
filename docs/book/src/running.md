@@ -42,20 +42,25 @@ text is cached, so a re-run only typesets text that changed.
 ## Render
 
 ```sh
-python -m fastanim render hello.py -q 720p30 -o hello.mp4
+python -m fastanim render hello.py                  # hello.mp4, named after the scene
+python -m fastanim render hello.py -f gif -q 720p30 # hello.gif
+python -m fastanim render hello.py -f png           # hello/0000.png, hello/0001.png, …
 python -m fastanim render hello.py --section intro -o intro.webm
-python -m fastanim render hello.py -q 480p15 --animated -o hello.svg
 ```
 
+- `-f, --format`: what to write.
+  - `mp4` (the default), `webm` or `gif`: a video file. `mp4` and `webm` include the scene's
+    [sounds](audio.md).
+  - `png` or `svg`: a folder of frames, one file each.
+  - `animated-svg`: one `.svg` that plays the scene and loops. Browsers play it, inline or in
+    an `<img>`, with no script. It has no sound or shader fills, as with SVG frames. Frames
+    that don't change are written once, but every moving frame adds the whole scene to the
+    file, so a low frame rate (`480p15`) keeps it small.
+- `-o, --output`: the file or folder to write. By default it's named after the scene: the
+  function for Python, the script for Rhai, as `NAME.mp4`, `NAME/` or `NAME.svg`. Without
+  `-f`, its extension picks the format, and an extension that doesn't match `-f` is an error.
 - `-q, --quality`: `480p15`, `720p30`, `1080p60` (default) or `4k60`.
-- `-o, --output`: the extension picks the format: `mp4`, `webm`, `gif`, `png` or `svg`.
-  `png` and `svg` write one file per frame. `mp4` and `webm` include the scene's
-  [sounds](audio.md).
 - `--section <marker>`: render only from that marker to the next one.
-- `--animated`: write `svg` as one file that plays the scene and loops, instead of a directory
-  of frames. Browsers play it, inline or in an `<img>`, with no script. It has no sound or
-  shader fills, as with SVG frames. Frames that don't change are written once, but every
-  moving frame adds the whole scene to the file, so a low frame rate (`480p15`) keeps it small.
 
 On free-threaded Python (3.14t), video export runs a scene's updaters on every core. With the
 GIL they run on one thread. maturin builds a separate 3.14t wheel for it.
@@ -63,11 +68,12 @@ GIL they run on one thread. maturin builds a separate 3.14t wheel for it.
 ## Still
 
 ```sh
-python -m fastanim still hello.py --at 2.5s -o frame.png
-python -m fastanim still hello.py --frame 120 -o frame.svg
+python -m fastanim still hello.py --at 2.5s         # hello.png
+python -m fastanim still hello.py --frame 120 -f svg -o frame.svg
 ```
 
 `--at` takes seconds (`3.5` or `3.5s`); `--frame` takes a frame index at the chosen quality.
+`-f` is `png` (the default) or `svg`, and `-o` works as for `render`.
 
 ## From code
 
@@ -75,11 +81,11 @@ A `@scene` function has the same commands as methods:
 
 ```python
 hello.preview()                                   # blocks until the window closes
-hello.render("hello.mp4", quality="1080p60")      # also section="intro"
+hello.render()                                    # hello.mp4; also quality=, section=
+hello.render(format="animated-svg")               # hello.svg, one SVG that plays it
 hello.still("frame.svg", at=3.5)                  # or frame=210
 tl = hello.bake()                                 # the timeline: tl.duration, tl.svg(t), …
-tl.render("frames.svg", quality="480p15")         # a directory of SVG frames
-tl.render("hello.svg", quality="480p15", animated=True)  # one SVG that plays them
+tl.render("frames", format="svg", quality="480p15")  # a folder of SVG frames
 ```
 
 The preview window can be opened once per Python process. `Timeline.svg(t)` draws over the

@@ -4,7 +4,7 @@ Kept in step with src/lib.rs by the `stubs_match_the_module` test."""
 import builtins
 from collections.abc import Callable, Iterator, Sequence
 from os import PathLike
-from typing import Any, Protocol, Self, TypeAlias, TypeVar, overload
+from typing import Any, Literal, Protocol, Self, TypeAlias, TypeVar, overload
 
 class _ArrayLike(Protocol):
     def tolist(self) -> Any: ...
@@ -19,6 +19,7 @@ _GroupItem: TypeAlias = Shape | Text | Axes | Group
 _Anim: TypeAlias = Animation | Animate
 # `"480p15"`, `"720p30"`, `"1080p60"` or `"4k60"`.
 _Quality: TypeAlias = str
+_Format: TypeAlias = Literal["mp4", "webm", "gif", "png", "svg", "animated-svg"]
 _Updater: TypeAlias = Callable[[State, float], Shape]
 _F = TypeVar("_F", bound=_Updater)
 
@@ -243,24 +244,27 @@ class Timeline:
         """The image `key` from `frame` as `(width, height, rgba)`."""
     def render(
         self,
-        path: _Path = "out.mp4",
+        path: _Path | None = None,
         *,
+        format: _Format | None = None,
         quality: _Quality = "1080p60",
         section: str | None = None,
-        animated: bool = False,
     ) -> None:
-        """Exports the scene, or from marker `section` to the next one; the extension picks the
-        format: `mp4`, `webm`, `gif`, `png` or `svg`. With `animated`, `svg` is one file that
-        plays the scene instead of a directory of frames."""
+        """Exports the scene, or from marker `section` to the next one, as `format`: `mp4`,
+        `webm`, `gif`, `png` or `svg` (a folder of frames), or `animated-svg` (one SVG that
+        plays them). Without `format` it comes from `path`'s extension, else `mp4`; without
+        `path`, `out.mp4`, `out/`, …."""
     def still(
         self,
-        path: _Path = "frame.png",
+        path: _Path | None = None,
         *,
+        format: Literal["png", "svg"] | None = None,
         at: float = 0.0,
         frame: int | None = None,
         quality: _Quality = "1080p60",
     ) -> None:
-        """Writes the frame at `at` seconds, or frame index `frame`, as `png` or `svg`."""
+        """Writes the frame at `at` seconds, or frame index `frame`, as `png` or `svg`: by
+        default from `path`'s extension, else `png`; without `path`, `out.png`."""
     def _repr_html_(self) -> str:
         """Jupyter's rich display: the scene as an inline video."""
 
@@ -271,17 +275,19 @@ class SceneFn:
         """Runs the scene and bakes what it recorded."""
     def render(
         self,
-        path: _Path = "out.mp4",
+        path: _Path | None = None,
         *,
+        format: _Format | None = None,
         quality: _Quality = "1080p60",
         section: str | None = None,
-        animated: bool = False,
     ) -> None:
-        """Bakes the scene and exports it; see `Timeline.render`."""
+        """Bakes the scene and exports it; see `Timeline.render`. Without `path` the output is
+        named after the function: `name.mp4`, `name/`, …."""
     def still(
         self,
-        path: _Path = "frame.png",
+        path: _Path | None = None,
         *,
+        format: Literal["png", "svg"] | None = None,
         at: float = 0.0,
         frame: int | None = None,
         quality: _Quality = "1080p60",

@@ -91,13 +91,15 @@ fn run(command: Command) -> Result<(), String> {
         Command::Diff(a) => a.run().map(|out| print!("{out}")),
         Command::Preview { script } => {
             let tl = bake(&script)?;
-            fastanim_bevy::run_command(None, tl, Some(watch(script)))
+            fastanim_bevy::run_command(None, &name(&script), tl, Some(watch(script)))
         }
         Command::Render { script, args } => {
-            fastanim_bevy::run_command(Some(BevyCommand::Render(args)), bake(&script)?, None)
+            let cmd = Some(BevyCommand::Render(args));
+            fastanim_bevy::run_command(cmd, &name(&script), bake(&script)?, None)
         }
         Command::Still { script, args } => {
-            fastanim_bevy::run_command(Some(BevyCommand::Still(args)), bake(&script)?, None)
+            let cmd = Some(BevyCommand::Still(args));
+            fastanim_bevy::run_command(cmd, &name(&script), bake(&script)?, None)
         }
         Command::Check { scripts, fps } => check(&scripts, fps),
         Command::Profile { script, runs } => profile(&script, runs),
@@ -118,6 +120,11 @@ fn run(command: Command) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// What an export of the script at `path` is called by default: its file name, without `.rhai`.
+fn name(path: &Path) -> String {
+    (path.file_stem()).map_or("out".into(), |s| s.to_string_lossy().into_owned())
 }
 
 /// Runs the script at `path`, with relative paths in it relative to its directory; errors are
