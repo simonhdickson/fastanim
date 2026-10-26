@@ -66,7 +66,7 @@ on 3.14:
 | 200 | 26.7 s | 3.3 s | 8.1x | 3.3 s | 3.4 s | 3.3 s |
 | 400 | 47.2 s | 3.5 s | 13.5x | 3.7 s | 3.5 s | 3.3 s |
 | 2000 | 210.3 s | 7.9 s | 26.6x | 6.8 s | 7.1 s | 6.5 s |
-| 5000 | | 16.3 s | | 14.0 s | 15.9 s | 13.6 s |
+| 5000 | 531.4s | 16.3 s | 32.6x | 14.0 s | 15.9 s | 13.6 s |
 
 fastanim's floor of about 3 s is starting the GPU and encoding 600 frames. One frame at 9.5 s
 (`python -m fastanim still fastanim_epicycles.py --at 9.5`) takes 0.35 s at N=200 and 0.46 s
