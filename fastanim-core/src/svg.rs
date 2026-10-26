@@ -1,4 +1,4 @@
-//! SVG still export, straight from a [`SceneState`] (no GPU).
+//! SVG export, straight from [`SceneState`]s (no GPU): stills, and animations played by SMIL.
 
 use std::fmt::Write;
 
@@ -10,6 +10,66 @@ use crate::{FRAME_HEIGHT, FRAME_WIDTH};
 
 /// Renders one frame as a 16:9 SVG document over a `background` fill.
 pub fn to_svg(state: &SceneState, background: Color) -> String {
+    let mut out = header(background);
+    out.push_str(&body(state, ""));
+    out.push_str("</svg>\n");
+    out
+}
+
+/// Renders `frames`, a scene at `fps` frames a second, as one SVG document that plays them in
+/// turn and loops; runs of identical frames are written once. Browsers play it, through SMIL.
+pub fn to_animated_svg(frames: &[SceneState], fps: u32, background: Color) -> String {
+    // The first frame of each run of identical frames, and its shapes.
+    let mut runs: Vec<(usize, String)> = Vec::new();
+    for (i, state) in frames.iter().enumerate() {
+        let b = body(state, "");
+        if runs.last().is_none_or(|(_, last)| *last != b) {
+            runs.push((i, b));
+        }
+    }
+    match &runs[..] {
+        [] => return format!("{}</svg>\n", header(background)),
+        [(i, _)] => return to_svg(&frames[*i], background),
+        _ => {}
+    }
+    let duration = frames.len() as f64 / fps.max(1) as f64;
+    // Where frame `i` starts, as a fraction of the loop, with more digits than `num`: one frame
+    // of a long scene is a small fraction of it.
+    let key = |i: usize| {
+        let k = format!("{:.7}", i as f64 / frames.len() as f64);
+        k.trim_end_matches('0').trim_end_matches('.').to_string()
+    };
+    let mut out = header(background);
+    for (n, (i, b)) in runs.iter().enumerate() {
+        // keyTimes start at 0, and a discrete animation's last value holds to the end.
+        let (shown, values, times) = match runs.get(n + 1) {
+            Some((next, _)) if n == 0 => ("inline", "inline;none", format!("0;{}", key(*next))),
+            Some((next, _)) => (
+                "none",
+                "none;inline;none",
+                format!("0;{};{}", key(*i), key(*next)),
+            ),
+            None => ("none", "none;inline", format!("0;{}", key(*i))),
+        };
+        let _ = writeln!(
+            out,
+            r#"<g display="{shown}"><animate attributeName="display" values="{values}" keyTimes="{times}" dur="{}s" calcMode="discrete" repeatCount="indefinite"/>"#,
+            num(duration)
+        );
+        // Gradient ids must be unique across the document.
+        if b.contains("<linearGradient") {
+            out.push_str(&body(&frames[*i], &format!("f{n}")));
+        } else {
+            out.push_str(b);
+        }
+        out.push_str("</g>\n");
+    }
+    out.push_str("</svg>\n");
+    out
+}
+
+/// The `<svg>` opening tag and the background.
+fn header(background: Color) -> String {
     let (w, h) = (FRAME_WIDTH, FRAME_HEIGHT);
     let mut out = String::new();
     let _ = writeln!(
@@ -29,6 +89,12 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
         num(h),
         background.to_hex()
     );
+    out
+}
+
+/// The scene's shapes, in a group flipped to y-up; gradient ids start with `ids`.
+fn body(state: &SceneState, ids: &str) -> String {
+    let mut out = String::new();
     // Scene units are y-up; SVG is y-down.
     out.push_str("<g transform=\"scale(1,-1)\">\n");
     let mut order: Vec<_> = state.iter().collect();
@@ -48,8 +114,9 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
         let mut paint = |c: Color, g: Option<&Gradient>| match g {
             Some(g) => {
                 gradients += 1;
-                gradient(&mut out, gradients, g);
-                format!("url(#g{gradients})")
+                let id = format!("{ids}g{gradients}");
+                gradient(&mut out, &id, g);
+                format!("url(#{id})")
             }
             None => c.to_hex(),
         };
@@ -74,16 +141,16 @@ pub fn to_svg(state: &SceneState, background: Color) -> String {
             num(m.opacity.into()),
         );
     }
-    out.push_str("</g>\n</svg>\n");
+    out.push_str("</g>\n");
     out
 }
 
-/// A `<linearGradient>` with id `g{id}`, in scene units; its stops keep their own alpha, and the
+/// A `<linearGradient>` with id `id`, in scene units; its stops keep their own alpha, and the
 /// path's fill or stroke opacity scales it.
-fn gradient(out: &mut String, id: usize, g: &Gradient) {
+fn gradient(out: &mut String, id: &str, g: &Gradient) {
     let _ = writeln!(
         out,
-        r#"<defs><linearGradient id="g{id}" gradientUnits="userSpaceOnUse" x1="{}" y1="{}" x2="{}" y2="{}">"#,
+        r#"<defs><linearGradient id="{id}" gradientUnits="userSpaceOnUse" x1="{}" y1="{}" x2="{}" y2="{}">"#,
         num(g.from.x),
         num(g.from.y),
         num(g.to.x),

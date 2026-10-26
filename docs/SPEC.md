@@ -579,8 +579,13 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 - GPU → CPU readback per frame; raw RGBA piped to `ffmpeg -f rawvideo -pix_fmt rgba ...`.
 - Fixed `fps`; time comes from frame index only ⇒ deterministic.
 - Outputs: MP4 (H.264), WebM (VP9, alpha), GIF, PNG sequence, and SVG per frame (rendered directly
-  from `SceneState`, bypassing the GPU).
+  from `SceneState`, bypassing the GPU). `--format animated-svg` writes the SVG frames as one file
+  (`to_animated_svg`) that shows each run of identical frames in turn with SMIL `<animate>` on
+  `display`, and loops.
 - `--section <marker>` renders only between markers; `--frame <n>` renders a still.
+- `--format` picks the output, else `-o`'s extension, else mp4; `-o` defaults to the scene's name
+  (Python function, Rhai script or Rust binary): `NAME.mp4`, `NAME/` for frames
+  (`fastanim_core::output`).
 
 ---
 
@@ -588,8 +593,8 @@ Manim-like units: frame is 14.22 × 8 units, origin centered, y up. Constants `U
 
 ```
 fastanim preview scene.rhai               # windowed preview with scrubber, reloads on save
-fastanim render  scene.rhai [-q 1080p60] [-o out.mp4] [--section Marker]   # mp4|webm|gif|png|svg
-fastanim still   scene.rhai [--at 3.5s | --frame N] [-o frame.png]
+fastanim render  scene.rhai [-q 1080p60] [-f mp4] [-o scene.mp4] [--section Marker]   # mp4|webm|gif|png|svg|animated-svg
+fastanim still   scene.rhai [--at 3.5s | --frame N] [-f png] [-o scene.png]
 fastanim check   scene.rhai... [--fps 30] # run and sample scripts, reporting errors as file:line:col
 fastanim diff    "a^2+b^2=c^2" "a^2=c^2-b^2" --math   # print the edit script (debugging keys)
 fastanim script-api                       # every function a scene script can use

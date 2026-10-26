@@ -170,8 +170,8 @@ Scene
 SceneFn
     .bake()
     .preview(*, watch=True)
-    .render(path='out.mp4', *, quality='1080p60', section=None)
-    .still(path='frame.png', *, at=0.0, frame=None, quality='1080p60')
+    .render(path=None, *, format=None, quality='1080p60', section=None)
+    .still(path=None, *, format=None, at=0.0, frame=None, quality='1080p60')
 Shape
     .align_to(other, direction)
     .center()
@@ -220,8 +220,8 @@ Timeline
     .duration
     .marker(name)
     .markers
-    .render(path='out.mp4', *, quality='1080p60', section=None)
-    .still(path='frame.png', *, at=0.0, frame=None, quality='1080p60')
+    .render(path=None, *, format=None, quality='1080p60', section=None)
+    .still(path=None, *, format=None, at=0.0, frame=None, quality='1080p60')
     .svg(t, background=None)
 ```
 

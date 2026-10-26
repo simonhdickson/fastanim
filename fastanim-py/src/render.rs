@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use fastanim_core::BakedTimeline;
+use fastanim_core::{BakedTimeline, Format};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
@@ -56,23 +56,29 @@ pub(crate) fn section(tl: &BakedTimeline, section: Option<&str>) -> PyResult<(f3
     Ok((start, end))
 }
 
-/// Renders `tl` from `range.0` to `range.1` and writes it to `output`, whose extension picks the
-/// format: `mp4`, `webm`, `gif`, `png` or `svg`. A single frame of `png` or `svg` is written to
-/// `output` itself, more to numbered files in the directory `output`.
+/// The format and path of an export of the scene `name`: `format` (by name), else the one
+/// `path`'s extension names, else mp4 (png for a `still`); `path`, else named after the scene.
+pub(crate) fn output(
+    name: &str,
+    path: Option<PathBuf>,
+    format: Option<&str>,
+    still: bool,
+) -> PyResult<(Format, PathBuf)> {
+    let format = format.map(str::parse::<Format>).transpose();
+    let format = format.map_err(PyValueError::new_err)?;
+    fastanim_core::output::output(name, format, path, still).map_err(PyValueError::new_err)
+}
+
+/// Renders `tl` from `range.0` to `range.1` and writes it to `output` as `format`. A single
+/// frame of `png` or `svg` is written to `output` itself, more to numbered files in the
+/// directory `output`; `animated-svg` is one SVG that plays them.
 pub(crate) fn export(
     py: Python<'_>,
     tl: &BakedTimeline,
-    output: PathBuf,
+    (format, output): (Format, PathBuf),
     quality: Quality,
     range: (f32, f32),
 ) -> PyResult<()> {
-    let ext = (output.extension().and_then(|e| e.to_str())).unwrap_or_default();
-    if !["mp4", "webm", "gif", "png", "svg"].contains(&ext) {
-        return Err(PyValueError::new_err(format!(
-            "unsupported output `{}`: use mp4, webm, gif, png or svg",
-            output.display()
-        )));
-    }
     // Detached: export evaluates frames on other threads, and updaters there take the GIL.
     #[cfg(feature = "preview")]
     {
@@ -82,6 +88,7 @@ pub(crate) fn export(
                 height: quality.height,
                 fps: quality.fps,
             },
+            format,
             output,
             range,
             // Python updaters run one at a time under the GIL, and more threads only fight
@@ -95,11 +102,12 @@ pub(crate) fn export(
     }
     #[cfg(not(feature = "preview"))]
     {
-        if ext != "svg" {
+        if format.ext() != "svg" {
             return Err(needs_preview());
         }
         let times = frame_times(range, quality.fps);
-        py.detach(|| write_svgs(tl, &times, &output))
+        let fps = (format == Format::AnimatedSvg).then_some(quality.fps);
+        py.detach(|| write_svgs(tl, &times, &output, fps))
             .map_err(|e| PyRuntimeError::new_err(format!("{}: {e}", output.display())))
     }
 }
@@ -122,12 +130,23 @@ fn frame_times((start, end): (f32, f32), fps: u32) -> Vec<f32> {
     (first..=last).map(|i| i as f32 / fps as f32).collect()
 }
 
-/// As `fastanim-bevy` writes SVG: one file, or a directory of `0000.svg`, `0001.svg`, ….
+/// As `fastanim-bevy` writes SVG: one file, one animated file at `animated` fps, or a directory
+/// of `0000.svg`, `0001.svg`, ….
 #[cfg(not(feature = "preview"))]
-fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path) -> std::io::Result<()> {
+fn write_svgs(
+    tl: &BakedTimeline,
+    times: &[f32],
+    out: &Path,
+    animated: Option<u32>,
+) -> std::io::Result<()> {
     let svg = |t| fastanim_core::to_svg(&tl.eval(t), tl.background());
     if let [t] = times {
         return std::fs::write(out, svg(*t));
+    }
+    if let Some(fps) = animated {
+        let frames: Vec<_> = times.iter().map(|&t| tl.eval(t)).collect();
+        let svg = fastanim_core::to_animated_svg(&frames, fps, tl.background());
+        return std::fs::write(out, svg);
     }
     std::fs::create_dir_all(out)?;
     for (i, &t) in times.iter().enumerate() {
@@ -141,7 +160,7 @@ fn write_svgs(tl: &BakedTimeline, times: &[f32], out: &Path) -> std::io::Result<
 fn needs_preview() -> PyErr {
     PyRuntimeError::new_err(
         "this build of fastanim (the browser's) can't render video or PNG or open the preview \
-         window; only svg output works",
+         window; only svg and animated-svg output work",
     )
 }
 
@@ -164,7 +183,7 @@ pub(crate) fn preview(
             ));
         }
         let reload = watch.map(|(path, name)| reloader(path, name));
-        py.detach(|| fastanim_bevy::run_command(None, tl, reload))
+        py.detach(|| fastanim_bevy::run_command(None, "", tl, reload))
             .map_err(PyRuntimeError::new_err)
     }
     #[cfg(not(feature = "preview"))]
