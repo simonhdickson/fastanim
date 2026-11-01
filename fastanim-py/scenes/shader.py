@@ -1,5 +1,5 @@
 # A shader fill: WGSL drawn on the GPU by preview and export, animated by `shape.time`.
-# SVG and the web player draw the solid fill instead.
+# SVG, and browsers without WebGPU, draw the solid fill instead.
 # python -m fastanim preview fastanim-py/scenes/shader.py
 from fastanim import *
 

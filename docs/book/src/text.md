@@ -46,8 +46,8 @@ s.add(code("let x = 1;", "rust", font="DejaVu Sans Mono"))
 ```
 
 An unknown family is an error rather than a silent fallback. Math in another font falls back
-to New Computer Modern Math for the symbols that font lacks. Fonts can't be loaded in the
-browser playground yet.
+to New Computer Modern Math for the symbols that font lacks. In the browser playground, font
+files come from the scene's gist, beside the script.
 
 ## Methods
 

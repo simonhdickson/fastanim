@@ -168,9 +168,9 @@
             const $ = (id) => document.getElementById(id);
             const player = $("player");
 
-            function load(src) {
+            function load(src, files) {
                 $("status").textContent = "running Python…";
-                player.load(src);
+                player.load(src, files);
             }
 
             // The player shows errors itself, and keeps playing the last good scene.
@@ -231,8 +231,8 @@
                 }
             });
             // The URL says what to open: ?scene=diff for pyscenes/diff.py, ?gist=<id> for the
-            // first .py file in a public gist, or #code=… for the script itself, deflated and
-            // base64url'd. Picking from the list, or sharing, rewrites it.
+            // first .py file in a public gist, with its other files beside it, or #code=… for the
+            // script itself, deflated and base64url'd. Picking from the list, or sharing, rewrites it.
             const sceneUrl = (name) => `pyscenes/${name.replace(/\.py$/, "")}.py`;
             const sceneName = (url) => url.replace(/^pyscenes\/|\.py$/g, "");
             function setUrl(search, hash = "") {
@@ -248,11 +248,11 @@
                 example(e.target.value);
             };
 
-            function opened(src) {
+            function opened(src, files) {
                 $("example").selectedIndex = -1;
                 $("src").value = src;
                 highlight();
-                load(src);
+                load(src, files);
             }
 
             async function gist(id) {
@@ -268,9 +268,22 @@
                     files[0];
                 if (!file) throw new Error(`gist ${id} has no files`);
                 // The API inlines files up to 1 MB; past that, `content` is cut short.
-                return file.truncated
-                    ? (await fetch(file.raw_url)).text()
-                    : file.content;
+                const read = async (f) =>
+                    f.truncated
+                        ? new Uint8Array(
+                              await (await fetch(f.raw_url)).arrayBuffer(),
+                          )
+                        : f.content;
+                const rest = {};
+                for (const f of files)
+                    if (f !== file) rest[f.filename] = await read(f);
+                const src = await read(file);
+                return [
+                    typeof src === "string"
+                        ? src
+                        : new TextDecoder().decode(src),
+                    rest,
+                ];
             }
 
             const pipe = (bytes, stream) =>
@@ -319,7 +332,7 @@
                 try {
                     if (code) return opened(await decode(code));
                     if (params.has("gist"))
-                        return opened(await gist(params.get("gist")));
+                        return opened(...(await gist(params.get("gist"))));
                 } catch (e) {
                     $("example").selectedIndex = -1;
                     $("status").textContent =

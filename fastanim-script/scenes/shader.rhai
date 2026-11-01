@@ -1,5 +1,5 @@
 // A shader fill: WGSL drawn on the GPU by preview and export, animated by `shape.time`.
-// SVG and the web player draw the solid fill instead.
+// SVG, and browsers without WebGPU, draw the solid fill instead.
 let plasma = `
 fn shade(uv: vec2<f32>) -> vec4<f32> {
     let p = (uv - 0.5) * shape.size;

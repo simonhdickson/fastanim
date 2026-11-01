@@ -1,8 +1,13 @@
 # Shader fills
 
 `.shader(wgsl)` paints a shape's fill with a WGSL fragment shader, run on the GPU every frame.
-The desktop preview and `fastanim render` draw it. SVG output and the browser player can't run
-shaders, so they draw the shape's solid fill instead.
+The desktop preview, `fastanim render` and the browser player (with WebGPU) draw it. SVG output,
+and browsers without WebGPU, can't run shaders, so they draw the shape's solid fill instead.
+
+In the browser, shader support and speed depend on the browser's WebGPU. Linux browsers ship
+it off: enable `chrome://flags/#enable-unsafe-webgpu` (and `#enable-vulkan`) in Chromium, or
+`dom.webgpu.enabled` in Firefox's `about:config`. Chromium runs the shaders at a usable speed,
+while Firefox is very slow. For dependable output, use the desktop preview and `fastanim render`.
 
 ```python
 PLASMA = """
@@ -43,7 +48,8 @@ on `t` and seeking shows the same picture as playing. Use `shape.size` to keep a
 same size in scene units whatever the box's shape: `(uv - 0.5) * shape.size` gives the
 position from the box's center.
 
-If the WGSL doesn't compile, the error goes to stderr once and the shape draws its solid fill.
+If the WGSL doesn't compile, the error goes to stderr (the browser console in the player) once
+and the shape draws its solid fill.
 
 ## Style and animation
 

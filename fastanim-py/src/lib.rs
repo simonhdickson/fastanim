@@ -1126,7 +1126,9 @@ impl Timeline {
     /// §14.4): per mobject a dict of `opacity`; `d`, SVG path data; `fill` and `stroke`, CSS
     /// colors or `None` when not drawn, with `width`, `join` and `cap`; `fill_gradient` and
     /// `stroke_gradient`, `(x0, y0, x1, y1, [(offset, css), ...])` or `None`; and `image`,
-    /// `(key, [a, b, c, d, e, f], smooth, alpha)` or `None`, its pixels from `image(key)`.
+    /// `(key, [a, b, c, d, e, f], smooth, alpha)` or `None`, its pixels from `image(key)`; and
+    /// `shader`, `(wgsl, [a, b, c, d, e, f], [r, g, b, a])` or `None`, the shader fill's source,
+    /// the transform placing its unit square and the fill color.
     fn frame<'py>(&self, py: Python<'py>, t: f32) -> PyResult<Vec<Bound<'py, PyDict>>> {
         let state = self.0.eval(t);
         let mut order: Vec<_> = state.iter().collect();
@@ -1151,6 +1153,10 @@ impl Timeline {
                 None => None,
             };
             d.set_item("image", image)?;
+            let c = m.fill;
+            let shader = (m.shader.as_ref())
+                .map(|f| (&*f.source, f.transform.as_coeffs(), [c.r, c.g, c.b, c.a]));
+            d.set_item("shader", shader)?;
             d.set_item(
                 "d",
                 fastanim_core::svg::path_data(&m.path.trim(m.draw_range.clone())),

@@ -674,9 +674,12 @@ pub fn animate(
     })
 }
 
+/// Bare wasm has no filesystem to load files from; Pyodide's (Emscripten's) in-memory one does.
+const NO_FILES: bool = cfg!(all(target_arch = "wasm32", not(target_os = "emscripten")));
+
 /// The PNG or JPEG at `path`, as a shape (see [`VState::image`]).
 pub fn image(path: &Path) -> Result<VState, String> {
-    if cfg!(target_arch = "wasm32") {
+    if NO_FILES {
         return Err(
             "image files can't be loaded in the browser player yet; build one from pixels".into(),
         );
@@ -712,7 +715,7 @@ pub fn image_from_rows(rows: &[Vec<Vec<f64>>]) -> Result<VState, String> {
 
 /// The Lottie (Bodymovin JSON) file at `path`, showing its first frame (see [`LottieMobject`]).
 pub fn lottie(path: &Path) -> Result<LottieMobject, String> {
-    if cfg!(target_arch = "wasm32") {
+    if NO_FILES {
         return Err("Lottie files can't be loaded in the browser player yet".into());
     }
     Ok(LottieMobject::new(Lottie::load(path)?))
@@ -811,7 +814,7 @@ pub fn play_video(m: Mob, how: VideoPlay) -> Anim {
 /// Loads the fonts in the font file at `path` for `text`'s `font` option; returns their
 /// family names.
 pub fn load_font(path: &Path) -> Result<Vec<String>, String> {
-    if cfg!(target_arch = "wasm32") {
+    if NO_FILES {
         return Err("fonts can't be loaded in the browser player yet".into());
     }
     fastanim_text::load_font(path)

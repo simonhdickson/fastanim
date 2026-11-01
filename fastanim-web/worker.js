@@ -1,7 +1,8 @@
 // Bakes and draws off the page's thread (SPEC §14.5). The page sends any of
 //   { canvas }  the OffscreenCanvas to draw on, once
-//   { src }     a Python scene to bake (pyplayer.js); replies { baked: { duration, markers, events,
-//               bakeMs } } or { error }, and keeps the last good scene on error
+//   { src }     a Python scene to bake (pyplayer.js), with optional `files` to write beside it;
+//               replies { baked: { duration, markers, events, bakeMs } } or { error }, and keeps
+//               the last good scene on error
 //   { t }       the time to draw
 //   { svg }     reply { svg } with the frame at the current time
 //   { png }     reply { png: Blob } with the canvas
@@ -25,7 +26,7 @@ async function work() {
   if (job.t !== undefined) t = job.t;
   if (job.src !== undefined) {
     try {
-      const p = await bakePython(job.src);
+      const p = await bakePython(job.src, job.files);
       player?.free();
       player = p;
       const names = p.marker_names(), times = p.marker_times();
@@ -41,7 +42,7 @@ async function work() {
   }
   if (!player || !ctx) return;
   t = Math.min(t, player.duration());
-  player.draw(ctx, t);
+  await player.draw(ctx, t);
   if (job.svg) postMessage({ svg: player.svg(t) });
   if (job.png) postMessage({ png: await ctx.canvas.convertToBlob() });
 }

@@ -7,7 +7,8 @@
 //
 // Baking and drawing happen in `worker.js`. Scripting the element:
 //   await el.open(url)          fetch, bake and play a scene; returns the script
-//   el.load(script)             bake a scene given as text
+//   el.load(script, files)      bake a scene given as text, with `files` ({ name: string or
+//                               Uint8Array }) written beside it
 //   el.download("svg" | "png")  save the current frame
 // It fires `baked` (detail: { duration, markers, events, bakeMs }) and `bakeerror`
 // (detail: the message, also shown under the player); on error the last good scene stays.
@@ -110,8 +111,9 @@ class FastanimPlayer extends HTMLElement {
     }
   }
 
-  load(script) {
-    this.#worker.postMessage({ src: script });
+  load(script, files) {
+    // Files stay in place between bakes, so later edits needn't send them again.
+    this.#worker.postMessage(files ? { src: script, files } : { src: script });
   }
 
   download(kind) {

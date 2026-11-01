@@ -152,7 +152,7 @@ pub struct VState {
     /// most shapes have none.
     pub image: Option<Box<ImageFill>>,
     /// A WGSL shader painting the fill on the GPU instead of the solid color; renderers
-    /// without one (SVG, the web player) draw the solid fill.
+    /// without one (SVG, browsers without WebGPU) draw the solid fill.
     pub shader: Option<Box<ShaderFill>>,
 }
 

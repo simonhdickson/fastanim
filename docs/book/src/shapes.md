@@ -155,8 +155,8 @@ s.play(rotate(group(photo, bar), PI / 8))
 ```
 
 `transform` between two images moves one onto the other, and switches pixels at the end; use
-`fade_out` and `fade_in` to cross-fade. Image files can't be loaded in the browser playground
-yet, but images built from pixels can.
+`fade_out` and `fade_in` to cross-fade. In the browser playground, image files come from the
+scene's gist (`?gist=<id>`), beside the script.
 
 ## Videos
 
@@ -211,7 +211,7 @@ stretch and time remapping; groups, paths, rectangles, ellipses, stars and polyg
 strokes and trim paths; eased, held and spatial keyframes. Gradients are drawn in the average
 of their colours, and rounded star corners are drawn sharp. Masks, mattes, repeaters,
 dashes, line caps and joins, image layers and text layers are not drawn yet. Like image files,
-Lottie files can't be loaded in the browser playground yet.
+Lottie files load in the browser playground from the scene's gist.
 
 ## Groups
 
