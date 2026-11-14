@@ -14,7 +14,7 @@ use fastanim_core::{
     DEFAULT_BUFF, DiffStyle, EventKind, Format, Gradient, Image, ImageFill, LineCap, LineJoin,
     LottieMobject, Position, RIGHT, RateFn, SceneState, VState,
 };
-use fastanim_script::{Anim, Const, Ctx, Glyphs, Item, Mob, Opt, VGroup};
+use fastanim_script::{Anim, Const, Ctx, Item, Mob, Opt, VGroup};
 use fastanim_text::{TextMobject, TextStyle};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyTypeError, PyValueError};
@@ -552,6 +552,16 @@ positioned!(Shape {
         Self(self.0.clone().dashed(dashes, ratio))
     }
 
+    /// Sets the fill and outline color, keeping their opacities.
+    fn color(&self, color: C) -> Self {
+        Self(self.0.clone().color(color.0))
+    }
+
+    /// Sets the overall opacity, which scales fill, outline and image alike.
+    fn opacity(&self, opacity: f32) -> Self {
+        Self(self.0.clone().opacity(opacity))
+    }
+
     fn z_index(&self, z: i32) -> Self {
         Self(self.0.clone().z_index(z))
     }
@@ -696,6 +706,42 @@ positioned!(PyGroup {
         Self(self.0.clone().set_color_by_gradient(&self::colors(colors)))
     }
 
+    /// Sets every shape's fill color, and its opacity if given.
+    #[pyo3(signature = (color, opacity = None))]
+    fn fill(&self, color: C, opacity: Option<f32>) -> Self {
+        Self(self.0.clone().fill(with_opacity(color, opacity)))
+    }
+
+    /// Sets every shape's fill opacity, keeping its color or gradient.
+    fn fill_opacity(&self, opacity: f32) -> Self {
+        Self(self.0.clone().fill_opacity(opacity))
+    }
+
+    /// Sets every shape's outline color, and its width if given.
+    #[pyo3(signature = (color, width = None))]
+    fn stroke(&self, color: C, width: Option<f64>) -> Self {
+        let c = color.0;
+        Self(self.0.clone().map_shapes(&|m| {
+            let w = width.unwrap_or(m.stroke.width);
+            m.stroke(c, w)
+        }))
+    }
+
+    /// Sets every shape's outline opacity, keeping its color or gradient.
+    fn stroke_opacity(&self, opacity: f32) -> Self {
+        Self(self.0.clone().stroke_opacity(opacity))
+    }
+
+    /// Sets every shape's fill and outline color, keeping their opacities.
+    fn color(&self, color: C) -> Self {
+        Self(self.0.clone().color(color.0))
+    }
+
+    /// Sets every shape's overall opacity.
+    fn opacity(&self, opacity: f32) -> Self {
+        Self(self.0.clone().opacity(opacity))
+    }
+
     fn __len__(&self) -> usize {
         self.0.0.len()
     }
@@ -763,7 +809,7 @@ impl PyMob {
     }
 }
 
-type Op = Arc<dyn Fn(Glyphs) -> Glyphs + Send + Sync>;
+type Op = Arc<dyn Fn(VGroup) -> VGroup + Send + Sync>;
 
 /// A mobject's `.animate`: the methods chained on it, applied when played.
 #[pyclass(frozen, from_py_object, name = "Animate", module = "fastanim")]
@@ -774,7 +820,7 @@ struct Animate {
 }
 
 impl Animate {
-    fn then(&self, op: impl Fn(Glyphs) -> Glyphs + Send + Sync + 'static) -> Self {
+    fn then(&self, op: impl Fn(VGroup) -> VGroup + Send + Sync + 'static) -> Self {
         let mut ops = self.ops.clone();
         ops.push(Arc::new(op));
         Self {
@@ -791,43 +837,27 @@ impl Animate {
     }
 }
 
-fn center(g: &Glyphs) -> Point {
-    g.bbox().map_or(Point::ORIGIN, |b| b.center())
-}
-
-fn each_glyph(g: Glyphs, f: impl Fn(VState) -> VState) -> Glyphs {
-    Glyphs(g.0.into_iter().map(f).collect())
-}
-
 #[pymethods]
 impl Animate {
     fn shift(&self, v: P) -> Self {
         let v = v.0;
-        self.then(move |g| g.transform(Affine::translate(v)))
+        self.then(move |g| g.shift(v))
     }
 
     fn move_to(&self, p: P) -> Self {
         let p = p.pt();
-        self.then(move |g| {
-            let c = center(&g);
-            g.transform(Affine::translate(p - c))
-        })
+        self.then(move |g| g.move_to(p))
     }
 
     fn scale(&self, k: f64) -> Self {
-        self.then(move |g| {
-            let c = center(&g);
-            g.transform(Affine::scale_about(k, c))
-        })
+        self.then(move |g| g.scale(k))
     }
 
     fn rotate(&self, angle: f64) -> Self {
-        self.then(move |g| {
-            let c = center(&g);
-            g.transform(Affine::rotate_about(angle, c))
-        })
+        self.then(move |g| g.rotate(angle))
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn to_edge(&self, d: P) -> Self {
         let d = d.0;
         self.then(move |g| g.to_edge(d))
@@ -853,18 +883,37 @@ impl Animate {
     #[pyo3(signature = (color, opacity = None))]
     fn fill(&self, color: C, opacity: Option<f32>) -> Self {
         let c = with_opacity(color, opacity);
-        self.then(move |g| each_glyph(g, |m| m.fill(c)))
+        self.then(move |g| g.fill(c))
+    }
+
+    fn fill_opacity(&self, opacity: f32) -> Self {
+        self.then(move |g| g.fill_opacity(opacity))
     }
 
     #[pyo3(signature = (color, width = None))]
     fn stroke(&self, color: C, width: Option<f64>) -> Self {
         let c = color.0;
         self.then(move |g| {
-            each_glyph(g, |m| {
+            g.map_shapes(&|m| {
                 let w = width.unwrap_or(m.stroke.width);
                 m.stroke(c, w)
             })
         })
+    }
+
+    fn stroke_opacity(&self, opacity: f32) -> Self {
+        self.then(move |g| g.stroke_opacity(opacity))
+    }
+
+    /// Sets the fill and outline color, keeping their opacities.
+    fn color(&self, color: C) -> Self {
+        let c = color.0;
+        self.then(move |g| g.color(c))
+    }
+
+    /// Sets the overall opacity, which scales fill, outline and image alike.
+    fn opacity(&self, opacity: f32) -> Self {
+        self.then(move |g| g.opacity(opacity))
     }
 }
 
@@ -1772,6 +1821,26 @@ fn apply_function(m: PyMob, f: Py<PyAny>) -> PyAnim {
     }))
 }
 
+/// Morphs `m` to `f` of its state when played, path and style together: `f` takes and returns
+/// a `Shape` for a shape, and a `Group` of its shapes for a text or group. `m.animate` is the
+/// chained form.
+#[pyfunction]
+fn animate(m: PyMob, f: Py<PyAny>) -> PyAnim {
+    let shape = matches!(m.0, Mob::Shape(_));
+    PyAnim(fastanim_script::animate(m.0, move |g| {
+        attach(|py| {
+            if shape {
+                let s = Shape(g.shapes().pop().expect("one shape"));
+                let r = f.call1(py, (s,)).map_err(|e| closure_err(py, e))?;
+                let s = returned::<Shape>(r.bind(py), "a shape")?;
+                return Ok(VGroup(vec![Item::Shape(s.0)]));
+            }
+            let r = f.call1(py, (PyGroup(g),)).map_err(|e| closure_err(py, e))?;
+            returned::<PyGroup>(r.bind(py), "a group").map(|g| g.0)
+        })
+    }))
+}
+
 /// Sets shape `m` to `f(start, alpha)` while playing.
 #[pyfunction]
 fn update(m: PyMob, f: Py<PyAny>) -> PyAnim {
@@ -1990,6 +2059,7 @@ pub fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         flash,
         transform,
         replacement_transform,
+        animate,
         apply_function,
         update,
         transform_diff,

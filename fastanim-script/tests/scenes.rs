@@ -263,6 +263,62 @@ fn groups_nest_arrange_and_animate() {
 }
 
 #[test]
+fn animate_starts_from_the_state_when_played() {
+    // A port of manim's MovingAround: ends orange, a third of the size, left of center.
+    let tl = script("moving_around");
+    let sq = |t: f32| tl.eval(t)[&fastanim_core::MobjectId(0)].clone();
+    assert_eq!(
+        sq(1.5).fill,
+        <fastanim_core::Color as fastanim_core::Interpolate>::lerp(
+            &fastanim_core::color::BLUE,
+            &fastanim_core::color::ORANGE,
+            0.5,
+        )
+    );
+    let end = sq(tl.duration());
+    assert_eq!(end.fill, fastanim_core::color::ORANGE);
+    assert!((end.path.center().x + 1.0).abs() < 1e-9);
+    assert!(
+        end.path.bbox().unwrap().width() < 0.9,
+        "scaled, then rotated"
+    );
+
+    // In a sequence each step plans from the last; groups move as one.
+    let src = r#"
+        let c = scene.add(circle(0.5));
+        let g = scene.add(group([square(1.0), text("a").shift(RIGHT * 2.0)]));
+        scene.play(sequence([
+            animate(c, |s| s.shift(RIGHT)),
+            animate(c, |s| s.shift(RIGHT).opacity(0.5)),
+        ]));
+        if scene.get(c).center().x != 2.0 { throw "second step from the first"; }
+        scene.play(animate(g, |s| s.scale(0.5).fill(RED).to_edge(LEFT)));
+    "#;
+    let tl = fastanim_script::bake(src).unwrap();
+    let end = tl.eval(tl.duration());
+    assert_eq!(end[&fastanim_core::MobjectId(0)].opacity, 0.5);
+    // The square and the glyph, filled and moved as one.
+    assert!(
+        end.range(fastanim_core::MobjectId(1)..)
+            .all(|(_, m)| m.fill == fastanim_core::color::RED)
+    );
+    let left = end
+        .range(fastanim_core::MobjectId(1)..)
+        .map(|(_, m)| m.path.bbox().unwrap().x0);
+    assert!(
+        (left.fold(f64::MAX, f64::min) + fastanim_core::FRAME_WIDTH / 2.0
+            - fastanim_core::EDGE_BUFF)
+            .abs()
+            < 1e-9
+    );
+
+    let e = err("let c = scene.add(circle(1.0));\nscene.play(animate(c, |s| 1));");
+    assert!(e.message.contains("not a shape"), "{e}");
+    let e = err("let g = scene.add(group([circle(1.0)]));\nscene.play(animate(g, |s| group([])));");
+    assert!(e.message.contains("keep every shape"), "{e}");
+}
+
+#[test]
 fn events_are_labelled() {
     let src = r#"
         let t = scene.add(text("hi"));

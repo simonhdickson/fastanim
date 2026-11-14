@@ -529,6 +529,8 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("dashed_line", |a: Vec2, b: Vec2, dash_length: f64| {
             VState::dashed_line(a.to_point(), b.to_point(), dash_length, 0.5)
         })
+        .register_fn("color", |m: VState, c: Color| m.color(c))
+        .register_fn("opacity", |m: VState, o: f64| m.opacity(o as f32))
         .register_fn("z_index", |m: VState, z: i64| m.z_index(z as i32))
         .register_fn("rotate", |m: VState, a: f64| m.rotate(a));
     positional!(e, VState);
@@ -602,6 +604,17 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
         .register_fn("set_color_by_gradient", |g: VGroup, stops: Array| {
             Ok(g.set_color_by_gradient(&colors(stops)?)) as Res<_>
         })
+        .register_fn("fill", |g: VGroup, c: Color| g.fill(c))
+        .register_fn("fill", |g: VGroup, c: Color, opacity: f64| {
+            g.fill(c.with_alpha(opacity as f32))
+        })
+        .register_fn("fill_opacity", |g: VGroup, o: f64| g.fill_opacity(o as f32))
+        .register_fn("stroke", VGroup::stroke)
+        .register_fn("stroke_opacity", |g: VGroup, o: f64| {
+            g.stroke_opacity(o as f32)
+        })
+        .register_fn("color", VGroup::color)
+        .register_fn("opacity", |g: VGroup, o: f64| g.opacity(o as f32))
         .register_fn("len", |g: &mut VGroup| g.0.len() as i64);
     positional!(e, VGroup);
 
@@ -840,6 +853,22 @@ fn engine(dir: PathBuf) -> (Engine, Slot) {
                 let rt = rt(&slot);
                 crate::update(m, move |s, a| {
                     rt.call(&f, "a shape", (s.clone(), f64::from(a)))
+                })
+            }
+        })
+        .register_fn("animate", {
+            let slot = slot.clone();
+            move |m: Mob, f: FnPtr| {
+                let rt = rt(&slot);
+                // A shape's closure takes and returns a shape; anything else's, a group.
+                let shape = matches!(m, Mob::Shape(_));
+                crate::animate(m, move |g| {
+                    if !shape {
+                        return rt.call(&f, "a group", (g,));
+                    }
+                    let s = g.shapes().pop().expect("one shape");
+                    let s: VState = rt.call(&f, "a shape", (s,))?;
+                    Ok(VGroup(vec![Item::Shape(s)]))
                 })
             }
         })

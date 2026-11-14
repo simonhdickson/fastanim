@@ -170,6 +170,68 @@ impl VGroup {
         self.transform(Affine::rotate_about(angle, c))
     }
 
+    /// Every shape and glyph in it, nested groups included, first to last.
+    pub fn shapes(&self) -> Vec<VState> {
+        fn walk(items: &[Item], out: &mut Vec<VState>) {
+            for i in items {
+                match i {
+                    Item::Shape(m) => out.push(m.clone()),
+                    Item::Text(t) => out.extend(t.glyphs.iter().cloned()),
+                    Item::Group(g) => walk(&g.0, out),
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.0, &mut out);
+        out
+    }
+
+    /// `f` applied to every shape and glyph in it, nested groups included.
+    pub fn map_shapes(self, f: &dyn Fn(VState) -> VState) -> Self {
+        Self(
+            (self.0.into_iter())
+                .map(|i| match i {
+                    Item::Shape(m) => Item::Shape(f(m)),
+                    Item::Text(mut t) => {
+                        t.glyphs = t.glyphs.into_iter().map(f).collect();
+                        Item::Text(t)
+                    }
+                    Item::Group(g) => Item::Group(g.map_shapes(f)),
+                })
+                .collect(),
+        )
+    }
+
+    /// Sets every shape's fill color.
+    pub fn fill(self, c: fastanim_core::Color) -> Self {
+        self.map_shapes(&|m| m.fill(c))
+    }
+
+    /// Sets every shape's fill opacity.
+    pub fn fill_opacity(self, o: f32) -> Self {
+        self.map_shapes(&|m| m.fill_opacity(o))
+    }
+
+    /// Sets every shape's outline color and width.
+    pub fn stroke(self, c: fastanim_core::Color, width: f64) -> Self {
+        self.map_shapes(&|m| m.stroke(c, width))
+    }
+
+    /// Sets every shape's outline opacity.
+    pub fn stroke_opacity(self, o: f32) -> Self {
+        self.map_shapes(&|m| m.stroke_opacity(o))
+    }
+
+    /// Sets every shape's fill and outline color, keeping their opacities.
+    pub fn color(self, c: fastanim_core::Color) -> Self {
+        self.map_shapes(&|m| m.color(c))
+    }
+
+    /// Sets every shape's overall opacity.
+    pub fn opacity(self, o: f32) -> Self {
+        self.map_shapes(&|m| m.opacity(o))
+    }
+
     /// Lays the items out in a row in direction `dir`, `buff` apart; see [`arrange`].
     pub fn arrange(self, dir: Vec2, buff: f64) -> Self {
         Self(arrange(self.0, dir, buff))
@@ -639,37 +701,31 @@ pub fn transform_diff(m: Mob, to: TextMobject, style: DiffStyle, list: bool) -> 
     })
 }
 
-/// The glyphs of a mobject (one, for a shape), positioned as a whole.
-#[derive(Clone)]
-pub struct Glyphs(pub Vec<VState>);
-
-impl Position for Glyphs {
-    fn bbox(&self) -> Option<Rect> {
-        (self.0.iter().filter_map(|g| g.path.bbox())).reduce(|a, b| a.union(b))
-    }
-
-    fn transform(self, a: Affine) -> Self {
-        Self(self.0.into_iter().map(|g| g.transform(a)).collect())
-    }
-}
-
-/// Morphs `m` from its state when played to `f` of that state: a `transform` with the target
-/// computed at plan time (Python's `.animate`). `f` must keep the number of glyphs.
+/// Morphs `m` from its state when played to `f` of that state, path and style together:
+/// manim's `.animate`, a `transform` whose target is computed when the animation is planned,
+/// so in a `sequence` it starts where the previous step left `m`. `f` gets a group of `m`'s
+/// shapes (one per shape or glyph) and must return as many. A failing `f` leaves `m` as it was.
 pub fn animate(
     m: Mob,
-    f: impl Fn(Glyphs) -> Result<Glyphs, String> + Send + Sync + 'static,
+    f: impl Fn(VGroup) -> Result<VGroup, String> + Send + Sync + 'static,
 ) -> Anim {
+    let f = Arc::new(f);
     Anim::new(move |cx| {
         let ids = cx.ids(&m)?;
-        let state = cx.scene.state();
-        let to = f(Glyphs(ids.iter().map(|id| state[id].clone()).collect()))?.0;
-        if to.len() != ids.len() {
-            return Err("`.animate` must keep every glyph".into());
-        }
-        Ok(Box::new(Parallel(
-            (ids.into_iter().zip(to))
-                .map(|(id, t)| Box::new(fastanim_core::transform(id, t)) as Box<dyn Animation>)
-                .collect(),
+        let (err, f, n) = (cx.err.clone(), f.clone(), ids.len());
+        Ok(Box::new(fastanim_core::animate_group(
+            &ids,
+            move |starts| {
+                let g = VGroup(starts.iter().cloned().map(Item::Shape).collect());
+                let to = f(g).map(|g| g.shapes()).and_then(|to| match to.len() {
+                    k if k == n => Ok(to),
+                    k => Err(format!("`animate` must keep every shape: got {k} for {n}")),
+                });
+                to.unwrap_or_else(|e| {
+                    record(&err, e);
+                    starts
+                })
+            },
         )))
     })
 }

@@ -35,19 +35,38 @@ it is gone.
 | `scale(m, k)` | Scale by `k` about the center |
 | `rotate(m, angle)` | Rotate by `angle` radians about the center |
 
-`m.animate` chains the positioning methods and `.fill` and `.stroke` into one animation, as in
-manim:
+## Animating to a new state
+
+`animate(m, f)` morphs `m` from its state when played to `f` of that state, moving and
+restyling it together (manim's `.animate`, `MoveToTarget` and animated `become`). For a shape,
+`f` takes and returns a shape; for a text or group, a group of its shapes, which moves as a
+whole. Since the target comes from the state when the animation starts, steps in a `sequence`
+each pick up where the last one left off.
+
+```python
+sq = s.add(square(2).fill(BLUE))
+s.play(animate(sq, lambda m: m.shift(LEFT).fill(ORANGE)))
+s.play(sequence(animate(sq, lambda m: m.scale(0.3)), animate(sq, lambda m: m.rotate(0.4))))
+```
+
+In Python, `m.animate` is the chained form, as in manim. It has the positioning methods
+(`shift`, `move_to`, `scale`, `rotate`, `to_edge`, `next_to`, `align_to`) and the style
+methods (`fill`, `stroke`, `fill_opacity`, `stroke_opacity`, `color`, `opacity`):
 
 ```python
 s.play(eq.animate.shift(UP).scale(0.8))
 s.play(dots.animate.next_to(s.get(box), DOWN).fill(RED))
 ```
 
+In Rhai, pass a closure: `scene.play(animate(sq, |s| s.shift(LEFT).fill(ORANGE)));`.
+Rotations morph point by point, as in manim, so a large angle shrinks the shape on the way;
+use `rotate(m, angle)` to turn it rigidly.
+
 ## Changing shape
 
 | Animation | Effect |
 | --- | --- |
-| `transform(m, shape)` | Morph shape `m` into `shape` |
+| `transform(m, shape)` | Morph shape `m` into `shape` (or `animate` it, above) |
 | `replacement_transform(m, other)` | Morph shape `m` into mobject `other`, which takes its place |
 | `apply_function(m, f)` | Move every point `p` of `m` to `f(p)` |
 | `update(m, f)` | Custom: `f(start, alpha)` returns `m`'s shape at progress `alpha` (0–1) |

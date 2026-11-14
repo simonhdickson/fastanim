@@ -411,6 +411,11 @@ impl VState {
         Self::line(a, b).dashed(n as usize, ratio)
     }
 
+    /// Sets the overall opacity multiplier, which scales fill, outline and image alike.
+    pub fn opacity(self, opacity: f32) -> Self {
+        Self { opacity, ..self }
+    }
+
     /// Sets the draw order.
     pub fn z_index(self, z_index: i32) -> Self {
         Self { z_index, ..self }

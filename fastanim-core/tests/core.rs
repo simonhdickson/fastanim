@@ -860,3 +860,45 @@ fn boolean_ops_cover_the_right_region() {
     let e = VState::ellipse(4.0, 2.0).path.bbox().unwrap();
     assert!((e.width() - 4.0).abs() < 1e-9 && (e.height() - 2.0).abs() < 1e-9);
 }
+
+#[test]
+fn animate_targets_the_state_when_played() {
+    let mut s = Scene::new();
+    let a = s.add(VState::square(1.0).fill(BLUE));
+    let b = s.add(VState::square(1.0).shift(RIGHT * 2.0));
+    // Planned in turn, so the second shift starts where the first ended.
+    s.play(Sequence(vec![
+        Box::new(animate(a, |m| m.shift(RIGHT))),
+        Box::new(animate(a, |m| m.shift(RIGHT).fill(RED).scale(2.0)).rate(RateFn::Linear)),
+    ]));
+    // Both move about their joint center, as one.
+    s.play(animate_group(&[a, b], |ms| {
+        let c = Point::new(2.5, 0.0);
+        let k = kurbo::Affine::scale_about(0.5, c);
+        ms.into_iter().map(|m| m.transform(k)).collect()
+    }));
+    let tl = s.bake();
+    let at = |t: f32| tl.eval(t);
+    assert!((at(1.0)[&a].path.center() - Point::new(1.0, 0.0)).hypot() < 1e-9);
+    let mid = &at(1.5)[&a];
+    assert!((mid.path.center() - Point::new(1.5, 0.0)).hypot() < 1e-9);
+    assert_eq!(mid.fill, Color::lerp(&BLUE, &RED, 0.5), "style blends too");
+    let end = &at(2.0)[&a];
+    assert_eq!(end.fill, RED);
+    assert!((end.path.bbox().unwrap().width() - 2.0).abs() < 1e-9);
+    let last = at(3.0);
+    assert!((last[&a].path.center() - Point::new(2.25, 0.0)).hypot() < 1e-9);
+    assert!((last[&b].path.center() - Point::new(2.25, 0.0)).hypot() < 1e-9);
+}
+
+#[test]
+fn animate_with_no_run_time_is_an_instant_become() {
+    let mut s = Scene::new();
+    let a = s.add(VState::square(1.0));
+    s.play(animate(a, |_| VState::circle(2.0).fill(RED)).run_time(0.0));
+    s.play(shift(a, RIGHT));
+    let tl = s.bake();
+    assert_eq!(tl.duration(), 1.0);
+    assert_eq!(tl.eval(0.0)[&a].fill, RED);
+    assert!((tl.eval(0.0)[&a].path.bbox().unwrap().width() - 4.0).abs() < 1e-9);
+}
