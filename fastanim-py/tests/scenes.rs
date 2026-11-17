@@ -120,6 +120,11 @@ fn boolean_operations_matches_rhai() {
 }
 
 #[test]
+fn moving_around_matches_rhai() {
+    assert_same(&rhai("moving_around"), &script("moving_around"));
+}
+
+#[test]
 fn styles_matches_rhai() {
     assert_same(&rhai("styles"), &script("styles"));
 }
@@ -334,6 +339,9 @@ def s(s):
     c = s.add(circle(1, stroke="#ffcc00", fill=(1, 0, 0, 0.5)))
     s.play(c.animate.move_to((2, 0)), run_time=2)
     assert s.get(c).move_to(ORIGIN) is not None
+    s.play(sequence(c.animate.shift(RIGHT).opacity(0.5), animate(c, lambda m: m.color(RED))))
+    assert s.get(c).center().x == 3, "each step plans from the last"
+    s.play(animate(eq, lambda g: g.fill(RED).stroke_opacity(0)))
     s.play(lagged_start(fade_out(c), fade_out(eq), lag_ratio=0.2))
     s.marker("end")
 "##;

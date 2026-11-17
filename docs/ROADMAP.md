@@ -24,7 +24,7 @@ that are pure in `t`, diff-driven transforms, and the same API in Rust, Rhai and
   `.width()` and `.height()`.
 - **Animations:** creation/removal, fades (optionally shifting or scaling, as manim's
   `FadeIn(m, shift=, scale=)`), `transform`, `replacement_transform`,
-  `transform_diff`, grow/shrink, `shift`/`rotate`/`scale`/`move_to`, `apply_function`,
+  `transform_diff`, `animate` (to a target computed from the start state), grow/shrink, `shift`/`rotate`/`scale`/`move_to`, `apply_function`,
   `indicate`, `wiggle`, `circumscribe`, `flash`, `update`, `parallel`, `sequence`,
   `lagged_start`, easing.
 - **Updaters:** `scene.always(m, |state, t| ...)`. These are pure in `t`; there is no `dt`.
@@ -50,12 +50,12 @@ The number after each example is the roadmap item it waits on.
 | SinAndCosFunctionPlot | ✅ `scenes/sin_and_cos.rhai` | `get_graph_label` (9) would tidy it |
 | SineCurveUnitCircle | ✅ `scenes/sine_curve.rhai` | `always_redraw` (5) would tidy it |
 | SquareToCircle | ✅ `scenes/square_to_circle.rhai` | |
-| MovingAround | ⬜ | `.animate` fill/scale/rotate (4) |
+| MovingAround | ✅ `scenes/moving_around.rhai` | |
 | ManimCELogo | ⬜ | `triangle` (7) |
 | BraceAnnotation | ⬜ | `brace`, `brace_between_points`, brace labels (8) |
 | VectorArrow | ⬜ | `arrow` (6), `number_plane` (9) |
 | GradientImageFromArray | ✅ `scenes/gradient_image.rhai` | `surrounding_rectangle` (8) would tidy it |
-| BooleanOperations | ✅ `scenes/boolean_operations.rhai` | `animate` (4) would replace its `transform`s to a target |
+| BooleanOperations | ✅ `scenes/boolean_operations.rhai` | |
 | PointMovingOnShapes | ⬜ | `move_along_path`, rotate about a point (12) |
 | MovingAngle | ⬜ | value trackers, `always_redraw` (5), `angle` (7) |
 | MovingDots | ⬜ | value trackers (5), groups (1) |
@@ -107,10 +107,14 @@ These items unblock the most examples, and many later items build on them.
      works.
    - Line caps and joins: `line_cap`, `line_join`.
    - Unblocks: SquareToCircle, and the style parts of ManimCELogo and GraphAreaPlot.
-4. **Animate to a target state.** manim's `.animate`: an animation that moves a mobject to any
-   new state, interpolating geometry *and* style together. This is `transform` with style
-   interpolation, plus helpers in scripts: `animate(m, |s| s.fill(RED).scale(2.0))`.
-   It covers `generate_target`/`MoveToTarget` and `become`.
+4. ✅ **Animate to a target state.** manim's `.animate`: `animate(m, |s| s.fill(RED).scale(2.0))`
+   morphs `m` to `f` of its state, geometry and style together (`fastanim_core::Animate`,
+   `animate`/`animate_group`). The target is computed at plan time, so steps in a `sequence`
+   start where the last left off. A text or group arrives as a group of its shapes, which
+   gained `fill`, `stroke`, `color`, `opacity` and the opacity setters. Python also keeps the
+   chained `m.animate.shift(UP).fill(RED)`. Covers `generate_target`/`MoveToTarget` and
+   animated `become`; an instant `become` is `animate(...).run_time(0.0)`.
+   Unblocked MovingAround.
 5. **Value trackers and `always_redraw`.**
    - `tracker(0.0)` is a scalar driven by `play(set_value(tr, 5.0))`.
    - Updaters and redraw closures read the scalar as a pure function of `t`, keeping to

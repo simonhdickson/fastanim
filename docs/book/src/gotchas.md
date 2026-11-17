@@ -18,7 +18,7 @@ glyphs; change them with `transform_diff`.
 
 ## Closures run later
 
-Functions passed to `s.always`, `update`, `apply_function`, `function_graph` and `plot` are
+Functions passed to `s.always`, `animate`, `update`, `apply_function`, `function_graph` and `plot` are
 called during baking, not where they are written. They cannot use the scene; see
 [updaters](updaters.md).
 

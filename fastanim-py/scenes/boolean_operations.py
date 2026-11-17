@@ -17,25 +17,26 @@ def boolean_operations(s: Scene) -> None:
     # The ellipses where the group put them.
     e1, e2 = s.get(g[2]), s.get(g[3])
 
-    i0 = intersection(e1, e2).fill(GREEN, 0.5).stroke(GREEN, 0.04)
-    i = i0.scale(0.25).move_to(RIGHT * 5 + UP * 2.5)
-    s.play(transform(s.add(i0), i))
+    # Each result appears over the ellipses, then `.animate` shrinks it into its corner.
+    i = s.add(intersection(e1, e2).fill(GREEN, 0.5).stroke(GREEN, 0.04))
+    s.play(i.animate.scale(0.25).move_to(RIGHT * 5 + UP * 2.5))
+    i = s.get(i)
     s.play(fade_in(s.add(text("Intersection").scale(SMALL).next_to(i, UP))))
 
-    u0 = union(e1, e2).fill(ORANGE, 0.5).stroke(ORANGE, 0.04)
     union_text = text("Union").scale(SMALL)
-    u = u0.scale(0.3).next_to(i, DOWN, union_text.height * 3)
-    s.play(transform(s.add(u0), u))
+    u = s.add(union(e1, e2).fill(ORANGE, 0.5).stroke(ORANGE, 0.04))
+    s.play(u.animate.scale(0.3).next_to(i, DOWN, union_text.height * 3))
+    u = s.get(u)
     s.play(fade_in(s.add(union_text.next_to(u, UP))))
 
-    x0 = exclusion(e1, e2).fill(YELLOW, 0.5).stroke(YELLOW, 0.04)
     exclusion_text = text("Exclusion").scale(SMALL)
-    x = x0.scale(0.3).next_to(u, DOWN, exclusion_text.height * 3.5)
-    s.play(transform(s.add(x0), x))
+    x = s.add(exclusion(e1, e2).fill(YELLOW, 0.5).stroke(YELLOW, 0.04))
+    s.play(x.animate.scale(0.3).next_to(u, DOWN, exclusion_text.height * 3.5))
+    x = s.get(x)
     s.play(fade_in(s.add(exclusion_text.next_to(x, UP))))
 
-    d0 = difference(e1, e2).fill(PINK, 0.5).stroke(PINK, 0.04)
     difference_text = text("Difference").scale(SMALL)
-    d = d0.scale(0.3).next_to(u, LEFT, difference_text.height * 3.5)
-    s.play(transform(s.add(d0), d))
+    d = s.add(difference(e1, e2).fill(PINK, 0.5).stroke(PINK, 0.04))
+    s.play(d.animate.scale(0.3).next_to(u, LEFT, difference_text.height * 3.5))
+    d = s.get(d)
     s.play(fade_in(s.add(difference_text.next_to(d, UP))))

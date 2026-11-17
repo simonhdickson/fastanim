@@ -8,6 +8,7 @@ an `(x, y)` tuple works too, and anywhere a `Color` is, a `"#rrggbb"` string.
 ## Functions
 
 ```text
+animate(m, f)
 apply_function(m, f)
 arc(radius, start, sweep, *, stroke=None, stroke_width=None, fill=None, fill_opacity=None)
 audio(path)
@@ -81,13 +82,17 @@ write(m)
 ```text
 Animate
     .align_to(other, direction)
+    .color(color)
     .fill(color, opacity=None)
+    .fill_opacity(opacity)
     .move_to(p)
     .next_to(other, direction, buff=DEFAULT_BUFF)
+    .opacity(opacity)
     .rotate(angle)
     .scale(k)
     .shift(v)
     .stroke(color, width=None)
+    .stroke_opacity(opacity)
     .to_edge(d)
 Animation
     .rate(r)
@@ -120,15 +125,21 @@ Group
     .align_to(other, direction)
     .arrange(direction, buff=DEFAULT_BUFF)
     .center()
+    .color(color)
+    .fill(color, opacity=None)
+    .fill_opacity(opacity)
     .height
     .move_to(p)
     .next_to(other, direction, buff=DEFAULT_BUFF)
+    .opacity(opacity)
     .rotate(angle)
     .scale(k)
     .scale_to_fit_height(height)
     .scale_to_fit_width(width)
     .set_color_by_gradient(colors)
     .shift(v)
+    .stroke(color, width=None)
+    .stroke_opacity(opacity)
     .to_edge(d)
     .width
 Lottie
@@ -175,6 +186,7 @@ SceneFn
 Shape
     .align_to(other, direction)
     .center()
+    .color(color)
     .dashed(dashes=15, ratio=0.5)
     .fill(color, opacity=None)
     .fill_gradient(colors, direction=None)
@@ -184,6 +196,7 @@ Shape
     .line_join(join)
     .move_to(p)
     .next_to(other, direction, buff=DEFAULT_BUFF)
+    .opacity(opacity)
     .pixelated()
     .rotate(angle)
     .scale(k)

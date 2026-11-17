@@ -759,6 +759,66 @@ impl Animation for Transform {
     }
 }
 
+type AnimateFn = Box<dyn Fn(Vec<VState>) -> Vec<VState> + Send + Sync>;
+
+/// Morphs mobjects from their state when played to `f` of that state, path and style
+/// together, manim's `.animate`: a [`transform`] whose target is computed at plan time, so it
+/// starts from wherever earlier animations (in a [`Sequence`] too) left them. Covers manim's
+/// `generate_target`/`MoveToTarget` and animated `become`. See [`animate`] and
+/// [`animate_group`].
+pub struct Animate {
+    ids: Vec<MobjectId>,
+    f: AnimateFn,
+    morphs: Vec<Transform>,
+}
+
+/// Morphs mobject `id` to `f` of its state when played, e.g.
+/// `animate(id, |s| s.fill(RED).scale(2.0))`.
+pub fn animate(id: MobjectId, f: impl Fn(VState) -> VState + Send + Sync + 'static) -> Animate {
+    animate_group(&[id], move |mut s| {
+        let m = s.pop().expect("one state");
+        vec![f(m)]
+    })
+}
+
+/// Morphs mobjects `ids` together to `f` of their states when played (in `ids` order), so `f`
+/// can move them as a whole. `f` must return one state per id; fewer or more panics when played.
+pub fn animate_group(
+    ids: &[MobjectId],
+    f: impl Fn(Vec<VState>) -> Vec<VState> + Send + Sync + 'static,
+) -> Animate {
+    Animate {
+        ids: ids.to_vec(),
+        f: Box::new(f),
+        morphs: Vec::new(),
+    }
+}
+
+impl Animation for Animate {
+    fn plan(&mut self, state: &SceneState) {
+        let starts = self.ids.iter().map(|&id| get(state, id).clone()).collect();
+        let targets = (self.f)(starts);
+        assert_eq!(
+            targets.len(),
+            self.ids.len(),
+            "`animate` must return one state per mobject"
+        );
+        self.morphs = (self.ids.iter().zip(targets))
+            .map(|(&id, t)| {
+                let mut m = transform(id, t);
+                m.plan(state);
+                m
+            })
+            .collect();
+    }
+    fn sample(&self, alpha: f32, state: &mut SceneState) {
+        self.morphs.iter().for_each(|m| m.sample(alpha, state));
+    }
+    fn label(&self) -> Cow<'static, str> {
+        "Animate".into()
+    }
+}
+
 /// Morphs one mobject into another already in the scene, then swaps them, manim's
 /// `ReplacementTransform`: `target` is hidden until the end, when it takes over and `id` is
 /// removed. See [`replacement_transform`].
